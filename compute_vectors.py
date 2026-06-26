@@ -13,6 +13,18 @@ planet_to_horizon_id: dict[str, int] = {
     "Pluto": 999,
 }
 
+fix_code: dict[str, str] = {
+    "Mercury": "10, BLUE",
+    "Venus": "10, YELLOW",
+    "Earth": "10, BLUE",
+    "Mars": "10, RED",
+    "Jupiter": "10, ORANGE",
+    "Saturn": "10, YELLOW",
+    "Uranus": "10, BLUE",
+    "Neptune": "10, BLUE",
+    "Pluto": "10, BROWN",
+}
+
 planet_to_code: dict[str, str] = {planet: "" for planet in planet_to_horizon_id.keys()}
 
 BASE_COORDINATE_REGEX: str = " ?= ?((\\+|-)?\\d\\.(\\d)+(E(\\+|-)?(\\d)+)?)"
@@ -54,14 +66,15 @@ for planet_name, horizon_id in planet_to_horizon_id.items():
     vz = convert_num(
         re.search("VZ" + BASE_COORDINATE_REGEX, coordinate_part).group(1), 3
     )
-    print(
-        re.search(MASS_PHYSICAL_REGEX, physical_part).group(1)
-        + re.search(MASS_PHYSICAL_REGEX, physical_part).group(2)
+    mass = convert_num(
+        re.search(MASS_PHYSICAL_REGEX, physical_part).group(2)
+        + "E+"
+        + re.search(MASS_PHYSICAL_REGEX, physical_part).group(1),
+        0,
     )
-    mass = ""
 
     planet_to_code[planet_name] = (
-        f"CelestialBody {planet_name.lower()} = {{{{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {mass}}};"
+        f"CelestialBody {planet_name.lower()} = {{{{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {mass}, {fix_code[planet_name]}}};"
     )
 
 for planet_name, code_line in planet_to_code.items():
