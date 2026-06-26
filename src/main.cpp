@@ -25,7 +25,7 @@ unsigned long long steps_simulated = 0;
 constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
 constexpr int WINDOW_HEIGHT = 900;
 constexpr int WINDOW_WIDTH = 900;
-constexpr int MAX_ORBIT_POINTS = 100'00;
+constexpr int MAX_ORBIT_POINTS = 10'000;
 constexpr int ORBIT_SAMPLE_EVERY_STEPS = 3000; // TODO: Defines how often orbit samples are taken
 
 Font uiFont;
