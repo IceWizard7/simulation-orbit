@@ -154,8 +154,8 @@ void save_orbit_points() {
         history.push_back(celestial_bodies[i]->position);
 
         if (history.size() > MAX_ORBIT_POINTS) {
-            // Delete 1% of MAX_ORBIT_POINTS
-            for (int j = 0; j < MAX_ORBIT_POINTS / 100; j++) {
+            // Delete 10% of MAX_ORBIT_POINTS
+            for (int j = 0; j < MAX_ORBIT_POINTS / 10; j++) {
                 history.pop_front();
             }
         }
