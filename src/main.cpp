@@ -403,7 +403,7 @@ int main() {
     constexpr int margin = 1 * spacing;
 
     uiFont = LoadFontEx(
-        "../resources/JetBrainsMono-Regular.ttf",
+        "resources/JetBrainsMono-Regular.ttf",
         96,
         nullptr,
         0
