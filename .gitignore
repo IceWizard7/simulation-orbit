@@ -2,3 +2,5 @@
 .DS_Store
 Three_Body_Problem.pdf
 media/Video1.mp4
+cmake-build-debug
+cmake-build-release

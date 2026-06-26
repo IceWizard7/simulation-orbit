@@ -1,26 +1,31 @@
-#include <raylib.h>
-#include <thread>
+#include <array>
+#include <atomic>
+#include <barrier>
 #include <chrono>
+#include <cmath>
+#include <deque>
+#include <format>
 #include <functional>
 #include <mutex>
+#include <optional>
+#include <raylib.h>
 #include <stop_token>
-#include <cmath>
+#include <thread>
+#include <vector>
 
 // TODO: Parallel Execution
 // TODO: Make sure the planets never go over the UI borders
-// TODO: Orbits
-// TODO: Add second timer at the top
 
 using str = std::string;
 
 #define NUM_CELESTIAL_BODIES 7
+#define FPS 60.0
 
 constexpr double SCALING = 2e12; // 2e12 matches 10^12, look at the way we handle this in draw_ui() TODO: Not communicated cleary though, maybe calculate the string on the run?
 constexpr str SCALING_STRING = "10^12";
 constexpr double TIME_STEP = 900; // TODO: Defines step size
 constexpr str TIME_STEP_STRING = "15 mins";
 constexpr bool RENDERING_COORDINATES_RELATIVE_TO_SUN = true;
-unsigned long long steps_simulated = 0;
 
 constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
 constexpr int WINDOW_HEIGHT = 900;
@@ -137,6 +142,9 @@ CelestialBody sun   = {{0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, YELLOW};
 CelestialBody* celestial_bodies[NUM_CELESTIAL_BODIES] = {&sun, &mercury, &venus, &earth, &mars, &jupiter, &saturn};
 std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
 
+std::atomic<std::size_t> frame_number = 0;
+std::atomic<std::size_t> steps_simulated = 0;
+
 void save_orbit_points() {
     if (steps_simulated % ORBIT_SAMPLE_EVERY_STEPS != 0) return;
 
@@ -146,8 +154,8 @@ void save_orbit_points() {
         history.push_back(celestial_bodies[i]->position);
 
         if (history.size() > MAX_ORBIT_POINTS) {
-            // Delete 10% of MAX_ORBIT_POINTS
-            for (int j = 0; j < MAX_ORBIT_POINTS / 10; j++) {
+            // Delete 1% of MAX_ORBIT_POINTS
+            for (int j = 0; j < MAX_ORBIT_POINTS / 100; j++) {
                 history.pop_front();
             }
         }
@@ -177,7 +185,7 @@ void simulate_step(std::mutex& system_lock) {
         celestial_body->position += celestial_body->velocity * TIME_STEP;
     }
 
-    steps_simulated++;
+    ++steps_simulated;
     save_orbit_points();
 }
 
@@ -275,12 +283,10 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
         BLACK
     );
 
-    unsigned long long steps;
     unsigned long long orbit_points_used = 0;
 
     {
         std::lock_guard lock(system_lock);
-        steps = steps_simulated;
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
             const auto& orbit = orbit_history[i];
             orbit_points_used = orbit_points_used > orbit.size() ? orbit_points_used : orbit.size();
@@ -290,7 +296,8 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
     const str step_size_text = std::format("Step size: {}", TIME_STEP_STRING);
 
     DrawText(uiFont, step_size_text.c_str(), Vec2(margin, 10), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Years simulated: {}", static_cast<int>(static_cast<double>(steps) * TIME_STEP / (86400 * 365))).c_str(), Vec2(margin, 30), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Years simulated: {}", static_cast<int>(static_cast<double>(steps_simulated) * TIME_STEP / (86400 * 365))).c_str(), Vec2(margin, 30), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Years / second: {}", static_cast<int>(((static_cast<double>(steps_simulated) * TIME_STEP / (86400 * 365))) / (static_cast<double>(frame_number) / FPS))).c_str(), Vec2(margin, 50), 20, 1, BLACK);
     DrawText(uiFont, std::format("Maximum orbit points used: {}/{}", orbit_points_used, MAX_ORBIT_POINTS).c_str(), Vec2(static_cast<double>(margin + 250), 10), 20, 1, BLACK);
     DrawText(uiFont, std::format("Rendering relative to sun: {}", RENDERING_COORDINATES_RELATIVE_TO_SUN).c_str(), Vec2(margin + 250, 30), 20, 1, BLACK);
 }
@@ -303,7 +310,6 @@ void draw_planets(std::mutex& system_lock) {
     };
 
     PlanetSnapshot snapshots[NUM_CELESTIAL_BODIES];
-    unsigned long long steps;
 
     {
         // copy only doubles while holding lock
@@ -316,12 +322,10 @@ void draw_planets(std::mutex& system_lock) {
                 celestial_bodies[i]->color
             };
         }
-        steps = steps_simulated;
     }
 
     const Vec3 sun_position = snapshots[0].position;
 
-    // DrawCircle(WINDOW_WIDTH / 2, WINDOW_HEIGHT / 2, 20.0, YELLOW);
     for (const auto&[position, radius, color] : snapshots) {
         if (color.has_value()) {
             Vec3 relative_pos = position;
@@ -389,7 +393,7 @@ void draw_orbits(std::mutex& system_lock) {
 int main() {
     SetConfigFlags(FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Umlaufbahn Simulation");
-    SetTargetFPS(60.0);
+    SetTargetFPS(FPS);
 
     std::mutex system_lock;
 
@@ -398,10 +402,8 @@ int main() {
     constexpr int spacing = 90;
     constexpr int margin = 1 * spacing;
 
-    unsigned long long frame_number = 0;
-
     uiFont = LoadFontEx(
-        "resources/JetBrainsMono-Regular.ttf",
+        "../resources/JetBrainsMono-Regular.ttf",
         96,
         nullptr,
         0
@@ -419,7 +421,7 @@ int main() {
         draw_planets(system_lock);
 
         EndDrawing();
-        frame_number++;
+        ++frame_number;
     }
 
     cpu_thread.request_stop();
