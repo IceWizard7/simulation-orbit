@@ -4,3 +4,5 @@ Three_Body_Problem.pdf
 media/
 cmake-build-debug
 cmake-build-release
+build-web
+raylib

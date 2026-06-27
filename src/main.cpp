@@ -10,11 +10,14 @@
 #include <raylib.h>
 #include <stop_token>
 #include <thread>
+#include <utility>
 #include <vector>
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
 
 // TODO: Parallel Execution?
 // TODO: Make sure the planets never go over the UI borders?
-// TODO: Add legend at the top what is venus, earth, sun, ...
 // TODO: Not only use colors but sprites? Or more different colors? Update in python script too.
 
 using str = std::string;
@@ -64,10 +67,10 @@ str round_to_hundreds(const double x) {
 constexpr double ORIGINAL_SCALING = 2e12;
 constexpr double ORIGINAL_AXIS_SCALING = 2;
 constexpr double ZOOM_FACTOR = 1.122462048309373; // n-th root of 10 works great, because then ZOOM_FACTOR**n = 10 => perfect zoom cycle
-constexpr double TIME_STEP = 86'400; // TODO: Defines step size
-constexpr str TIME_STEP_STRING = "24 hrs";
+constexpr double TIME_STEP = 900; // TODO: Defines step size
+constexpr str TIME_STEP_STRING = "15 mins";
 constexpr int MAX_ORBIT_POINTS = 10'000;
-constexpr int ORBIT_SAMPLE_EVERY_STEPS = 30; // TODO: Defines how often orbit samples are taken
+constexpr int ORBIT_SAMPLE_EVERY_STEPS = 300; // TODO: Defines how often orbit samples are taken
 constexpr bool RENDERING_COORDINATES_RELATIVE_TO_SUN = true;
 
 constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
@@ -86,12 +89,13 @@ std::atomic<std::size_t> steps_simulated = 0;
 std::atomic<std::size_t> history_last_deleted_frame = 0;
 
 Font uiFont;
+std::mutex system_lock;
 
 class PausableTimer {
     using Clock = std::chrono::steady_clock;
 
     Clock::time_point last_start = Clock::now();
-    Clock::duration elapsed;
+    Clock::duration elapsed{};
 
 public:
     std::atomic<bool> running = true;
@@ -203,13 +207,14 @@ public:
 
 class CelestialBody {
 public:
+    str name;
     Vec3 position;
     Vec3 velocity;
     double mass;
     float draw_radius;
     std::optional<Color> color;
 
-    CelestialBody(const Vec3 &position, const Vec3 &velocity, const double mass, const float radius, const std::optional<Color>& color) : position(position), velocity(velocity), mass(mass), draw_radius(radius), color(color) {}
+    CelestialBody(str  name, const Vec3 &position, const Vec3 &velocity, const double mass, const float radius, const std::optional<Color>& color) : name(std::move(name)), position(position), velocity(velocity), mass(mass), draw_radius(radius), color(color) {}
 
     [[nodiscard]] double distance_to(const CelestialBody &body) const {
         return (position - body.position).length();
@@ -258,7 +263,7 @@ void save_orbit_points() {
     }
 }
 
-void simulate_step(std::mutex& system_lock) {
+void simulate_step() {
     std::lock_guard lock(system_lock);
 
     Vec3 accelerations[NUM_CELESTIAL_BODIES] = {};
@@ -285,10 +290,10 @@ void simulate_step(std::mutex& system_lock) {
     save_orbit_points();
 }
 
-void simulate_cpu(const std::stop_token& stop_token, std::mutex& system_lock) {
+void simulate_cpu(const std::stop_token& stop_token) {
     while (!stop_token.stop_requested()) {
         if (timer.running) {
-            simulate_step(system_lock);
+            simulate_step();
         } else {
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
         }
@@ -310,6 +315,10 @@ void DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, c
     );
 }
 
+void DrawCircle(const Vec2& pos, const float radius, const Color color) {
+    DrawCircleV(Vector2(static_cast<float>(pos.x), static_cast<float>(pos.y)), radius, color);
+}
+
 void DrawText(const Font &font, const char *text, const Vec2 &position, const float fontSize, const float spacing, const Color color) {
     DrawTextEx(font, text, Vector2(static_cast<float>(position.x), static_cast<float>(position.y)), fontSize, spacing, color);
 }
@@ -318,7 +327,7 @@ void DrawLine(const Vec2& start_pos, const Vec2& end_pos, const float thick, con
     DrawLineEx(Vector2(static_cast<float>(start_pos.x), static_cast<float>(start_pos.y)), Vector2(static_cast<float>(end_pos.x), static_cast<float>(end_pos.y)), thick, color);
 }
 
-void draw_ui(std::mutex& system_lock) {
+void draw_ui() {
     constexpr int horizontal_lines = (WINDOW_HEIGHT - 2 * WINDOW_MARGIN) / GRID_SPACING + 1;
     constexpr int vertical_lines = (WINDOW_WIDTH - 2 * WINDOW_MARGIN) / GRID_SPACING + 1;
 
@@ -429,7 +438,20 @@ void draw_ui(std::mutex& system_lock) {
     // DrawText(uiFont, std::format("Axis scaling: {}", AXIS_SCALING).c_str(), Vec2(WINDOW_MARGIN + 400, 70), 20, 1, BLACK);
 }
 
-void draw_planets(std::mutex& system_lock) {
+void draw_legend() {
+    // Legend
+    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (const auto& celestial_body = celestial_bodies[i]; celestial_body->color.has_value()) {
+            DrawCircle({WINDOW_WIDTH - WINDOW_MARGIN - 83, static_cast<double>(WINDOW_MARGIN + 22 * i + 10)}, 5, *celestial_body->color);
+            DrawText(uiFont, celestial_body->name.c_str(), Vec2(WINDOW_WIDTH - WINDOW_MARGIN - 75, WINDOW_MARGIN + 22 * i), 20, 1, BLACK);
+        }
+    }
+
+    DrawLine({WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN}, {WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN + 22 * NUM_CELESTIAL_BODIES + 10}, 2, BLACK);
+    DrawLine({WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN + 22 * NUM_CELESTIAL_BODIES + 10}, {WINDOW_WIDTH - WINDOW_MARGIN, WINDOW_MARGIN + 22 * NUM_CELESTIAL_BODIES + 10}, 2, BLACK);
+}
+
+void draw_planets() {
     struct PlanetSnapshot {
         Vec3 position;
         float radius{};
@@ -468,7 +490,7 @@ void draw_planets(std::mutex& system_lock) {
     }
 }
 
-void draw_orbits(std::mutex& system_lock) {
+void draw_orbits() {
     std::array<std::pair<std::vector<Vec3>, std::optional<Color>>, NUM_CELESTIAL_BODIES> snapshots;
 
     {
@@ -513,14 +535,57 @@ void draw_orbits(std::mutex& system_lock) {
     }
 }
 
+void UpdateDrawFrame() {
+    const float scroll = GetMouseWheelMove();
+    if (scroll > 0 || IsKeyPressed(KEY_W)) {
+        // scrolled up (=> in)
+        if (AXIS_SCALING / ZOOM_FACTOR < 4.0/3) {
+            AXIS_SCALING *= 10;
+            AXIS_SCALING /= ZOOM_FACTOR;
+            SCALING /= ZOOM_FACTOR;
+        } else {
+            AXIS_SCALING /= ZOOM_FACTOR;
+            SCALING /= ZOOM_FACTOR;
+        }
+    } else if (scroll < 0 || IsKeyPressed(KEY_S)) {
+        // scrolled down (=> out)
+        if (AXIS_SCALING * ZOOM_FACTOR > 10 * 4/3) {
+            AXIS_SCALING /= 10;
+            AXIS_SCALING *= ZOOM_FACTOR;
+            SCALING *= ZOOM_FACTOR;
+        } else {
+            AXIS_SCALING *= ZOOM_FACTOR;
+            SCALING *= ZOOM_FACTOR;
+        }
+    }
+
+    if (IsKeyPressed(KEY_R)) {
+        SCALING = ORIGINAL_SCALING;
+        AXIS_SCALING = ORIGINAL_AXIS_SCALING;
+    }
+
+    if (IsKeyPressed(KEY_SPACE)) {
+        timer.resume_or_pause();
+    }
+
+    BeginDrawing();
+    ClearBackground(WHITE);
+
+    draw_ui();
+    draw_orbits();
+    draw_planets();
+    draw_legend();
+
+    EndDrawing();
+    ++frame_number;
+}
+
 int main() {
     SetConfigFlags(FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Umlaufbahn Simulation");
     SetTargetFPS(60);
 
-    std::mutex system_lock;
-
-    std::jthread cpu_thread(simulate_cpu, std::ref(system_lock));
+    std::jthread cpu_thread(simulate_cpu);
 
     uiFont = LoadFontEx(
         "resources/JetBrainsMono-Regular.ttf",
@@ -532,49 +597,14 @@ int main() {
     GenTextureMipmaps(&uiFont.texture);
     SetTextureFilter(uiFont.texture, TEXTURE_FILTER_TRILINEAR);
 
+    #ifdef __EMSCRIPTEN__
+    emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
+    #else
     while (!WindowShouldClose()) {
-        const float scroll = GetMouseWheelMove();
-        if (scroll > 0 || IsKeyPressed(KEY_W)) {
-            // scrolled up (=> in)
-            if (AXIS_SCALING / ZOOM_FACTOR < 4.0/3) {
-                AXIS_SCALING *= 10;
-                AXIS_SCALING /= ZOOM_FACTOR;
-                SCALING /= ZOOM_FACTOR;
-            } else {
-                AXIS_SCALING /= ZOOM_FACTOR;
-                SCALING /= ZOOM_FACTOR;
-            }
-        } else if (scroll < 0 || IsKeyPressed(KEY_S)) {
-            // scrolled down (=> out)
-            if (AXIS_SCALING * ZOOM_FACTOR > 10 * 4/3) {
-                AXIS_SCALING /= 10;
-                AXIS_SCALING *= ZOOM_FACTOR;
-                SCALING *= ZOOM_FACTOR;
-            } else {
-                AXIS_SCALING *= ZOOM_FACTOR;
-                SCALING *= ZOOM_FACTOR;
-            }
-        }
-
-        if (IsKeyPressed(KEY_R)) {
-            SCALING = ORIGINAL_SCALING;
-            AXIS_SCALING = ORIGINAL_AXIS_SCALING;
-        }
-
-        if (IsKeyPressed(KEY_SPACE)) {
-            timer.resume_or_pause();
-        }
-
-        BeginDrawing();
-        ClearBackground(WHITE);
-
-        draw_ui(system_lock);
-        draw_orbits(system_lock);
-        draw_planets(system_lock);
-
-        EndDrawing();
-        ++frame_number;
+        UpdateDrawFrame();
     }
+    #endif
+
 
     timer.pause();
     cpu_thread.request_stop();
