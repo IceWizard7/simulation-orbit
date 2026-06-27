@@ -14,6 +14,8 @@
 
 // TODO: Parallel Execution?
 // TODO: Make sure the planets never go over the UI borders?
+// TODO: Add legend at the top what is venus, earth, sun, ...
+// TODO: Not only use colors but sprites? Or more different colors? Update in python script too.
 
 using str = std::string;
 
@@ -46,18 +48,18 @@ str round_to_hundreds(const double x) {
 }
 
 constexpr double SCALING = 2e12;
-constexpr double TIME_STEP = 900; // TODO: Defines step size
-constexpr str TIME_STEP_STRING = "15 mins";
+constexpr double TIME_STEP = 86'400; // TODO: Defines step size
+constexpr str TIME_STEP_STRING = "24 hrs";
 constexpr bool RENDERING_COORDINATES_RELATIVE_TO_SUN = true;
 
 constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
 constexpr int WINDOW_HEIGHT = 900;
 constexpr int WINDOW_WIDTH = 900;
 constexpr int MAX_ORBIT_POINTS = 10'000;
-constexpr int ORBIT_SAMPLE_EVERY_STEPS = 3'000; // TODO: Defines how often orbit samples are taken
+constexpr int ORBIT_SAMPLE_EVERY_STEPS = 3'0; // TODO: Defines how often orbit samples are taken
 
-constexpr int WINDOW_SPACING = 90;
-constexpr int WINDOW_MARGIN = 1 * WINDOW_SPACING;
+constexpr int GRID_SPACING = 90;
+constexpr int WINDOW_MARGIN = 1 * GRID_SPACING;
 
 Font uiFont;
 
@@ -257,14 +259,14 @@ void DrawLine(const Vec2& start_pos, const Vec2& end_pos, const float thick, con
 }
 
 void draw_ui(std::mutex& system_lock) {
-    constexpr int horizontal_lines = (WINDOW_HEIGHT - 2 * WINDOW_MARGIN) / WINDOW_SPACING + 1;
-    constexpr int vertical_lines = (WINDOW_WIDTH - 2 * WINDOW_MARGIN) / WINDOW_SPACING + 1;
+    constexpr int horizontal_lines = (WINDOW_HEIGHT - 2 * WINDOW_MARGIN) / GRID_SPACING + 1;
+    constexpr int vertical_lines = (WINDOW_WIDTH - 2 * WINDOW_MARGIN) / GRID_SPACING + 1;
 
     constexpr int AXIS_SCALING = 2;
     const str SCALING_STRING = to_power_of10(SCALING / AXIS_SCALING);
 
     // Grid, axis & labels
-    for (int x = WINDOW_MARGIN; x <= WINDOW_WIDTH - WINDOW_MARGIN; x += static_cast<int>(WINDOW_SPACING)) {
+    for (int x = WINDOW_MARGIN; x <= WINDOW_WIDTH - WINDOW_MARGIN; x += static_cast<int>(GRID_SPACING)) {
         float thick = 1.5;
         Color color = Fade(DARKGRAY, 0.35f);
         if (x == WINDOW_MARGIN || x == WINDOW_WIDTH - WINDOW_MARGIN) {
@@ -280,7 +282,7 @@ void draw_ui(std::mutex& system_lock) {
         if (x != WINDOW_WIDTH - WINDOW_MARGIN && x != WINDOW_MARGIN) {
             DrawTextCenteredEx(
                 uiFont,
-                round_to_hundreds(((static_cast<double>(x) / WINDOW_SPACING) - 0.5 - static_cast<double>(vertical_lines) / 2) / AXIS_SCALING).c_str(),
+                round_to_hundreds(((static_cast<double>(x) / GRID_SPACING) - 0.5 - static_cast<double>(vertical_lines) / 2) / AXIS_SCALING).c_str(),
                 {static_cast<double>(x), static_cast<double>(WINDOW_HEIGHT - WINDOW_MARGIN + 25)},
                 0,
                 24,
@@ -290,7 +292,7 @@ void draw_ui(std::mutex& system_lock) {
         }
     }
 
-    for (int y = WINDOW_MARGIN; y <= WINDOW_HEIGHT - WINDOW_MARGIN; y += static_cast<int>(WINDOW_SPACING)) {
+    for (int y = WINDOW_MARGIN; y <= WINDOW_HEIGHT - WINDOW_MARGIN; y += static_cast<int>(GRID_SPACING)) {
         float thick = 1.5;
         Color color = Fade(DARKGRAY, 0.35f);
         if (y == WINDOW_MARGIN || y == WINDOW_HEIGHT - WINDOW_MARGIN) {
@@ -307,7 +309,7 @@ void draw_ui(std::mutex& system_lock) {
         if (y != WINDOW_WIDTH - WINDOW_MARGIN && y != WINDOW_MARGIN) {
             DrawTextCenteredEx(
                 uiFont,
-                round_to_hundreds(((static_cast<double>(y) / WINDOW_SPACING) - 0.5 - static_cast<double>(horizontal_lines) / 2) / AXIS_SCALING).c_str(),
+                round_to_hundreds(((static_cast<double>(y) / GRID_SPACING) - 0.5 - static_cast<double>(horizontal_lines) / 2) / AXIS_SCALING).c_str(),
                 {static_cast<double>(WINDOW_MARGIN - 25), static_cast<double>(y)},
                 0,
                 24,
@@ -483,7 +485,10 @@ int main() {
 
     UnloadFont(uiFont);
     CloseWindow();
-    printf("\nTotal time passed: %.2f secs\n", rt_seconds_since_start());
+    printf("\n");
+    printf("Simulation time: %.2f years\n", (static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365)));
+    printf("Computation time: %.2f seconds\n", rt_seconds_since_start());
+    printf("Simulated years per second: %.2f\n", (static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365)) / rt_seconds_since_start());
 
     return 0;
 }
