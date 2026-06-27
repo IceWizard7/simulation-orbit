@@ -19,23 +19,33 @@ using str = std::string;
 
 #define NUM_CELESTIAL_BODIES 7
 
-std::string to_power_of10(double x) {
+str to_power_of10(const double x) {
     if (x == 0) return "0";
 
-    const int exponent = static_cast<int>(std::floor(std::log10(std::abs(x))));
+    const int exponent = static_cast<int>(std::floor(std::log10(std::fabs(x))));
     const double mantissa = x / std::pow(10.0, exponent);
-    const std::string mantissaStr =
-        std::floor(mantissa) == mantissa
-            ? std::to_string(static_cast<long long>(mantissa))
+    const str mantissaStr =
+        std::fabs(mantissa - std::round(mantissa)) < 1e-9
+            ? std::to_string(static_cast<long long>(std::round(mantissa)))
             : std::to_string(mantissa);
 
-    if (std::abs(mantissa - 1.0) < 1e-9)
-        return "10^" + std::to_string(exponent);
+    if (std::fabs(mantissa - 1.0) < 1e-9) return "10^" + std::to_string(exponent);
 
     return mantissaStr + " x 10^" + std::to_string(exponent);
 }
 
-constexpr double SCALING = 2e12; // 2e12 matches 10^12, look at the way we handle this in draw_ui() TODO: Not communicated cleary though, maybe calculate the string on the run?
+str round_to_hundreds(const double x) {
+    const int hundreds = static_cast<int>(std::round(x * 100));
+    if (hundreds % 100 == 0) {
+        return std::to_string(hundreds / 100);
+    }
+    if (hundreds % 10 == 0) {
+        return std::format("{}.{}", hundreds / 100, abs((hundreds / 10) % 10));
+    }
+    return std::format("{}.{}", hundreds / 100, abs(hundreds % 100));
+}
+
+constexpr double SCALING = 2e12;
 constexpr double TIME_STEP = 900; // TODO: Defines step size
 constexpr str TIME_STEP_STRING = "15 mins";
 constexpr bool RENDERING_COORDINATES_RELATIVE_TO_SUN = true;
@@ -45,6 +55,9 @@ constexpr int WINDOW_HEIGHT = 900;
 constexpr int WINDOW_WIDTH = 900;
 constexpr int MAX_ORBIT_POINTS = 10'000;
 constexpr int ORBIT_SAMPLE_EVERY_STEPS = 3'000; // TODO: Defines how often orbit samples are taken
+
+constexpr int WINDOW_SPACING = 90;
+constexpr int WINDOW_MARGIN = 1 * WINDOW_SPACING;
 
 Font uiFont;
 
@@ -111,8 +124,8 @@ public:
         // y in interval [0, WINDOW_HEIGHT]
 
         return {
-            static_cast<float>((x / SCALING) / 2.0 + 0.5) * WINDOW_WIDTH,
-            static_cast<float>((y / SCALING) / 2.0 + 0.5) * WINDOW_HEIGHT
+            WINDOW_MARGIN + static_cast<float>((x / SCALING) / 2.0 + 0.5) * (WINDOW_WIDTH - 2 * WINDOW_MARGIN),
+            WINDOW_MARGIN + static_cast<float>((y / SCALING) / 2.0 + 0.5) * (WINDOW_HEIGHT - 2 * WINDOW_MARGIN)
         };
     }
 };
@@ -243,32 +256,32 @@ void DrawLine(const Vec2& start_pos, const Vec2& end_pos, const float thick, con
     DrawLineEx(Vector2(static_cast<float>(start_pos.x), static_cast<float>(start_pos.y)), Vector2(static_cast<float>(end_pos.x), static_cast<float>(end_pos.y)), thick, color);
 }
 
-void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
-    const int horizontal_lines = (WINDOW_HEIGHT - 2 * margin) / spacing + 1;
-    const int vertical_lines = (WINDOW_WIDTH - 2 * margin) / spacing + 1;
+void draw_ui(std::mutex& system_lock) {
+    constexpr int horizontal_lines = (WINDOW_HEIGHT - 2 * WINDOW_MARGIN) / WINDOW_SPACING + 1;
+    constexpr int vertical_lines = (WINDOW_WIDTH - 2 * WINDOW_MARGIN) / WINDOW_SPACING + 1;
 
     constexpr int AXIS_SCALING = 2;
     const str SCALING_STRING = to_power_of10(SCALING / AXIS_SCALING);
 
     // Grid, axis & labels
-    for (int x = margin; x <= WINDOW_WIDTH - margin; x += static_cast<int>(spacing)) {
+    for (int x = WINDOW_MARGIN; x <= WINDOW_WIDTH - WINDOW_MARGIN; x += static_cast<int>(WINDOW_SPACING)) {
         float thick = 1.5;
         Color color = Fade(DARKGRAY, 0.35f);
-        if (x == margin || x == WINDOW_WIDTH - margin) {
+        if (x == WINDOW_MARGIN || x == WINDOW_WIDTH - WINDOW_MARGIN) {
             thick = 2;
             color = BLACK;
         }
         DrawLine(
-            Vec2(x, margin),
-            Vec2(x, WINDOW_HEIGHT - margin),
+            Vec2(x, WINDOW_MARGIN),
+            Vec2(x, WINDOW_HEIGHT - WINDOW_MARGIN),
             thick,
             color
         );
-        if (x != WINDOW_WIDTH - margin && x != margin) {
+        if (x != WINDOW_WIDTH - WINDOW_MARGIN && x != WINDOW_MARGIN) {
             DrawTextCenteredEx(
                 uiFont,
-                std::to_string(((x / spacing) - 1 - vertical_lines / 2) * AXIS_SCALING).c_str(),
-                {static_cast<double>(x), static_cast<double>(WINDOW_HEIGHT - margin + 15)},
+                round_to_hundreds(((static_cast<double>(x) / WINDOW_SPACING) - 0.5 - static_cast<double>(vertical_lines) / 2) / AXIS_SCALING).c_str(),
+                {static_cast<double>(x), static_cast<double>(WINDOW_HEIGHT - WINDOW_MARGIN + 25)},
                 0,
                 24,
                 1,
@@ -277,25 +290,25 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
         }
     }
 
-    for (int y = margin; y <= WINDOW_HEIGHT - margin; y += static_cast<int>(spacing)) {
+    for (int y = WINDOW_MARGIN; y <= WINDOW_HEIGHT - WINDOW_MARGIN; y += static_cast<int>(WINDOW_SPACING)) {
         float thick = 1.5;
         Color color = Fade(DARKGRAY, 0.35f);
-        if (y == margin || y == WINDOW_HEIGHT - margin) {
+        if (y == WINDOW_MARGIN || y == WINDOW_HEIGHT - WINDOW_MARGIN) {
             thick = 2;
             color = BLACK;
         }
 
         DrawLine(
-            Vec2(margin, y),
-            Vec2(WINDOW_WIDTH - margin, y),
+            Vec2(WINDOW_MARGIN, y),
+            Vec2(WINDOW_WIDTH - WINDOW_MARGIN, y),
             thick,
             color
         );
-        if (y != WINDOW_WIDTH - margin && y != margin) {
+        if (y != WINDOW_WIDTH - WINDOW_MARGIN && y != WINDOW_MARGIN) {
             DrawTextCenteredEx(
                 uiFont,
-                std::to_string(((y / spacing) - 1 - horizontal_lines / 2) * AXIS_SCALING).c_str(),
-                {static_cast<double>(margin - 15), static_cast<double>(y)},
+                round_to_hundreds(((static_cast<double>(y) / WINDOW_SPACING) - 0.5 - static_cast<double>(horizontal_lines) / 2) / AXIS_SCALING).c_str(),
+                {static_cast<double>(WINDOW_MARGIN - 25), static_cast<double>(y)},
                 0,
                 24,
                 1,
@@ -307,7 +320,7 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
     DrawTextCenteredEx(
         uiFont,
         std::format("Y Position ({} m)", SCALING_STRING).c_str(),
-        {static_cast<double>(margin) / 2, static_cast<double>(WINDOW_HEIGHT) / 2},
+        {static_cast<double>(WINDOW_MARGIN) / 2 - 15, static_cast<double>(WINDOW_HEIGHT) / 2},
         -90.0f,
         24,
         1,
@@ -317,7 +330,7 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
     DrawTextCenteredEx(
         uiFont,
         std::format("X Position ({} m)", SCALING_STRING).c_str(),
-        {static_cast<double>(WINDOW_WIDTH) / 2, WINDOW_HEIGHT - static_cast<double>(margin) / 2},
+        {static_cast<double>(WINDOW_WIDTH) / 2, WINDOW_HEIGHT - static_cast<double>(WINDOW_MARGIN) / 2 + 15},
         0,
         24,
         1,
@@ -325,11 +338,9 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
     );
 
     // Left side
-    DrawText(uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))).c_str(), Vec2(margin, 10), 20, 1, BLACK);
-    const int passed_seconds_hundreds = static_cast<int>(rt_seconds_since_start() * 100);
-    DrawText(uiFont, std::format("Computation time: {}.{} seconds", passed_seconds_hundreds / 100, passed_seconds_hundreds % 100).c_str(), Vec2(margin, 30), 20, 1, BLACK);
-    const int years_per_second_hundreds = std::ceil(((static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))) / rt_seconds_since_start() * 100);
-    DrawText(uiFont, std::format("Simulated years per second: {}.{}", years_per_second_hundreds / 100, years_per_second_hundreds % 100).c_str(), Vec2(margin, 50), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))).c_str(), Vec2(WINDOW_MARGIN, 10), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Computation time: {} seconds", round_to_hundreds(rt_seconds_since_start())).c_str(), Vec2(WINDOW_MARGIN, 30), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Simulated years per second: {}", round_to_hundreds(std::ceil(((static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))) / rt_seconds_since_start()))).c_str(), Vec2(WINDOW_MARGIN, 50), 20, 1, BLACK);
 
 
     // TODO: This is an average of the entire simulation
@@ -352,9 +363,9 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
         maximum_orbit_points_used_color = RED;
     }
 
-    DrawText(uiFont, std::format("Step size: {}", TIME_STEP_STRING).c_str(), Vec2(margin + 400, 10), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Maximum orbit points used: {}/{}", orbit_points_used, MAX_ORBIT_POINTS).c_str(), Vec2(margin + 400, 30), 20, 1, maximum_orbit_points_used_color);
-    DrawText(uiFont, std::format("Rendering relative to sun: {}", RENDERING_COORDINATES_RELATIVE_TO_SUN).c_str(), Vec2(margin + 400, 50), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Step size: {}", TIME_STEP_STRING).c_str(), Vec2(WINDOW_MARGIN + 400, 10), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Maximum orbit points used: {}/{}", orbit_points_used, MAX_ORBIT_POINTS).c_str(), Vec2(WINDOW_MARGIN + 400, 30), 20, 1, maximum_orbit_points_used_color);
+    DrawText(uiFont, std::format("Rendering relative to sun: {}", RENDERING_COORDINATES_RELATIVE_TO_SUN).c_str(), Vec2(WINDOW_MARGIN + 400, 50), 20, 1, BLACK);
 }
 
 void draw_planets(std::mutex& system_lock) {
@@ -444,11 +455,7 @@ int main() {
 
     std::mutex system_lock;
 
-    // std::jthread cpu_thread(simulate_cpu, std::ref(system_lock));
-    // TODO
-
-    constexpr int spacing = 90;
-    constexpr int margin = 1 * spacing;
+    std::jthread cpu_thread(simulate_cpu, std::ref(system_lock));
 
     uiFont = LoadFontEx(
         "resources/JetBrainsMono-Regular.ttf",
@@ -464,7 +471,7 @@ int main() {
         BeginDrawing();
         ClearBackground(WHITE);
 
-        draw_ui(spacing, margin, system_lock);
+        draw_ui(system_lock);
         draw_orbits(system_lock);
         draw_planets(system_lock);
 
@@ -472,7 +479,7 @@ int main() {
         ++frame_number;
     }
 
-    // cpu_thread.request_stop();
+    cpu_thread.request_stop();
 
     UnloadFont(uiFont);
     CloseWindow();
