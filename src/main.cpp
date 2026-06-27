@@ -37,41 +37,93 @@ str to_power_of10(const double x) {
 }
 
 str round_to_hundreds(const double x) {
-    const int hundreds = static_cast<int>(std::round(x * 100));
-    if (hundreds % 100 == 0) {
-        return std::to_string(hundreds / 100);
+    std::string result = std::format("{:.2f}", x);
+
+    if (const auto dot = result.find('.'); dot == std::string::npos) {
+        return result;
     }
-    if (hundreds % 10 == 0) {
-        return std::format("{}.{}", hundreds / 100, abs((hundreds / 10) % 10));
+
+    // Pop extra zeros at the end (numbers without a dot don't reach this point)
+    while (!result.empty() && result.back() == '0') {
+        result.pop_back();
     }
-    return std::format("{}.{}", hundreds / 100, abs(hundreds % 100));
+
+    // Pop extra dots at the end
+    if (!result.empty() && result.back() == '.') {
+        result.pop_back();
+    }
+
+    // Avoid displaying "-0"
+    if (result == "-0") {
+        return "0";
+    }
+
+    return result;
 }
 
-constexpr double SCALING = 2e12;
+constexpr double ORIGINAL_SCALING = 2e12;
+constexpr double ORIGINAL_AXIS_SCALING = 2;
+constexpr double ZOOM_FACTOR = 1.122462048309373; // n-th root of 10 works great, because then ZOOM_FACTOR**n = 10 => perfect zoom cycle
 constexpr double TIME_STEP = 86'400; // TODO: Defines step size
 constexpr str TIME_STEP_STRING = "24 hrs";
+constexpr int MAX_ORBIT_POINTS = 10'000;
+constexpr int ORBIT_SAMPLE_EVERY_STEPS = 30; // TODO: Defines how often orbit samples are taken
 constexpr bool RENDERING_COORDINATES_RELATIVE_TO_SUN = true;
 
 constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
+
 constexpr int WINDOW_HEIGHT = 900;
 constexpr int WINDOW_WIDTH = 900;
-constexpr int MAX_ORBIT_POINTS = 10'000;
-constexpr int ORBIT_SAMPLE_EVERY_STEPS = 3'0; // TODO: Defines how often orbit samples are taken
 
 constexpr int GRID_SPACING = 90;
 constexpr int WINDOW_MARGIN = 1 * GRID_SPACING;
 
+double SCALING = ORIGINAL_SCALING;
+double AXIS_SCALING = ORIGINAL_AXIS_SCALING;
+
+std::atomic<std::size_t> frame_number = 0;
+std::atomic<std::size_t> steps_simulated = 0;
+std::atomic<std::size_t> history_last_deleted_frame = 0;
+
 Font uiFont;
 
-const auto START_TIME = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::system_clock::now().time_since_epoch());
+class PausableTimer {
+    using Clock = std::chrono::steady_clock;
 
-double rt_seconds_since_start() {
-    const auto current_time = std::chrono::duration_cast<std::chrono::milliseconds>(
-    std::chrono::system_clock::now().time_since_epoch());
+    Clock::time_point last_start = Clock::now();
+    Clock::duration elapsed;
 
-    return static_cast<double>((current_time - START_TIME).count()) / 1'000;
-}
+public:
+    std::atomic<bool> running = true;
+
+    void pause() {
+        if (!running) return;
+
+        elapsed += Clock::now() - last_start;
+        running = false;
+    }
+
+    void resume() {
+        if (running) return;
+        last_start = Clock::now();
+        running = true;
+    }
+
+    void resume_or_pause() {
+        if (running) pause();
+        else resume();
+    }
+
+    double seconds() const {
+        auto total = elapsed;
+
+        if (running) total += Clock::now() - last_start;
+
+        return std::chrono::duration<double>(total).count();
+    }
+};
+
+PausableTimer timer;
 
 class Vec3 {
 public:
@@ -130,6 +182,14 @@ public:
             WINDOW_MARGIN + static_cast<float>((y / SCALING) / 2.0 + 0.5) * (WINDOW_HEIGHT - 2 * WINDOW_MARGIN)
         };
     }
+
+    static bool inside_screen(const Vec3 &vec3) {
+        auto [x, y] = vec3.to_raylib();
+
+        return (WINDOW_MARGIN <= x && x <= WINDOW_WIDTH - WINDOW_MARGIN
+            && WINDOW_MARGIN <= y && y <= WINDOW_HEIGHT - WINDOW_MARGIN
+        );
+    }
 };
 
 class Vec2 {
@@ -180,10 +240,6 @@ CelestialBody sun   = {{0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, YELLOW};
 CelestialBody* celestial_bodies[NUM_CELESTIAL_BODIES] = {&sun, &mercury, &venus, &earth, &mars, &jupiter, &saturn};
 std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
 
-std::atomic<std::size_t> frame_number = 0;
-std::atomic<std::size_t> steps_simulated = 0;
-std::atomic<std::size_t> history_last_deleted_frame = 0;
-
 void save_orbit_points() {
     if (steps_simulated % ORBIT_SAMPLE_EVERY_STEPS != 0) return;
 
@@ -231,7 +287,11 @@ void simulate_step(std::mutex& system_lock) {
 
 void simulate_cpu(const std::stop_token& stop_token, std::mutex& system_lock) {
     while (!stop_token.stop_requested()) {
-        simulate_step(system_lock);
+        if (timer.running) {
+            simulate_step(system_lock);
+        } else {
+            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        }
     }
 }
 
@@ -262,7 +322,6 @@ void draw_ui(std::mutex& system_lock) {
     constexpr int horizontal_lines = (WINDOW_HEIGHT - 2 * WINDOW_MARGIN) / GRID_SPACING + 1;
     constexpr int vertical_lines = (WINDOW_WIDTH - 2 * WINDOW_MARGIN) / GRID_SPACING + 1;
 
-    constexpr int AXIS_SCALING = 2;
     const str SCALING_STRING = to_power_of10(SCALING / AXIS_SCALING);
 
     // Grid, axis & labels
@@ -282,9 +341,9 @@ void draw_ui(std::mutex& system_lock) {
         if (x != WINDOW_WIDTH - WINDOW_MARGIN && x != WINDOW_MARGIN) {
             DrawTextCenteredEx(
                 uiFont,
-                round_to_hundreds(((static_cast<double>(x) / GRID_SPACING) - 0.5 - static_cast<double>(vertical_lines) / 2) / AXIS_SCALING).c_str(),
+                round_to_hundreds(((static_cast<double>(x) / GRID_SPACING) - static_cast<double>(vertical_lines) / 2 - 0.5) * AXIS_SCALING / (vertical_lines / 2)).c_str(),
                 {static_cast<double>(x), static_cast<double>(WINDOW_HEIGHT - WINDOW_MARGIN + 25)},
-                0,
+                315,
                 24,
                 1,
                 BLACK
@@ -309,9 +368,9 @@ void draw_ui(std::mutex& system_lock) {
         if (y != WINDOW_WIDTH - WINDOW_MARGIN && y != WINDOW_MARGIN) {
             DrawTextCenteredEx(
                 uiFont,
-                round_to_hundreds(((static_cast<double>(y) / GRID_SPACING) - 0.5 - static_cast<double>(horizontal_lines) / 2) / AXIS_SCALING).c_str(),
+                round_to_hundreds(((static_cast<double>(y) / GRID_SPACING) - static_cast<double>(horizontal_lines) / 2 - 0.5) * AXIS_SCALING / (horizontal_lines / 2)).c_str(),
                 {static_cast<double>(WINDOW_MARGIN - 25), static_cast<double>(y)},
-                0,
+                315,
                 24,
                 1,
                 BLACK
@@ -341,9 +400,8 @@ void draw_ui(std::mutex& system_lock) {
 
     // Left side
     DrawText(uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))).c_str(), Vec2(WINDOW_MARGIN, 10), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Computation time: {} seconds", round_to_hundreds(rt_seconds_since_start())).c_str(), Vec2(WINDOW_MARGIN, 30), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Simulated years per second: {}", round_to_hundreds(std::ceil(((static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))) / rt_seconds_since_start()))).c_str(), Vec2(WINDOW_MARGIN, 50), 20, 1, BLACK);
-
+    DrawText(uiFont, std::format("Computation time: {} seconds", round_to_hundreds(timer.seconds())).c_str(), Vec2(WINDOW_MARGIN, 30), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Simulated years per second: {}", round_to_hundreds(std::ceil(((static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))) / timer.seconds()))).c_str(), Vec2(WINDOW_MARGIN, 50), 20, 1, BLACK);
 
     // TODO: This is an average of the entire simulation
     // It would be way cooler if it was the average of the last second, right?
@@ -368,6 +426,7 @@ void draw_ui(std::mutex& system_lock) {
     DrawText(uiFont, std::format("Step size: {}", TIME_STEP_STRING).c_str(), Vec2(WINDOW_MARGIN + 400, 10), 20, 1, BLACK);
     DrawText(uiFont, std::format("Maximum orbit points used: {}/{}", orbit_points_used, MAX_ORBIT_POINTS).c_str(), Vec2(WINDOW_MARGIN + 400, 30), 20, 1, maximum_orbit_points_used_color);
     DrawText(uiFont, std::format("Rendering relative to sun: {}", RENDERING_COORDINATES_RELATIVE_TO_SUN).c_str(), Vec2(WINDOW_MARGIN + 400, 50), 20, 1, BLACK);
+    // DrawText(uiFont, std::format("Axis scaling: {}", AXIS_SCALING).c_str(), Vec2(WINDOW_MARGIN + 400, 70), 20, 1, BLACK);
 }
 
 void draw_planets(std::mutex& system_lock) {
@@ -402,7 +461,9 @@ void draw_planets(std::mutex& system_lock) {
                 relative_pos -= sun_position;
             }
 
-            DrawCircleV(relative_pos.to_raylib(), radius, *color);
+            if (Vec3::inside_screen(relative_pos)) {
+                DrawCircleV(relative_pos.to_raylib(), radius, *color);
+            }
         }
     }
 }
@@ -439,12 +500,14 @@ void draw_orbits(std::mutex& system_lock) {
                     relative_end -= snapshots[0].first[j];
                 }
 
-                DrawLineEx(
-                    relative_start.to_raylib(),
-                    relative_end.to_raylib(),
-                    1.5f,
-                    Fade(*color, alpha)
-                );
+                if (Vec3::inside_screen(relative_start) && Vec3::inside_screen(relative_end)) {
+                    DrawLineEx(
+                        relative_start.to_raylib(),
+                        relative_end.to_raylib(),
+                        1.5f,
+                        Fade(*color, alpha)
+                    );
+                }
             }
         }
     }
@@ -470,6 +533,38 @@ int main() {
     SetTextureFilter(uiFont.texture, TEXTURE_FILTER_TRILINEAR);
 
     while (!WindowShouldClose()) {
+        const float scroll = GetMouseWheelMove();
+        if (scroll > 0 || IsKeyPressed(KEY_W)) {
+            // scrolled up (=> in)
+            if (AXIS_SCALING / ZOOM_FACTOR < 4.0/3) {
+                AXIS_SCALING *= 10;
+                AXIS_SCALING /= ZOOM_FACTOR;
+                SCALING /= ZOOM_FACTOR;
+            } else {
+                AXIS_SCALING /= ZOOM_FACTOR;
+                SCALING /= ZOOM_FACTOR;
+            }
+        } else if (scroll < 0 || IsKeyPressed(KEY_S)) {
+            // scrolled down (=> out)
+            if (AXIS_SCALING * ZOOM_FACTOR > 10 * 4/3) {
+                AXIS_SCALING /= 10;
+                AXIS_SCALING *= ZOOM_FACTOR;
+                SCALING *= ZOOM_FACTOR;
+            } else {
+                AXIS_SCALING *= ZOOM_FACTOR;
+                SCALING *= ZOOM_FACTOR;
+            }
+        }
+
+        if (IsKeyPressed(KEY_R)) {
+            SCALING = ORIGINAL_SCALING;
+            AXIS_SCALING = ORIGINAL_AXIS_SCALING;
+        }
+
+        if (IsKeyPressed(KEY_SPACE)) {
+            timer.resume_or_pause();
+        }
+
         BeginDrawing();
         ClearBackground(WHITE);
 
@@ -481,14 +576,15 @@ int main() {
         ++frame_number;
     }
 
+    timer.pause();
     cpu_thread.request_stop();
 
     UnloadFont(uiFont);
     CloseWindow();
     printf("\n");
     printf("Simulation time: %.2f years\n", (static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365)));
-    printf("Computation time: %.2f seconds\n", rt_seconds_since_start());
-    printf("Simulated years per second: %.2f\n", (static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365)) / rt_seconds_since_start());
+    printf("Computation time: %.2f seconds\n", timer.seconds());
+    printf("Simulated years per second: %.2f\n", (static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365)) / timer.seconds());
 
     return 0;
 }
