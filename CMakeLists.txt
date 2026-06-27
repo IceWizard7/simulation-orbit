@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 4.2)
-project(SimulationUmlaufbahn)
+project(simulation-orbit)
 
 set(CMAKE_CXX_STANDARD 20)
 
@@ -16,16 +16,25 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(raylib)
 
 
-add_executable(SimulationUmlaufbahn
+add_executable(simulation-orbit
         src/main.cpp)
 
-target_link_libraries(SimulationUmlaufbahn PRIVATE raylib)
+target_link_libraries(simulation-orbit PRIVATE raylib)
 
 # Required when linking raylib statically on macOS
 if (APPLE)
-    target_link_libraries(SimulationUmlaufbahn PRIVATE
+    target_link_libraries(simulation-orbit PRIVATE
             "-framework IOKit"
             "-framework Cocoa"
             "-framework OpenGL"
     )
 endif()
+
+# Enable the optimizations only for release-like configurations
+target_compile_options(simulation-orbit PRIVATE
+        $<$<AND:$<CONFIG:Release>,$<CXX_COMPILER_ID:AppleClang,Clang>>:
+        -O3
+        -mcpu=native
+        -ffast-math
+        >
+)

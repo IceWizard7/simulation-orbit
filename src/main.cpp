@@ -5,7 +5,6 @@
 #include <cmath>
 #include <deque>
 #include <format>
-#include <functional>
 #include <mutex>
 #include <optional>
 #include <raylib.h>
@@ -13,16 +12,30 @@
 #include <thread>
 #include <vector>
 
-// TODO: Parallel Execution
-// TODO: Make sure the planets never go over the UI borders
+// TODO: Parallel Execution?
+// TODO: Make sure the planets never go over the UI borders?
 
 using str = std::string;
 
 #define NUM_CELESTIAL_BODIES 7
-#define FPS 60.0
+
+std::string to_power_of10(double x) {
+    if (x == 0) return "0";
+
+    const int exponent = static_cast<int>(std::floor(std::log10(std::abs(x))));
+    const double mantissa = x / std::pow(10.0, exponent);
+    const std::string mantissaStr =
+        std::floor(mantissa) == mantissa
+            ? std::to_string(static_cast<long long>(mantissa))
+            : std::to_string(mantissa);
+
+    if (std::abs(mantissa - 1.0) < 1e-9)
+        return "10^" + std::to_string(exponent);
+
+    return mantissaStr + " x 10^" + std::to_string(exponent);
+}
 
 constexpr double SCALING = 2e12; // 2e12 matches 10^12, look at the way we handle this in draw_ui() TODO: Not communicated cleary though, maybe calculate the string on the run?
-constexpr str SCALING_STRING = "10^12";
 constexpr double TIME_STEP = 900; // TODO: Defines step size
 constexpr str TIME_STEP_STRING = "15 mins";
 constexpr bool RENDERING_COORDINATES_RELATIVE_TO_SUN = true;
@@ -31,9 +44,19 @@ constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
 constexpr int WINDOW_HEIGHT = 900;
 constexpr int WINDOW_WIDTH = 900;
 constexpr int MAX_ORBIT_POINTS = 10'000;
-constexpr int ORBIT_SAMPLE_EVERY_STEPS = 3000; // TODO: Defines how often orbit samples are taken
+constexpr int ORBIT_SAMPLE_EVERY_STEPS = 3'000; // TODO: Defines how often orbit samples are taken
 
 Font uiFont;
+
+const auto START_TIME = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch());
+
+double rt_seconds_since_start() {
+    const auto current_time = std::chrono::duration_cast<std::chrono::milliseconds>(
+    std::chrono::system_clock::now().time_since_epoch());
+
+    return static_cast<double>((current_time - START_TIME).count()) / 1'000;
+}
 
 class Vec3 {
 public:
@@ -108,10 +131,10 @@ public:
     Vec3 position;
     Vec3 velocity;
     double mass;
-    float radius;
+    float draw_radius;
     std::optional<Color> color;
 
-    CelestialBody(const Vec3 &position, const Vec3 &velocity, const double mass, const float radius, const std::optional<Color>& color) : position(position), velocity(velocity), mass(mass), radius(radius), color(color) {}
+    CelestialBody(const Vec3 &position, const Vec3 &velocity, const double mass, const float radius, const std::optional<Color>& color) : position(position), velocity(velocity), mass(mass), draw_radius(radius), color(color) {}
 
     [[nodiscard]] double distance_to(const CelestialBody &body) const {
         return (position - body.position).length();
@@ -144,6 +167,7 @@ std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
 
 std::atomic<std::size_t> frame_number = 0;
 std::atomic<std::size_t> steps_simulated = 0;
+std::atomic<std::size_t> history_last_deleted_frame = 0;
 
 void save_orbit_points() {
     if (steps_simulated % ORBIT_SAMPLE_EVERY_STEPS != 0) return;
@@ -154,10 +178,11 @@ void save_orbit_points() {
         history.push_back(celestial_bodies[i]->position);
 
         if (history.size() > MAX_ORBIT_POINTS) {
-            // Delete 10% of MAX_ORBIT_POINTS
-            for (int j = 0; j < MAX_ORBIT_POINTS / 10; j++) {
+            // Delete 5% of MAX_ORBIT_POINTS
+            for (int j = 0; j < MAX_ORBIT_POINTS / 20; j++) {
                 history.pop_front();
             }
+            history_last_deleted_frame.store(frame_number.load());
         }
     }
 }
@@ -222,18 +247,27 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
     const int horizontal_lines = (WINDOW_HEIGHT - 2 * margin) / spacing + 1;
     const int vertical_lines = (WINDOW_WIDTH - 2 * margin) / spacing + 1;
 
+    constexpr int AXIS_SCALING = 2;
+    const str SCALING_STRING = to_power_of10(SCALING / AXIS_SCALING);
+
     // Grid, axis & labels
     for (int x = margin; x <= WINDOW_WIDTH - margin; x += static_cast<int>(spacing)) {
+        float thick = 1.5;
+        Color color = Fade(DARKGRAY, 0.35f);
+        if (x == margin || x == WINDOW_WIDTH - margin) {
+            thick = 2;
+            color = BLACK;
+        }
         DrawLine(
             Vec2(x, margin),
             Vec2(x, WINDOW_HEIGHT - margin),
-            1.5,
-            Fade(DARKGRAY, 0.35f)
+            thick,
+            color
         );
         if (x != WINDOW_WIDTH - margin && x != margin) {
             DrawTextCenteredEx(
                 uiFont,
-                std::to_string(((x / spacing) - 1 - vertical_lines / 2) * 2).c_str(),
+                std::to_string(((x / spacing) - 1 - vertical_lines / 2) * AXIS_SCALING).c_str(),
                 {static_cast<double>(x), static_cast<double>(WINDOW_HEIGHT - margin + 15)},
                 0,
                 24,
@@ -243,17 +277,24 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
         }
     }
 
-    for (int y = margin; y <= WINDOW_WIDTH - margin; y += static_cast<int>(spacing)) {
+    for (int y = margin; y <= WINDOW_HEIGHT - margin; y += static_cast<int>(spacing)) {
+        float thick = 1.5;
+        Color color = Fade(DARKGRAY, 0.35f);
+        if (y == margin || y == WINDOW_HEIGHT - margin) {
+            thick = 2;
+            color = BLACK;
+        }
+
         DrawLine(
             Vec2(margin, y),
             Vec2(WINDOW_WIDTH - margin, y),
-            1.5,
-            Fade(DARKGRAY, 0.35f)
+            thick,
+            color
         );
         if (y != WINDOW_WIDTH - margin && y != margin) {
             DrawTextCenteredEx(
                 uiFont,
-                std::to_string(((y / spacing) - 1 - horizontal_lines / 2) * 2).c_str(),
+                std::to_string(((y / spacing) - 1 - horizontal_lines / 2) * AXIS_SCALING).c_str(),
                 {static_cast<double>(margin - 15), static_cast<double>(y)},
                 0,
                 24,
@@ -283,6 +324,18 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
         BLACK
     );
 
+    // Left side
+    DrawText(uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))).c_str(), Vec2(margin, 10), 20, 1, BLACK);
+    const int passed_seconds_hundreds = static_cast<int>(rt_seconds_since_start() * 100);
+    DrawText(uiFont, std::format("Computation time: {}.{} seconds", passed_seconds_hundreds / 100, passed_seconds_hundreds % 100).c_str(), Vec2(margin, 30), 20, 1, BLACK);
+    const int years_per_second_hundreds = std::ceil(((static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))) / rt_seconds_since_start() * 100);
+    DrawText(uiFont, std::format("Simulated years per second: {}.{}", years_per_second_hundreds / 100, years_per_second_hundreds % 100).c_str(), Vec2(margin, 50), 20, 1, BLACK);
+
+
+    // TODO: This is an average of the entire simulation
+    // It would be way cooler if it was the average of the last second, right?
+
+    // Right side
     unsigned long long orbit_points_used = 0;
 
     {
@@ -293,13 +346,15 @@ void draw_ui(const int spacing, const int margin, std::mutex& system_lock) {
         }
     }
 
-    const str step_size_text = std::format("Step size: {}", TIME_STEP_STRING);
 
-    DrawText(uiFont, step_size_text.c_str(), Vec2(margin, 10), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Years simulated: {}", static_cast<int>(static_cast<double>(steps_simulated) * TIME_STEP / (86400 * 365))).c_str(), Vec2(margin, 30), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Years / second: {}", static_cast<int>(((static_cast<double>(steps_simulated) * TIME_STEP / (86400 * 365))) / (static_cast<double>(frame_number) / FPS))).c_str(), Vec2(margin, 50), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Maximum orbit points used: {}/{}", orbit_points_used, MAX_ORBIT_POINTS).c_str(), Vec2(static_cast<double>(margin + 250), 10), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Rendering relative to sun: {}", RENDERING_COORDINATES_RELATIVE_TO_SUN).c_str(), Vec2(margin + 250, 30), 20, 1, BLACK);
+    auto maximum_orbit_points_used_color = BLACK;
+    if (history_last_deleted_frame != 0 && history_last_deleted_frame + GetFPS() / 10 >= frame_number) {
+        maximum_orbit_points_used_color = RED;
+    }
+
+    DrawText(uiFont, std::format("Step size: {}", TIME_STEP_STRING).c_str(), Vec2(margin + 400, 10), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Maximum orbit points used: {}/{}", orbit_points_used, MAX_ORBIT_POINTS).c_str(), Vec2(margin + 400, 30), 20, 1, maximum_orbit_points_used_color);
+    DrawText(uiFont, std::format("Rendering relative to sun: {}", RENDERING_COORDINATES_RELATIVE_TO_SUN).c_str(), Vec2(margin + 400, 50), 20, 1, BLACK);
 }
 
 void draw_planets(std::mutex& system_lock) {
@@ -318,7 +373,7 @@ void draw_planets(std::mutex& system_lock) {
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
             snapshots[i] = {
                 celestial_bodies[i]->position,
-                celestial_bodies[i]->radius,
+                celestial_bodies[i]->draw_radius,
                 celestial_bodies[i]->color
             };
         }
@@ -337,14 +392,6 @@ void draw_planets(std::mutex& system_lock) {
             DrawCircleV(relative_pos.to_raylib(), radius, *color);
         }
     }
-
-    // printf("seconds simulated: %f\n", static_cast<double>(steps) * time_step);
-    // printf("days simulated:    %f\n", static_cast<double>(steps) * time_step / 86400);
-    // printf("frames passed:     %llu\n", frame_number);
-    // printf("earth:             %s\n", snapshots[EARTH].to_string().c_str());
-    // printf("mars:              %s\n\n", snapshots[MARS].to_string().c_str());
-
-    // printf("sun: %s\n", snapshots[0].position.to_string().c_str());
 }
 
 void draw_orbits(std::mutex& system_lock) {
@@ -368,7 +415,7 @@ void draw_orbits(std::mutex& system_lock) {
         const auto& [points, color] = snapshots[i];
 
         for (unsigned long long j = 1; j < points.size(); j++) {
-            const auto alpha = static_cast<float>(static_cast<double>(j) * (-0.7 / (MAX_ORBIT_POINTS) / 2) + 0.8);
+            const auto alpha = static_cast<float>(static_cast<double>(j) * (-0.7 / 5000) + 0.8);
 
             if (color.has_value()) {
                 Vec3 relative_start = points[j - 1];
@@ -393,11 +440,12 @@ void draw_orbits(std::mutex& system_lock) {
 int main() {
     SetConfigFlags(FLAG_WINDOW_HIGHDPI);
     InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Umlaufbahn Simulation");
-    SetTargetFPS(FPS);
+    SetTargetFPS(60);
 
     std::mutex system_lock;
 
-    std::jthread cpu_thread(simulate_cpu, std::ref(system_lock));
+    // std::jthread cpu_thread(simulate_cpu, std::ref(system_lock));
+    // TODO
 
     constexpr int spacing = 90;
     constexpr int margin = 1 * spacing;
@@ -424,10 +472,11 @@ int main() {
         ++frame_number;
     }
 
-    cpu_thread.request_stop();
+    // cpu_thread.request_stop();
 
     UnloadFont(uiFont);
     CloseWindow();
+    printf("\nTotal time passed: %.2f secs\n", rt_seconds_since_start());
 
     return 0;
 }
