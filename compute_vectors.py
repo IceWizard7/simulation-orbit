@@ -14,16 +14,18 @@ planet_to_horizon_id: dict[str, int] = {
 }
 
 fix_code: dict[str, str] = {
-    "Mercury": "5, (Color){150, 150, 150, 255}",
-    "Venus": "5, (Color){245, 190,  70, 255}",
-    "Earth": "5, (Color){ 40, 120, 204, 255}",
-    "Mars": "10, (Color){220,  60,  40, 255}",
-    "Jupiter": "10, (Color){220, 150,  85, 255}",
-    "Saturn": "10, (Color){235, 205, 120, 255}",
-    "Uranus": "10, (Color){ 80, 220, 220, 255}",
-    "Neptune": "10, (Color){ 40,  80, 230, 255}",
-    "Pluto": "10, (Color){185, 155, 130, 255}",
+    "Mercury": "5, (Color){150, 150, 150, 255}, 259'200",
+    "Venus": "5, (Color){245, 190,  70, 255}, 259'200",
+    "Earth": "5, (Color){ 40, 120, 204, 255}, 259'200",
+    "Mars": "10, (Color){220,  60,  40, 255}, 259'200",
+    "Jupiter": "10, (Color){220, 150,  85, 255}, 259'200",
+    "Saturn": "10, (Color){235, 205, 120, 255}, 518'400",
+    "Uranus": "10, (Color){ 80, 220, 220, 255}, 1'036'800",
+    "Neptune": "10, (Color){ 40,  80, 230, 255}, 3'110'400",
+    "Pluto": "10, (Color){185, 155, 130, 255}, 3'110'400",
 }
+
+sun: str = "CelestialBody sun   = {\"Sun\", {0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, (Color){255, 230,  40, 255}, 259'200};"
 
 planet_to_code: dict[str, str] = {planet: "" for planet in planet_to_horizon_id.keys()}
 
@@ -79,3 +81,4 @@ for planet_name, horizon_id in planet_to_horizon_id.items():
 
 for planet_name, code_line in planet_to_code.items():
     print(code_line)
+print(sun)

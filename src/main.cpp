@@ -22,7 +22,7 @@
 
 using str = std::string;
 
-#define NUM_CELESTIAL_BODIES 7
+#define NUM_CELESTIAL_BODIES 10
 
 str to_power_of10(const double x) {
     if (x == 0) return "0";
@@ -40,9 +40,9 @@ str to_power_of10(const double x) {
 }
 
 str round_to_hundreds(const double x) {
-    std::string result = std::format("{:.2f}", x);
+    str result = std::format("{:.2f}", x);
 
-    if (const auto dot = result.find('.'); dot == std::string::npos) {
+    if (const auto dot = result.find('.'); dot == str::npos) {
         return result;
     }
 
@@ -67,10 +67,9 @@ str round_to_hundreds(const double x) {
 constexpr double ORIGINAL_SCALING = 2e12;
 constexpr double ORIGINAL_AXIS_SCALING = 2;
 constexpr double ZOOM_FACTOR = 1.122462048309373; // n-th root of 10 works great, because then ZOOM_FACTOR**n = 10 => perfect zoom cycle
-constexpr double TIME_STEP = 900; // TODO: Defines step size
-constexpr str TIME_STEP_STRING = "15 mins";
-constexpr int MAX_ORBIT_POINTS = 10'000;
-constexpr int ORBIT_SAMPLE_EVERY_STEPS = 300; // TODO: Defines how often orbit samples are taken
+constexpr double TIME_STEP = 86'400;
+constexpr str TIME_STEP_STRING = "24 hrs";
+constexpr int MAX_ORBIT_POINTS = 10'000; // => ~2.3 MB RAM for orbit_history
 constexpr bool RENDERING_COORDINATES_RELATIVE_TO_SUN = true;
 
 constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
@@ -213,8 +212,9 @@ public:
     double mass;
     float draw_radius;
     std::optional<Color> color;
+    int orbit_sample_every_seconds;
 
-    CelestialBody(str  name, const Vec3 &position, const Vec3 &velocity, const double mass, const float radius, const std::optional<Color>& color) : name(std::move(name)), position(position), velocity(velocity), mass(mass), draw_radius(radius), color(color) {}
+    CelestialBody(str  name, const Vec3 &position, const Vec3 &velocity, const double mass, const float radius, const std::optional<Color>& color, const int orbit_sample_every_seconds) : name(std::move(name)), position(position), velocity(velocity), mass(mass), draw_radius(radius), color(color), orbit_sample_every_seconds(orbit_sample_every_seconds) {}
 
     [[nodiscard]] double distance_to(const CelestialBody &body) const {
         return (position - body.position).length();
@@ -238,17 +238,16 @@ CelestialBody jupiter = {"Jupiter", {-4.339909949222860e11, 6.583216063749719e11
 CelestialBody saturn = {"Saturn", {1.402238236376539e12, 1.837816450614337e11, -5.902702510104157e10}, {-1.786665911022244e3, 9.555444950590967e3, -9.444982300526794e1}, 5.6834e26, 10, (Color){235, 205, 120, 255}, 518'400};
 CelestialBody uranus = {"Uranus", {1.386689779015193e12, 2.558518371479970e12, -8.462715242429852e9}, {-6.037314354491155e3, 2.927562363958545e3, 8.916577001311432e1}, 86.813e24, 10, (Color){ 80, 220, 220, 255}, 1'036'800};
 CelestialBody neptune = {"Neptune", {4.465613570420511e12, 1.599153765150425e11, -1.062078323030064e11}, {-2.302777319654876e2, 5.463337689178736e3, -1.078268539063705e2}, 102.409e24, 10, (Color){ 40,  80, 230, 255}, 3'110'400};
-CelestialBody pluto = {"Pluto", {2.947351321346399e12, -4.409737094120408e12, -3.806824198825967e11}, {4.656489570352034e3, 1.788853980502755e3, -1.545806860243079e3}, 1.307e22, 10, (Color){185, 155, 130, 255},  3'110'400};
+CelestialBody pluto = {"Pluto", {2.947351321346399e12, -4.409737094120408e12, -3.806824198825967e11}, {4.656489570352034e3, 1.788853980502755e3, -1.545806860243079e3}, 1.307e22, 10, (Color){185, 155, 130, 255}, 3'110'400};
 CelestialBody sun   = {"Sun", {0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, (Color){255, 230,  40, 255}, 259'200};
 
 // Always leave sun at index 0 - other code depends on sun.position
-CelestialBody* celestial_bodies[NUM_CELESTIAL_BODIES] = {&sun, &mercury, &venus, &earth, &mars, &jupiter, &saturn};
+CelestialBody* celestial_bodies[NUM_CELESTIAL_BODIES] = {&sun, &mercury, &venus, &earth, &mars, &jupiter, &saturn, &uranus, &neptune, &pluto};
 std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
 
 void save_orbit_points() {
-    if (steps_simulated % ORBIT_SAMPLE_EVERY_STEPS != 0) return;
-
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (steps_simulated % static_cast<int>(celestial_bodies[i]->orbit_sample_every_seconds / TIME_STEP) != 0) continue;
         auto& history = orbit_history[i];
 
         history.push_back(celestial_bodies[i]->position);
