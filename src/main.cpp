@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <barrier>
@@ -17,6 +18,8 @@
 #endif
 
 // TODO: Parallel Execution?
+// TODO: 3d
+// TODO: Real 3d textures
 
 using str = std::string;
 
@@ -67,9 +70,8 @@ constexpr double ORIGINAL_AXIS_SCALING = 2;
 constexpr double ZOOM_FACTOR = 1.122462048309373; // n-th root of 10 works great, because then ZOOM_FACTOR**n = 10 => perfect zoom cycle
 constexpr double TIME_STEP = 86'400;
 constexpr str TIME_STEP_STRING = "24 hrs";
-constexpr int MAX_ORBIT_POINTS = 10'000; // => ~2.3 MB RAM for orbit_history
-// TODO: It crashes when MAX_ORBIT_POINTS = 100'000 - WHY?!
-constexpr bool RENDERING_COORDINATES_RELATIVE_TO_SUN = true;
+constexpr int MAX_ORBIT_POINTS = 30'000; // => ~22.9 MiB RAM for orbit_history
+constexpr bool RENDERING_COORDINATES_RELATIVE_TO_OBJECT = true;
 
 constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
 
@@ -96,7 +98,7 @@ class PausableTimer {
     Clock::duration elapsed{};
 
 public:
-    std::atomic<bool> running = true;
+    std::atomic<bool> running = false;
 
     void pause() {
         if (!running) return;
@@ -212,8 +214,9 @@ public:
     float draw_radius;
     std::optional<Color> color;
     int orbit_sample_every_seconds;
+    int max_rendered_orbit_segments_per_body;
 
-    CelestialBody(str  name, const Vec3 &position, const Vec3 &velocity, const double mass, const float radius, const std::optional<Color>& color, const int orbit_sample_every_seconds) : name(std::move(name)), position(position), velocity(velocity), mass(mass), draw_radius(radius), color(color), orbit_sample_every_seconds(orbit_sample_every_seconds) {}
+    CelestialBody(str  name, const Vec3 &position, const Vec3 &velocity, const double mass, const float radius, const std::optional<Color>& color, const int orbit_sample_every_seconds, const int max_rendered_orbit_segments_per_body) : name(std::move(name)), position(position), velocity(velocity), mass(mass), draw_radius(radius), color(color), orbit_sample_every_seconds(orbit_sample_every_seconds), max_rendered_orbit_segments_per_body(max_rendered_orbit_segments_per_body) {}
 
     [[nodiscard]] double distance_to(const CelestialBody &body) const {
         return (position - body.position).length();
@@ -229,29 +232,50 @@ public:
     }
 };
 
-CelestialBody mercury = {"Mercury", {-3.229439434041441e10, -6.212384097453145e10, -2.058972617997836e9}, {3.337844168997828e4, -2.019057755964253e4, -4.710888632749314e3}, 3.302e23, 5, (Color){150, 150, 150, 255}, 259'200};
-CelestialBody venus = {"Venus", {-1.019802701272269e11, -3.651886112603541e10, 5.393515277422819e9}, {1.137949480576350e4, -3.319873100002852e4, -1.112329309713790e3}, 48.685e23, 5, (Color){245, 190,  70, 255}, 259'200};
-CelestialBody earth = {"Earth", {1.051110894240638e10, -1.524721760044149e11, 2.551204317737371e7}, {2.923284130475473e4, 2.012304925857257e3, -2.997543950911119e-1}, 5.97219e24, 5, (Color){ 40, 120, 204, 255}, 259'200};
-CelestialBody mars = {"Mars", {1.804158291514496e11, 1.155212196101544e11, -1.976959322734013e9}, {-1.217743703266605e4, 2.244555151648691e4, 7.689594977117213e2}, 6.4171e23, 10, (Color){220,  60,  40, 255}, 259'200};
-CelestialBody jupiter = {"Jupiter", {-4.339909949222860e11, 6.583216063749719e11, 6.981808430314541e9}, {-1.106477669156617e4, -6.573232170198393e3, 2.749669443388072e2}, 18.9819e26, 10, (Color){220, 150,  85, 255}, 259'200};
-CelestialBody saturn = {"Saturn", {1.402238236376539e12, 1.837816450614337e11, -5.902702510104157e10}, {-1.786665911022244e3, 9.555444950590967e3, -9.444982300526794e1}, 5.6834e26, 10, (Color){235, 205, 120, 255}, 518'400};
-CelestialBody uranus = {"Uranus", {1.386689779015193e12, 2.558518371479970e12, -8.462715242429852e9}, {-6.037314354491155e3, 2.927562363958545e3, 8.916577001311432e1}, 86.813e24, 10, (Color){ 80, 220, 220, 255}, 1'036'800};
-CelestialBody neptune = {"Neptune", {4.465613570420511e12, 1.599153765150425e11, -1.062078323030064e11}, {-2.302777319654876e2, 5.463337689178736e3, -1.078268539063705e2}, 102.409e24, 10, (Color){ 40,  80, 230, 255}, 3'110'400};
-CelestialBody pluto = {"Pluto", {2.947351321346399e12, -4.409737094120408e12, -3.806824198825967e11}, {4.656489570352034e3, 1.788853980502755e3, -1.545806860243079e3}, 1.307e22, 10, (Color){185, 155, 130, 255}, 3'110'400};
-CelestialBody sun   = {"Sun", {0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, (Color){255, 230,  40, 255}, 259'200};
+CelestialBody mercury = {"Mercury", {-3.229439434041441e10, -6.212384097453145e10, -2.058972617997836e9}, {3.337844168997828e4, -2.019057755964253e4, -4.710888632749314e3}, 3.302e23, 5, (Color){150, 150, 150, 255}, 259'200, 20'000};
+CelestialBody venus = {"Venus", {-1.019802701272269e11, -3.651886112603541e10, 5.393515277422819e9}, {1.137949480576350e4, -3.319873100002852e4, -1.112329309713790e3}, 48.685e23, 5, (Color){245, 190,  70, 255}, 259'200, 15'000};
+CelestialBody earth = {"Earth", {1.051110894240638e10, -1.524721760044149e11, 2.551204317737371e7}, {2.923284130475473e4, 2.012304925857257e3, -2.997543950911119e-1}, 5.97219e24, 5, (Color){ 40, 120, 204, 255}, 259'200, 10'000};
+CelestialBody mars = {"Mars", {1.804158291514496e11, 1.155212196101544e11, -1.976959322734013e9}, {-1.217743703266605e4, 2.244555151648691e4, 7.689594977117213e2}, 6.4171e23, 10, (Color){220,  60,  40, 255}, 259'200, 7'500};
+CelestialBody jupiter = {"Jupiter", {-4.339909949222860e11, 6.583216063749719e11, 6.981808430314541e9}, {-1.106477669156617e4, -6.573232170198393e3, 2.749669443388072e2}, 18.9819e26, 10, (Color){220, 150,  85, 255}, 259'200, 2'000};
+CelestialBody saturn = {"Saturn", {1.402238236376539e12, 1.837816450614337e11, -5.902702510104157e10}, {-1.786665911022244e3, 9.555444950590967e3, -9.444982300526794e1}, 5.6834e26, 10, (Color){235, 205, 120, 255}, 518'400, 2'000};
+CelestialBody uranus = {"Uranus", {1.386689779015193e12, 2.558518371479970e12, -8.462715242429852e9}, {-6.037314354491155e3, 2.927562363958545e3, 8.916577001311432e1}, 86.813e24, 10, (Color){ 80, 220, 220, 255}, 1'036'800, 2'000};
+CelestialBody neptune = {"Neptune", {4.465613570420511e12, 1.599153765150425e11, -1.062078323030064e11}, {-2.302777319654876e2, 5.463337689178736e3, -1.078268539063705e2}, 102.409e24, 10, (Color){ 40,  80, 230, 255}, 3'110'400, 2'000};
+CelestialBody pluto = {"Pluto", {2.947351321346399e12, -4.409737094120408e12, -3.806824198825967e11}, {4.656489570352034e3, 1.788853980502755e3, -1.545806860243079e3}, 1.307e22, 10, (Color){185, 155, 130, 255}, 3'110'400, 2'000};
+CelestialBody sun   = {"Sun", {0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, (Color){255, 230,  40, 255}, 259'200, 15'000};
 
-constexpr int center_celestial_body_index = 0; // 0 -> sun
+constexpr int center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
 
 // Leave order like this
 CelestialBody* celestial_bodies[NUM_CELESTIAL_BODIES] = {&sun, &mercury, &venus, &earth, &mars, &jupiter, &saturn, &uranus, &neptune, &pluto};
 std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
 
 void save_orbit_points() {
+    const Vec3 center_celestial_body = celestial_bodies[center_celestial_body_index]->position;
+
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (steps_simulated % static_cast<int>(celestial_bodies[i]->orbit_sample_every_seconds / TIME_STEP) != 0) continue;
+        if (RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
+            if (i == center_celestial_body_index) continue; // Skip center
+        }
+
+        const int body_sample_steps =
+            static_cast<int>(celestial_bodies[i]->orbit_sample_every_seconds / TIME_STEP);
+
+        const int center_sample_steps =
+            static_cast<int>(celestial_bodies[center_celestial_body_index]->orbit_sample_every_seconds / TIME_STEP);
+
+        const int sample_steps = RENDERING_COORDINATES_RELATIVE_TO_OBJECT
+            ? std::min(body_sample_steps, center_sample_steps)
+            : body_sample_steps;
+
+        if (steps_simulated % sample_steps != 0) continue;
+
         auto& history = orbit_history[i];
 
-        history.push_back(celestial_bodies[i]->position);
+        if (RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
+            history.push_back(celestial_bodies[i]->position - center_celestial_body);
+        } else {
+            history.push_back(celestial_bodies[i]->position);
+        }
 
         if (history.size() > MAX_ORBIT_POINTS) {
             // Delete 5% of MAX_ORBIT_POINTS
@@ -275,8 +299,7 @@ void simulate_step() {
         }
     }
 
-    // TODO: Apparently it's more stable to update velocity before updating the position?
-    // TODO: Why?
+    // TODO: Apparently it's more stable to update velocity before updating the position? Why?
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         celestial_bodies[i]->velocity += accelerations[i] * TIME_STEP;
@@ -434,7 +457,7 @@ void draw_ui() {
 
     DrawText(uiFont, std::format("Step size: {}", TIME_STEP_STRING).c_str(), Vec2(WINDOW_MARGIN + 400, 10), 20, 1, BLACK);
     DrawText(uiFont, std::format("Maximum orbit points used: {}/{}", orbit_points_used, MAX_ORBIT_POINTS).c_str(), Vec2(WINDOW_MARGIN + 400, 30), 20, 1, maximum_orbit_points_used_color);
-    DrawText(uiFont, std::format("Rendering relative to sun: {}", RENDERING_COORDINATES_RELATIVE_TO_SUN).c_str(), Vec2(WINDOW_MARGIN + 400, 50), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index]->name).c_str(), Vec2(WINDOW_MARGIN + 400, 50), 20, 1, BLACK);
     // DrawText(uiFont, std::format("Axis scaling: {}", AXIS_SCALING).c_str(), Vec2(WINDOW_MARGIN + 400, 70), 20, 1, BLACK);
 }
 
@@ -442,13 +465,14 @@ void draw_legend() {
     // Legend
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (const auto& celestial_body = celestial_bodies[i]; celestial_body->color.has_value()) {
-            DrawCircle({WINDOW_WIDTH - WINDOW_MARGIN - 83, static_cast<double>(WINDOW_MARGIN + 22 * i + 10)}, 5, *celestial_body->color);
-            DrawText(uiFont, celestial_body->name.c_str(), Vec2(WINDOW_WIDTH - WINDOW_MARGIN - 75, WINDOW_MARGIN + 22 * i), 20, 1, BLACK);
+            constexpr double font_size = 14;
+            DrawCircle({WINDOW_WIDTH - WINDOW_MARGIN - 83, WINDOW_MARGIN + 16 * i + (font_size / 2)}, 5, *celestial_body->color);
+            DrawText(uiFont, celestial_body->name.c_str(), Vec2(WINDOW_WIDTH - WINDOW_MARGIN - 75, WINDOW_MARGIN + 16 * i), font_size, 1, BLACK);
         }
     }
 
-    DrawLine({WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN}, {WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN + 22 * NUM_CELESTIAL_BODIES + 10}, 2, BLACK);
-    DrawLine({WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN + 22 * NUM_CELESTIAL_BODIES + 10}, {WINDOW_WIDTH - WINDOW_MARGIN, WINDOW_MARGIN + 22 * NUM_CELESTIAL_BODIES + 10}, 2, BLACK);
+    DrawLine({WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN}, {WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN + 16 * NUM_CELESTIAL_BODIES + 10}, 2, BLACK);
+    DrawLine({WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN + 16 * NUM_CELESTIAL_BODIES + 10}, {WINDOW_WIDTH - WINDOW_MARGIN, WINDOW_MARGIN + 16 * NUM_CELESTIAL_BODIES + 10}, 2, BLACK);
 }
 
 void draw_planets() {
@@ -479,7 +503,7 @@ void draw_planets() {
         if (color.has_value()) {
             Vec3 relative_pos = position;
 
-            if (RENDERING_COORDINATES_RELATIVE_TO_SUN) {
+            if (RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
                 relative_pos -= center_celestial_body;
             }
 
@@ -491,45 +515,60 @@ void draw_planets() {
 }
 
 void draw_orbits() {
-    std::array<std::pair<std::vector<Vec3>, std::optional<Color>>, NUM_CELESTIAL_BODIES> snapshots;
+    struct OrbitSnapshot {
+        std::vector<Vec3> points;
+        std::optional<Color> color;
+    };
+
+    std::array<OrbitSnapshot, NUM_CELESTIAL_BODIES> snapshots;
 
     {
         std::lock_guard lock(system_lock);
 
-        for (int i = 0; i < NUM_CELESTIAL_BODIES; i++)
-        {
-            snapshots[i] = {
-                {
-                    orbit_history[i].begin(),
-                    orbit_history[i].end()
-                }, celestial_bodies[i]->color
-            };
+        for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+            if (RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
+                if (i == center_celestial_body_index) continue; // don't draw orbit of that
+            }
+
+            snapshots[i].color = celestial_bodies[i]->color;
+
+            const auto& history = orbit_history[i];
+
+            // history too small or no color -> don't draw
+            if (history.size() < 2 || !snapshots[i].color.has_value()) continue;
+
+            std::size_t stride = 1;
+            if (history.size() > celestial_bodies[i]->max_rendered_orbit_segments_per_body + 1) {
+                stride = history.size() / celestial_bodies[i]->max_rendered_orbit_segments_per_body;
+            }
+
+            snapshots[i].points.reserve(history.size() / stride + 1);
+
+            for (std::size_t j = 0; j < history.size(); j += stride) {
+                snapshots[i].points.push_back(history[j]);
+            }
         }
     }
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        const auto& [points, color] = snapshots[i];
+    for (const auto& [points, color] : snapshots) {
+        if (!color.has_value() || points.size() < 2) continue;
 
-        for (unsigned long long j = 1; j < points.size(); j++) {
-            const auto alpha = static_cast<float>(static_cast<double>(j) * (-0.7 / 5000) + 0.8);
+        const auto segment_count = static_cast<float>(points.size() - 1);
 
-            if (color.has_value()) {
-                Vec3 relative_start = points[j - 1];
-                Vec3 relative_end = points[j];
+        for (std::size_t j = 1; j < points.size(); j++) {
+            const float age = static_cast<float>(j) / segment_count;
+            const float alpha = 0.10f + 0.70f * age;
 
-                if (RENDERING_COORDINATES_RELATIVE_TO_SUN) {
-                    relative_start -= snapshots[0].first[j];
-                    relative_end -= snapshots[0].first[j];
-                }
+            const Vec3 start = points[j - 1];
+            const Vec3 end = points[j];
 
-                if (Vec3::inside_screen(relative_start) && Vec3::inside_screen(relative_end)) {
-                    DrawLineEx(
-                        relative_start.to_raylib(),
-                        relative_end.to_raylib(),
-                        1.5f,
-                        Fade(*color, alpha)
-                    );
-                }
+            if (Vec3::inside_screen(start) && Vec3::inside_screen(end)) {
+                DrawLineEx(
+                    start.to_raylib(),
+                    end.to_raylib(),
+                    1.5f,
+                    Fade(*color, alpha)
+                );
             }
         }
     }
