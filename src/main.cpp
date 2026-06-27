@@ -17,8 +17,6 @@
 #endif
 
 // TODO: Parallel Execution?
-// TODO: Make sure the planets never go over the UI borders?
-// TODO: Not only use colors but sprites? Or more different colors? Update in python script too.
 
 using str = std::string;
 
@@ -70,6 +68,7 @@ constexpr double ZOOM_FACTOR = 1.122462048309373; // n-th root of 10 works great
 constexpr double TIME_STEP = 86'400;
 constexpr str TIME_STEP_STRING = "24 hrs";
 constexpr int MAX_ORBIT_POINTS = 10'000; // => ~2.3 MB RAM for orbit_history
+// TODO: It crashes when MAX_ORBIT_POINTS = 100'000 - WHY?!
 constexpr bool RENDERING_COORDINATES_RELATIVE_TO_SUN = true;
 
 constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
@@ -241,7 +240,9 @@ CelestialBody neptune = {"Neptune", {4.465613570420511e12, 1.599153765150425e11,
 CelestialBody pluto = {"Pluto", {2.947351321346399e12, -4.409737094120408e12, -3.806824198825967e11}, {4.656489570352034e3, 1.788853980502755e3, -1.545806860243079e3}, 1.307e22, 10, (Color){185, 155, 130, 255}, 3'110'400};
 CelestialBody sun   = {"Sun", {0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, (Color){255, 230,  40, 255}, 259'200};
 
-// Always leave sun at index 0 - other code depends on sun.position
+constexpr int center_celestial_body_index = 0; // 0 -> sun
+
+// Leave order like this
 CelestialBody* celestial_bodies[NUM_CELESTIAL_BODIES] = {&sun, &mercury, &venus, &earth, &mars, &jupiter, &saturn, &uranus, &neptune, &pluto};
 std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
 
@@ -472,14 +473,14 @@ void draw_planets() {
         }
     }
 
-    const Vec3 sun_position = snapshots[0].position;
+    const Vec3 center_celestial_body = snapshots[center_celestial_body_index].position;
 
     for (const auto&[position, radius, color] : snapshots) {
         if (color.has_value()) {
             Vec3 relative_pos = position;
 
             if (RENDERING_COORDINATES_RELATIVE_TO_SUN) {
-                relative_pos -= sun_position;
+                relative_pos -= center_celestial_body;
             }
 
             if (Vec3::inside_screen(relative_pos)) {
