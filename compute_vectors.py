@@ -14,15 +14,15 @@ planet_to_horizon_id: dict[str, int] = {
 }
 
 fix_code: dict[str, str] = {
-    "Mercury": "10, BLUE",
-    "Venus": "10, YELLOW",
-    "Earth": "10, BLUE",
-    "Mars": "10, RED",
-    "Jupiter": "10, ORANGE",
-    "Saturn": "10, YELLOW",
-    "Uranus": "10, BLUE",
-    "Neptune": "10, BLUE",
-    "Pluto": "10, BROWN",
+    "Mercury": "5, (Color){150, 150, 150, 255}",
+    "Venus": "5, (Color){245, 190,  70, 255}",
+    "Earth": "5, (Color){ 40, 120, 204, 255}",
+    "Mars": "10, (Color){220,  60,  40, 255}",
+    "Jupiter": "10, (Color){220, 150,  85, 255}",
+    "Saturn": "10, (Color){235, 205, 120, 255}",
+    "Uranus": "10, (Color){ 80, 220, 220, 255}",
+    "Neptune": "10, (Color){ 40,  80, 230, 255}",
+    "Pluto": "10, (Color){185, 155, 130, 255}",
 }
 
 planet_to_code: dict[str, str] = {planet: "" for planet in planet_to_horizon_id.keys()}
@@ -74,7 +74,7 @@ for planet_name, horizon_id in planet_to_horizon_id.items():
     )
 
     planet_to_code[planet_name] = (
-        f"CelestialBody {planet_name.lower()} = {{{{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {mass}, {fix_code[planet_name]}}};"
+        f"CelestialBody {planet_name.lower()} = {{\"{planet_name}\", {{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {mass}, {fix_code[planet_name]}}};"
     )
 
 for planet_name, code_line in planet_to_code.items():
