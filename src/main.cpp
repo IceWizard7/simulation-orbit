@@ -98,7 +98,7 @@ class PausableTimer {
     Clock::duration elapsed{};
 
 public:
-    std::atomic<bool> running = false;
+    std::atomic<bool> running = true;
 
     void pause() {
         if (!running) return;
