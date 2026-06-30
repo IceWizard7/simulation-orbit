@@ -32,6 +32,7 @@
 // TODO: Research question: "?"
 // TODO: Add moons (=> how many?)
 // TODO: On hover over a planet, display it's name + info (and maybe on a click display even more info?)
+// TODO: Create 1 big namespace / class "solar system" or sth => separate stuff even more into different files
 
 #define NUM_CELESTIAL_BODIES 10
 
