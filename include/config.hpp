@@ -1,6 +1,7 @@
 #pragma once
 
 #include "utilities.hpp"
+#include <raylib.h>
 
 namespace config {
     constexpr double ORIGINAL_SCALING = 8e12;
@@ -23,4 +24,14 @@ namespace config {
 
     inline double SCALING = ORIGINAL_SCALING;
     inline double AXIS_SCALING = ORIGINAL_AXIS_SCALING;
+
+    constexpr double WORLD_UNIT_METERS = 1e12;
+
+    constexpr float DEFAULT_CAM_AZIMUTH = 45.0f * DEG2RAD;
+    constexpr float DEFAULT_CAM_ELEVATION = 35.0f * DEG2RAD;
+    constexpr float DEFAULT_CAM_DISTANCE = 15.0f;
+    constexpr bool DEFAULT_VIEW_3D = false;
+
+    constexpr float DRAG_SENSITIVITY = 0.01;
+    constexpr float ZOOM_3D_FACTOR = 1.0717734625362931;
 }
