@@ -15,9 +15,11 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(raylib)
 
-
 add_executable(simulation-orbit
-        src/main.cpp)
+        src/main.cpp
+)
+
+target_include_directories(simulation-orbit PRIVATE include)
 
 target_link_libraries(simulation-orbit PRIVATE raylib)
 

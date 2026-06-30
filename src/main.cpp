@@ -18,6 +18,11 @@
 #include <emscripten.h>
 #endif
 
+#include "config.hpp"
+#include "screen_utils.hpp"
+#include "timer.hpp"
+#include "vectors.hpp"
+
 // TODO: Parallel Execution?
 // TODO: 3d
 // TODO: Real 3d textures
@@ -26,8 +31,7 @@
 // TODO: Topic: ""
 // TODO: Research question: "?"
 // TODO: Add moons (=> how many?)
-
-using str = std::string;
+// TODO: On hover over a planet, display it's name + info (and maybe on a click display even more info?)
 
 #define NUM_CELESTIAL_BODIES 10
 
@@ -41,7 +45,7 @@ str to_power_of10(const double x) {
             ? std::to_string(static_cast<long long>(std::round(mantissa)))
             : std::to_string(mantissa);
 
-    if (std::fabs(mantissa - 1.0) < 1e-9) return "10^" + std::to_string(exponent);
+    if (std::fabs(mantissa - 1.0) < 1e-7) return "10^" + std::to_string(exponent);
 
     return mantissaStr + " x 10^" + std::to_string(exponent);
 }
@@ -71,27 +75,6 @@ str round_to_hundreds(const double x) {
     return result;
 }
 
-constexpr double ORIGINAL_SCALING = 2e12;
-constexpr double ORIGINAL_AXIS_SCALING = 2;
-constexpr double ZOOM_FACTOR = 1.0717734625362931; // n-th root of 10 works, because then ZOOM_FACTOR**n = 10 => near perfect zoom cycle
-constexpr double TIME_STEP = 86'400;
-constexpr int TARGET_SIMULATION_SPEED = 10; // simulated seconds per second; -1 for infinite
-constexpr str TIME_STEP_STRING = "24 hrs";
-constexpr int MAX_ORBIT_POINTS = 100'000; // => ~22.9 MiB RAM for orbit_history
-constexpr int ORBIT_SAMPLE_EVERY_SECONDS = 259'200;
-constexpr bool RENDERING_COORDINATES_RELATIVE_TO_OBJECT = true;
-
-constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
-
-constexpr int WINDOW_HEIGHT = 900;
-constexpr int WINDOW_WIDTH = 900;
-
-constexpr int GRID_SPACING = 90;
-constexpr int WINDOW_MARGIN = 1 * GRID_SPACING;
-
-double SCALING = ORIGINAL_SCALING;
-double AXIS_SCALING = ORIGINAL_AXIS_SCALING;
-
 constexpr int TARGET_FPS = 60;
 
 std::atomic<std::size_t> steps_simulated = 0;
@@ -99,140 +82,7 @@ std::atomic center_celestial_body_changed = false;
 
 Font uiFont;
 
-class PausableTimer {
-    using Clock = std::chrono::steady_clock;
-
-    Clock::time_point last_start = Clock::now();
-    Clock::duration elapsed{};
-
-public:
-    std::atomic<bool> running = true;
-
-    void pause() {
-        if (!running) return;
-
-        elapsed += Clock::now() - last_start;
-        running = false;
-    }
-
-    void resume() {
-        if (running) return;
-        last_start = Clock::now();
-        running = true;
-    }
-
-    void resume_or_pause() {
-        if (running) pause();
-        else resume();
-    }
-
-    double seconds() const {
-        auto total = elapsed;
-
-        if (running) total += Clock::now() - last_start;
-
-        return std::chrono::duration<double>(total).count();
-    }
-};
-
 PausableTimer timer;
-
-class Vec2 {
-public:
-    double x = 0.0;
-    double y = 0.0;
-
-    Vec2() = default;
-    Vec2(const double x, const double y) : x(x), y(y) {}
-
-    [[nodiscard]] Vector2 to_raylib() const {
-        // x in interval [0, WINDOW_WIDTH]
-        // y in interval [0, WINDOW_HEIGHT]
-
-        return {
-            WINDOW_MARGIN + static_cast<float>((x / SCALING) / 2.0 + 0.5) * (WINDOW_WIDTH - 2 * WINDOW_MARGIN),
-            WINDOW_MARGIN + static_cast<float>((y / SCALING) / 2.0 + 0.5) * (WINDOW_HEIGHT - 2 * WINDOW_MARGIN)
-        };
-    }
-
-    [[nodiscard]] bool within_region(const Vec2 &a, const Vec2 &b, const float margin) const {
-        auto [rx, ry] = to_raylib();
-
-        return std::min(a.x - margin, b.x - margin) <= rx && rx <= std::max(a.x + margin, b.x + margin) &&
-           std::min(a.y - margin, b.y - margin) <= ry && ry <= std::max(a.y + margin, b.y + margin);
-    }
-};
-
-
-class Vec3 {
-public:
-    double x = 0.0;
-    double y = 0.0;
-    double z = 0.0;
-
-    Vec3() = default;
-    Vec3(const double x, const double y, const double z) : x(x), y(y), z(z) {}
-
-    Vec3 operator+(const Vec3 &v) const {
-        return {x + v.x, y + v.y, z + v.z};
-    }
-
-    Vec3 operator-(const Vec3 &v) const {
-        return {x - v.x, y - v.y, z - v.z};
-    }
-
-    Vec3 operator*(const double step) const {
-        return {x * step, y * step, z * step};
-    }
-
-    Vec3 operator/(const double step) const {
-        return {x / step, y / step, z / step};
-    }
-
-    Vec3 &operator+=(const Vec3 & v) {
-        x += v.x;
-        y += v.y;
-        z += v.z;
-        return *this;
-    }
-
-    Vec3 &operator-=(const Vec3 & v) {
-        x -= v.x;
-        y -= v.y;
-        z -= v.z;
-        return *this;
-    }
-
-    [[nodiscard]] double length() const {
-        return sqrt(x * x + y * y + z * z);
-    }
-
-    [[nodiscard]] str to_string() const {
-        return "[" + std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z) + "]";
-    }
-
-    [[nodiscard]] Vector2 to_raylib() const {
-        // x in interval [0, WINDOW_WIDTH]
-        // y in interval [0, WINDOW_HEIGHT]
-
-        return {
-            WINDOW_MARGIN + static_cast<float>((x / SCALING) / 2.0 + 0.5) * (WINDOW_WIDTH - 2 * WINDOW_MARGIN),
-            WINDOW_MARGIN + static_cast<float>((y / SCALING) / 2.0 + 0.5) * (WINDOW_HEIGHT - 2 * WINDOW_MARGIN)
-        };
-    }
-
-    static bool inside_screen(const Vec3 &vec3) {
-        auto [x, y] = vec3.to_raylib();
-
-        return (WINDOW_MARGIN <= x && x <= WINDOW_WIDTH - WINDOW_MARGIN
-            && WINDOW_MARGIN <= y && y <= WINDOW_HEIGHT - WINDOW_MARGIN
-        );
-    }
-
-    [[nodiscard]] Vec2 to_vec2() const {
-        return {x, y};
-    }
-};
 
 class CelestialBody {
 public:
@@ -256,7 +106,7 @@ public:
         const double distance = distance_to(source);
 
         // -(G * M / r^3) * offset
-        return offset * (-GRAVITATIONAL_CONSTANT * source.mass
+        return offset * (-config::GRAVITATIONAL_CONSTANT * source.mass
             / (distance * distance * distance));
     }
 };
@@ -298,13 +148,13 @@ std::shared_ptr<const RenderSnapshot> latest_snapshot; // produced by simulation
 
 void save_orbit_points() {
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (steps_simulated % static_cast<int>(ORBIT_SAMPLE_EVERY_SECONDS / TIME_STEP) != 0) continue;
+        if (steps_simulated % static_cast<int>(config::ORBIT_SAMPLE_EVERY_SECONDS / config::TIME_STEP) != 0) continue;
 
         auto& history = orbit_history[i];
 
         history.push_back(celestial_bodies[i]->position);
 
-        if (history.size() > MAX_ORBIT_POINTS) {
+        if (history.size() > config::MAX_ORBIT_POINTS) {
             history.pop_front();
         }
     }
@@ -323,11 +173,11 @@ void simulate_step() {
     // TODO: Apparently it's more stable to update velocity before updating the position? Why?
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        celestial_bodies[i]->velocity += accelerations[i] * TIME_STEP;
+        celestial_bodies[i]->velocity += accelerations[i] * config::TIME_STEP;
     }
 
     for (auto& celestial_body : celestial_bodies) {
-        celestial_body->position += celestial_body->velocity * TIME_STEP;
+        celestial_body->position += celestial_body->velocity * config::TIME_STEP;
     }
 
     ++steps_simulated;
@@ -348,7 +198,7 @@ void publish_snapshot() {
         const auto& body = *celestial_bodies[i];
 
         Vec3 pos = body.position;
-        if (RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
+        if (config::RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
             pos -= center;
         }
         snap->bodies[i] = {pos, body.draw_radius, body.color};
@@ -357,7 +207,9 @@ void publish_snapshot() {
         max_used = std::max(max_used, history.size());
 
         // Don't include center in snapshot
-        if (RENDERING_COORDINATES_RELATIVE_TO_OBJECT && i == center_celestial_body_index) continue;
+        if constexpr (config::RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
+            if (i == center_celestial_body_index) continue;
+        }
         if (history.size() < 2 || !body.color.has_value()) continue;
 
         snap->orbits[i].color = body.color;
@@ -392,7 +244,7 @@ void simulate_cpu(const std::stop_token& stop_token) {
     std::size_t since_check = 0;
 
     while (!stop_token.stop_requested()) {
-        if (timer.running) {
+        if (timer.is_running()) {
             simulate_step();
 
             // check the clock only every few thousand steps so steady_clock::now() doesn't dominate the loop
@@ -408,8 +260,8 @@ void simulate_cpu(const std::stop_token& stop_token) {
                 }
             }
 
-            if constexpr (TARGET_SIMULATION_SPEED > 0) {
-                const double time_simulated = (TIME_STEP) * steps_simulated;
+            if constexpr (config::TARGET_SIMULATION_SPEED > 0) {
+                const double time_simulated = (config::TIME_STEP) * steps_simulated;
                 const double real_time = timer.seconds();
                 std::this_thread::sleep_for(std::chrono::milliseconds());
             }
@@ -460,30 +312,30 @@ void DrawLine(const Vec2& start_pos, const Vec2& end_pos, const float thick, con
 }
 
 void draw_ui(const std::shared_ptr<const RenderSnapshot>& snap) {
-    constexpr int horizontal_lines = (WINDOW_HEIGHT - 2 * WINDOW_MARGIN) / GRID_SPACING + 1;
-    constexpr int vertical_lines = (WINDOW_WIDTH - 2 * WINDOW_MARGIN) / GRID_SPACING + 1;
+    constexpr int horizontal_lines = (config::WINDOW_HEIGHT - 2 * config::WINDOW_MARGIN) / config::GRID_SPACING + 1;
+    constexpr int vertical_lines = (config::WINDOW_WIDTH - 2 * config::WINDOW_MARGIN) / config::GRID_SPACING + 1;
 
-    const str SCALING_STRING = to_power_of10(SCALING / AXIS_SCALING);
+    const str SCALING_STRING = to_power_of10(config::SCALING / config::AXIS_SCALING);
 
     // Grid, axis & labels
-    for (int x = WINDOW_MARGIN; x <= WINDOW_WIDTH - WINDOW_MARGIN; x += static_cast<int>(GRID_SPACING)) {
+    for (int x = config::WINDOW_MARGIN; x <= config::WINDOW_WIDTH - config::WINDOW_MARGIN; x += static_cast<int>(config::GRID_SPACING)) {
         float thick = 1.5;
         Color color = Fade(DARKGRAY, 0.35f);
-        if (x == WINDOW_MARGIN || x == WINDOW_WIDTH - WINDOW_MARGIN) {
+        if (x == config::WINDOW_MARGIN || x == config::WINDOW_WIDTH - config::WINDOW_MARGIN) {
             thick = 2;
             color = BLACK;
         }
         DrawLine(
-            Vec2(x, WINDOW_MARGIN),
-            Vec2(x, WINDOW_HEIGHT - WINDOW_MARGIN),
+            Vec2(x, config::WINDOW_MARGIN),
+            Vec2(x, config::WINDOW_HEIGHT - config::WINDOW_MARGIN),
             thick,
             color
         );
-        if (x != WINDOW_WIDTH - WINDOW_MARGIN && x != WINDOW_MARGIN) {
+        if (x != config::WINDOW_WIDTH - config::WINDOW_MARGIN && x != config::WINDOW_MARGIN) {
             DrawTextCenteredEx(
                 uiFont,
-                round_to_hundreds(((static_cast<double>(x) / GRID_SPACING) - static_cast<double>(vertical_lines) / 2 - 0.5) * AXIS_SCALING / static_cast<int>(vertical_lines / 2)).c_str(),
-                {static_cast<double>(x), static_cast<double>(WINDOW_HEIGHT - WINDOW_MARGIN + 25)},
+                round_to_hundreds(((static_cast<double>(x) / config::GRID_SPACING) - static_cast<double>(vertical_lines) / 2 - 0.5) * config::AXIS_SCALING / static_cast<int>(vertical_lines / 2)).c_str(),
+                {static_cast<double>(x), static_cast<double>(config::WINDOW_HEIGHT - config::WINDOW_MARGIN + 25)},
                 315,
                 24,
                 1,
@@ -492,25 +344,25 @@ void draw_ui(const std::shared_ptr<const RenderSnapshot>& snap) {
         }
     }
 
-    for (int y = WINDOW_MARGIN; y <= WINDOW_HEIGHT - WINDOW_MARGIN; y += static_cast<int>(GRID_SPACING)) {
+    for (int y = config::WINDOW_MARGIN; y <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN; y += static_cast<int>(config::GRID_SPACING)) {
         float thick = 1.5;
         Color color = Fade(DARKGRAY, 0.35f);
-        if (y == WINDOW_MARGIN || y == WINDOW_HEIGHT - WINDOW_MARGIN) {
+        if (y == config::WINDOW_MARGIN || y == config::WINDOW_HEIGHT - config::WINDOW_MARGIN) {
             thick = 2;
             color = BLACK;
         }
 
         DrawLine(
-            Vec2(WINDOW_MARGIN, y),
-            Vec2(WINDOW_WIDTH - WINDOW_MARGIN, y),
+            Vec2(config::WINDOW_MARGIN, y),
+            Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN, y),
             thick,
             color
         );
-        if (y != WINDOW_WIDTH - WINDOW_MARGIN && y != WINDOW_MARGIN) {
+        if (y != config::WINDOW_WIDTH - config::WINDOW_MARGIN && y != config::WINDOW_MARGIN) {
             DrawTextCenteredEx(
                 uiFont,
-                round_to_hundreds(((static_cast<double>(y) / GRID_SPACING) - static_cast<double>(horizontal_lines) / 2 - 0.5) * AXIS_SCALING / static_cast<int>(horizontal_lines / 2)).c_str(),
-                {static_cast<double>(WINDOW_MARGIN - 25), static_cast<double>(y)},
+                round_to_hundreds(((static_cast<double>(y) / config::GRID_SPACING) - static_cast<double>(horizontal_lines) / 2 - 0.5) * config::AXIS_SCALING / static_cast<int>(horizontal_lines / 2)).c_str(),
+                {static_cast<double>(config::WINDOW_MARGIN - 25), static_cast<double>(y)},
                 315,
                 24,
                 1,
@@ -522,7 +374,7 @@ void draw_ui(const std::shared_ptr<const RenderSnapshot>& snap) {
     DrawTextCenteredEx(
         uiFont,
         std::format("Y Position ({} m)", SCALING_STRING).c_str(),
-        {static_cast<double>(WINDOW_MARGIN) / 2 - 15, static_cast<double>(WINDOW_HEIGHT) / 2},
+        {static_cast<double>(config::WINDOW_MARGIN) / 2 - 15, static_cast<double>(config::WINDOW_HEIGHT) / 2},
         -90.0f,
         24,
         1,
@@ -532,7 +384,7 @@ void draw_ui(const std::shared_ptr<const RenderSnapshot>& snap) {
     DrawTextCenteredEx(
         uiFont,
         std::format("X Position ({} m)", SCALING_STRING).c_str(),
-        {static_cast<double>(WINDOW_WIDTH) / 2, WINDOW_HEIGHT - static_cast<double>(WINDOW_MARGIN) / 2 + 15},
+        {static_cast<double>(config::WINDOW_WIDTH) / 2, config::WINDOW_HEIGHT - static_cast<double>(config::WINDOW_MARGIN) / 2 + 15},
         0,
         24,
         1,
@@ -540,48 +392,41 @@ void draw_ui(const std::shared_ptr<const RenderSnapshot>& snap) {
     );
 
     // Left side
-    DrawText(uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))).c_str(), Vec2(WINDOW_MARGIN, 10), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Computation time: {} seconds", round_to_hundreds(timer.seconds())).c_str(), Vec2(WINDOW_MARGIN, 30), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Simulated years per second: {}", round_to_hundreds(std::ceil(((static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365))) / timer.seconds()))).c_str(), Vec2(WINDOW_MARGIN, 50), 20, 1, BLACK);
-
-    // TODO: This is an average of the entire simulation
-    // It would be way cooler if it was the average of the last second, right?
+    DrawText(uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))).c_str(), Vec2(config::WINDOW_MARGIN, 10), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Computation time: {} seconds", round_to_hundreds(timer.seconds())).c_str(), Vec2(config::WINDOW_MARGIN, 30), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Step size: {}", config::TIME_STEP_STRING).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, BLACK);
 
     // Right side
-    const std::size_t orbit_points_used = snap ? snap->max_orbit_points_used : 0;
-
-    DrawText(uiFont, std::format("Step size: {}", TIME_STEP_STRING).c_str(), Vec2(WINDOW_MARGIN + 400, 10), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Maximum orbit points used: {}/{}", orbit_points_used, MAX_ORBIT_POINTS).c_str(), Vec2(WINDOW_MARGIN + 400, 30), 20, 1, BLACK);
-    DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index]->name).c_str(), Vec2(WINDOW_MARGIN + 400, 50), 20, 1, BLACK);
-    // DrawText(uiFont, std::format("Axis scaling: {}", AXIS_SCALING).c_str(), Vec2(WINDOW_MARGIN + 400, 70), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Simulated years per second: {}", round_to_hundreds(std::ceil(((static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))) / timer.seconds()))).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index]->name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, BLACK);
 }
 
-// Returns top right and bottom left corner
 void draw_legend() {
     // Legend
 
-    const Vec2 start = {WINDOW_WIDTH - WINDOW_MARGIN, WINDOW_MARGIN};
-    const Vec2 end = {WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN + 16 * NUM_CELESTIAL_BODIES + 10};
+    constexpr double font_size = 16;
+    constexpr double spacing = font_size + 2;
+    const Vec2 start = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN};
+    const Vec2 end = {config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES};
 
     DrawRectangle(start, end, WHITE);
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (const auto& celestial_body = celestial_bodies[i]; celestial_body->color.has_value()) {
-            constexpr double font_size = 14;
-            DrawCircle({WINDOW_WIDTH - WINDOW_MARGIN - 83, WINDOW_MARGIN + 16 * i + (font_size / 2)}, 5, *celestial_body->color);
-            DrawText(uiFont, celestial_body->name.c_str(), Vec2(WINDOW_WIDTH - WINDOW_MARGIN - 75, WINDOW_MARGIN + 16 * i), font_size, 1, BLACK);
+            DrawCircle({config::WINDOW_WIDTH - config::WINDOW_MARGIN - 83, config::WINDOW_MARGIN + spacing * i + (font_size / 2)}, 5, *celestial_body->color);
+            DrawText(uiFont, celestial_body->name.c_str(), Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN - 75, config::WINDOW_MARGIN + spacing * i), font_size, 1, BLACK);
         }
     }
 
-    DrawLine({WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN}, {WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN + 16 * NUM_CELESTIAL_BODIES + 10}, 2, BLACK);
-    DrawLine({WINDOW_WIDTH - GRID_SPACING - WINDOW_MARGIN, WINDOW_MARGIN + 16 * NUM_CELESTIAL_BODIES + 10}, {WINDOW_WIDTH - WINDOW_MARGIN, WINDOW_MARGIN + 16 * NUM_CELESTIAL_BODIES + 10}, 2, BLACK);
+    DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, 2, BLACK);
+    DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, 2, BLACK);
 }
 
 void draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
     // snap->bodies positions are already relative to the center body (see publish_snapshot)
     for (const auto& [position, radius, color] : snap->bodies) {
-        if (color.has_value() && Vec3::inside_screen(position)) {
-            DrawCircleV(position.to_raylib(), radius, *color);
+        if (color.has_value() && inside_screen(position)) {
+            DrawCircleV(to_raylib(position), radius, *color);
         }
     }
 }
@@ -599,10 +444,10 @@ void draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
             const Vec3 start = points[j - 1];
             const Vec3 end = points[j];
 
-            if (Vec3::inside_screen(start) && Vec3::inside_screen(end)) {
+            if (inside_screen(start) && inside_screen(end)) {
                 DrawLineEx(
-                    start.to_raylib(),
-                    end.to_raylib(),
+                    to_raylib(start),
+                    to_raylib(end),
                     1.5f,
                     Fade(*color, alpha)
                 );
@@ -639,26 +484,26 @@ void UpdateDrawFrame() {
     **/
 
     const float scroll = GetMouseWheelMove();
-    const double zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (ZOOM_FACTOR*ZOOM_FACTOR) : ZOOM_FACTOR;
+    const double zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_FACTOR*config::ZOOM_FACTOR) : config::ZOOM_FACTOR;
     if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
         // scrolled up (=> in)
-        if (AXIS_SCALING / zoom_factor < 4.0/3) {
-            AXIS_SCALING *= 10;
-            AXIS_SCALING /= zoom_factor;
-            SCALING /= zoom_factor;
+        if (config::AXIS_SCALING / zoom_factor < 4.0/3) {
+            config::AXIS_SCALING *= 10;
+            config::AXIS_SCALING /= zoom_factor;
+            config::SCALING /= zoom_factor;
         } else {
-            AXIS_SCALING /= zoom_factor;
-            SCALING /= zoom_factor;
+            config::AXIS_SCALING /= zoom_factor;
+            config::SCALING /= zoom_factor;
         }
     } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
         // scrolled down (=> out)
-        if (AXIS_SCALING * zoom_factor > 10 * 4.0/3) {
-            AXIS_SCALING /= 10;
-            AXIS_SCALING *= zoom_factor;
-            SCALING *= zoom_factor;
+        if (config::AXIS_SCALING * zoom_factor > 10 * 4.0/3) {
+            config::AXIS_SCALING /= 10;
+            config::AXIS_SCALING *= zoom_factor;
+            config::SCALING *= zoom_factor;
         } else {
-            AXIS_SCALING *= zoom_factor;
-            SCALING *= zoom_factor;
+            config::AXIS_SCALING *= zoom_factor;
+            config::SCALING *= zoom_factor;
         }
     }
 
@@ -681,8 +526,8 @@ void UpdateDrawFrame() {
     }
 
     if (IsKeyPressed(KEY_R)) {
-        SCALING = ORIGINAL_SCALING;
-        AXIS_SCALING = ORIGINAL_AXIS_SCALING;
+        config::SCALING = config::ORIGINAL_SCALING;
+        config::AXIS_SCALING = config::ORIGINAL_AXIS_SCALING;
     }
 
     if (IsKeyPressed(KEY_SPACE)) {
@@ -698,19 +543,19 @@ void UpdateDrawFrame() {
     BeginDrawing();
     ClearBackground(WHITE);
 
-    draw_ui(snap);
     if (snap) {
         draw_orbits(snap);
         draw_planets(snap);
     }
     draw_legend();
+    draw_ui(snap);
 
     EndDrawing();
 }
 
 int main() {
     SetConfigFlags(FLAG_WINDOW_HIGHDPI);
-    InitWindow(WINDOW_WIDTH, WINDOW_HEIGHT, "Umlaufbahn Simulation");
+    InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "Umlaufbahn Simulation");
     SetTargetFPS(TARGET_FPS);
 
     std::jthread cpu_thread(simulate_cpu);
@@ -740,9 +585,9 @@ int main() {
     UnloadFont(uiFont);
     CloseWindow();
     printf("\n");
-    printf("Simulation time: %.2f years\n", (static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365)));
+    printf("Simulation time: %.2f years\n", (static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365)));
     printf("Computation time: %.2f seconds\n", timer.seconds());
-    printf("Simulated years per second: %.2f\n", (static_cast<double>(steps_simulated) * TIME_STEP / (86'400 * 365)) / timer.seconds());
+    printf("Simulated years per second: %.2f\n", (static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365)) / timer.seconds());
 
     return 0;
 }
