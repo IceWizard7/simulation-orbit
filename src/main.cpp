@@ -260,12 +260,6 @@ void simulate_cpu(const std::stop_token& stop_token) {
                     last_publish = now;
                 }
             }
-
-            if constexpr (config::TARGET_SIMULATION_SPEED > 0) {
-                const double time_simulated = (config::TIME_STEP) * steps_simulated;
-                const double real_time = timer.seconds();
-                std::this_thread::sleep_for(std::chrono::milliseconds());
-            }
         } else {
             if (center_celestial_body_changed) {
                 publish_snapshot();
@@ -398,7 +392,7 @@ void draw_ui(const std::shared_ptr<const RenderSnapshot>& snap) {
     DrawText(uiFont, std::format("Step size: {}", config::TIME_STEP_STRING).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, BLACK);
 
     // Right side
-    DrawText(uiFont, std::format("Simulated years per second: {}", round_to_hundreds(std::ceil(((static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))) / timer.seconds()))).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Simulated years per second: {}", round_to_hundreds(((static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))) / timer.seconds())).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, BLACK);
     DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index]->name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, BLACK);
 }
 

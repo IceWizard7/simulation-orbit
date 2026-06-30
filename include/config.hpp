@@ -8,7 +8,6 @@ namespace config {
 
     constexpr double ZOOM_FACTOR = 1.0717734625362931; // n-th root of 10 works, because then ZOOM_FACTOR**n = 10 => near perfect zoom cycle
     constexpr double TIME_STEP = 86'400;
-    constexpr int TARGET_SIMULATION_SPEED = 10; // simulated seconds per second; -1 for infinite
     constexpr str TIME_STEP_STRING = "24 hrs";
     constexpr int MAX_ORBIT_POINTS = 100'000; // => ~22.9 MiB RAM for orbit_history
     constexpr int ORBIT_SAMPLE_EVERY_SECONDS = 259'200;
