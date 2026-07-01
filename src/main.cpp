@@ -3,13 +3,13 @@
 #include <atomic>
 #include <barrier>
 #include <chrono>
-#include <cmath>
 #include <deque>
 #include <format>
 #include <memory>
 #include <mutex>
 #include <optional>
 #include <raylib.h>
+#include <rlgl.h>
 #include <stop_token>
 #include <thread>
 #include <utility>
@@ -27,7 +27,6 @@
 #include "vectors.hpp"
 
 // TODO: Parallel Execution?
-// TODO: 3d
 // TODO: Real 3d textures
 // TODO: Calculate how much "error" there is compared to real NASA data
 // TODO: (=>) Analyze which forces we can skip calculating (or calculate ex. every 1000 steps) to reach certain accuracy
@@ -79,14 +78,20 @@ str round_to_hundreds(const double x) {
     return result;
 }
 
-constexpr int TARGET_FPS = 60;
-
 std::atomic<std::size_t> steps_simulated = 0;
 std::atomic center_celestial_body_changed = false;
 
 Font uiFont;
-
 PausableTimer timer;
+
+double simulated_years() {
+    return static_cast<double>(steps_simulated.load()) * config::TIME_STEP / config::SECONDS_PER_YEAR;
+}
+
+double measured_simulation_speed() {
+    const double seconds = timer.seconds();
+    return seconds > 0.0 ? simulated_years() / seconds : 0.0;
+}
 
 class CelestialBody {
 public:
@@ -116,16 +121,16 @@ public:
     }
 };
 
-CelestialBody mercury = {"Mercury", {-3.229439434041441e10, -6.212384097453145e10, -2.058972617997836e9}, {3.337844168997828e4, -2.019057755964253e4, -4.710888632749314e3}, 3.302e23, 5, 0.05, (Color){150, 150, 150, 255}, 40'000, 1'000};
-CelestialBody venus = {"Venus", {-1.019802701272269e11, -3.651886112603541e10, 5.393515277422819e9}, {1.137949480576350e4, -3.319873100002852e4, -1.112329309713790e3}, 48.685e23, 5, 0.05, (Color){245, 190,  70, 255}, 30'000, 10'000};
-CelestialBody earth = {"Earth", {1.051110894240638e10, -1.524721760044149e11, 2.551204317737371e7}, {2.923284130475473e4, 2.012304925857257e3, -2.997543950911119e-1}, 5.97219e24, 5, 0.05, (Color){ 40, 120, 204, 255}, 20'000, 10'000};
-CelestialBody mars = {"Mars", {1.804158291514496e11, 1.155212196101544e11, -1.976959322734013e9}, {-1.217743703266605e4, 2.244555151648691e4, 7.689594977117213e2}, 6.4171e23, 10, 0.05, (Color){220,  60,  40, 255}, 15'000, 10'000};
-CelestialBody jupiter = {"Jupiter", {-4.339909949222860e11, 6.583216063749719e11, 6.981808430314541e9}, {-1.106477669156617e4, -6.573232170198393e3, 2.749669443388072e2}, 18.9819e26, 10, 0.25, (Color){220, 150,  85, 255}, 4'000, 10'000};
-CelestialBody saturn = {"Saturn", {1.402238236376539e12, 1.837816450614337e11, -5.902702510104157e10}, {-1.786665911022244e3, 9.555444950590967e3, -9.444982300526794e1}, 5.6834e26, 10, 0.25, (Color){235, 205, 120, 255}, 4'000, 50'000};
-CelestialBody uranus = {"Uranus", {1.386689779015193e12, 2.558518371479970e12, -8.462715242429852e9}, {-6.037314354491155e3, 2.927562363958545e3, 8.916577001311432e1}, 86.813e24, 10, 0.25, (Color){ 80, 220, 220, 255}, 4'000, 50'000};
-CelestialBody neptune = {"Neptune", {4.465613570420511e12, 1.599153765150425e11, -1.062078323030064e11}, {-2.302777319654876e2, 5.463337689178736e3, -1.078268539063705e2}, 102.409e24, 10, 0.25, (Color){ 40,  80, 230, 255}, 4'000, 50'000};
-CelestialBody pluto = {"Pluto", {2.947351321346399e12, -4.409737094120408e12, -3.806824198825967e11}, {4.656489570352034e3, 1.788853980502755e3, -1.545806860243079e3}, 1.307e22, 10, 0.25, (Color){185, 155, 130, 255}, 4'000, 100'000};
-CelestialBody sun   = {"Sun", {0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, 0.05, (Color){255, 230,  40, 255}, 30'000, 100'000};
+CelestialBody mercury = {"Mercury", {-3.229439434041441e10, -6.212384097453145e10, -2.058972617997836e9}, {3.337844168997828e4, -2.019057755964253e4, -4.710888632749314e3}, 3.302e23, 5, 0.01, (Color){150, 150, 150, 255}, 40'000, 1'000};
+CelestialBody venus = {"Venus", {-1.019802701272269e11, -3.651886112603541e10, 5.393515277422819e9}, {1.137949480576350e4, -3.319873100002852e4, -1.112329309713790e3}, 48.685e23, 5, 0.01, (Color){245, 190,  70, 255}, 30'000, 10'000};
+CelestialBody earth = {"Earth", {1.051110894240638e10, -1.524721760044149e11, 2.551204317737371e7}, {2.923284130475473e4, 2.012304925857257e3, -2.997543950911119e-1}, 5.97219e24, 5, 0.01, (Color){ 40, 120, 204, 255}, 20'000, 10'000};
+CelestialBody mars = {"Mars", {1.804158291514496e11, 1.155212196101544e11, -1.976959322734013e9}, {-1.217743703266605e4, 2.244555151648691e4, 7.689594977117213e2}, 6.4171e23, 10, 0.02, (Color){220,  60,  40, 255}, 15'000, 10'000};
+CelestialBody jupiter = {"Jupiter", {-4.339909949222860e11, 6.583216063749719e11, 6.981808430314541e9}, {-1.106477669156617e4, -6.573232170198393e3, 2.749669443388072e2}, 18.9819e26, 10, 0.15, (Color){220, 150,  85, 255}, 4'000, 10'000};
+CelestialBody saturn = {"Saturn", {1.402238236376539e12, 1.837816450614337e11, -5.902702510104157e10}, {-1.786665911022244e3, 9.555444950590967e3, -9.444982300526794e1}, 5.6834e26, 10, 0.15, (Color){235, 205, 120, 255}, 4'000, 50'000};
+CelestialBody uranus = {"Uranus", {1.386689779015193e12, 2.558518371479970e12, -8.462715242429852e9}, {-6.037314354491155e3, 2.927562363958545e3, 8.916577001311432e1}, 86.813e24, 10, 0.15, (Color){ 80, 220, 220, 255}, 4'000, 50'000};
+CelestialBody neptune = {"Neptune", {4.465613570420511e12, 1.599153765150425e11, -1.062078323030064e11}, {-2.302777319654876e2, 5.463337689178736e3, -1.078268539063705e2}, 102.409e24, 10, 0.15, (Color){ 40,  80, 230, 255}, 4'000, 50'000};
+CelestialBody pluto = {"Pluto", {2.947351321346399e12, -4.409737094120408e12, -3.806824198825967e11}, {4.656489570352034e3, 1.788853980502755e3, -1.545806860243079e3}, 1.307e22, 10, 0.15, (Color){185, 155, 130, 255}, 4'000, 100'000};
+CelestialBody sun   = {"Sun", {0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, 0.03, (Color){255, 230,  40, 255}, 30'000, 100'000};
 
 int center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
 
@@ -245,32 +250,81 @@ void publish_snapshot() {
 }
 
 void simulate_cpu(const std::stop_token& stop_token) {
+    constexpr std::size_t MAX_STEPS_PER_BATCH = 4096;
+    constexpr double MAX_CATCH_UP_SECONDS = 0.25;
+
     auto last_publish = std::chrono::steady_clock::now();
+    auto last_budget_update = std::chrono::steady_clock::now();
+    double step_budget = 0.0;
     std::size_t since_check = 0;
 
+    auto publish_if_due = [&] {
+        const auto now = std::chrono::steady_clock::now();
+        if (now - last_publish >= std::chrono::milliseconds(1000 / (config::TARGET_FPS * 2))) {
+            publish_snapshot();
+            last_publish = now;
+        }
+    };
+
     while (!stop_token.stop_requested()) {
-        if (timer.is_running()) {
-            simulate_step();
+        if (!timer.is_running()) {
+            step_budget = 0.0;
+            last_budget_update = std::chrono::steady_clock::now();
 
-            // check the clock only every few thousand steps so steady_clock::now() doesn't dominate the loop
-            since_check++;
-            if (since_check >= 4096) {
-                since_check = 0;
-                const auto now = std::chrono::steady_clock::now();
-
-                // publish a snapshot at twice the refresh rate
-                if (now - last_publish >= std::chrono::milliseconds(1000 / (TARGET_FPS * 2))) {
-                    publish_snapshot();
-                    last_publish = now;
-                }
-            }
-        } else {
             if (center_celestial_body_changed) {
                 publish_snapshot();
                 center_celestial_body_changed = false;
             }
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000 / TARGET_FPS));
+
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000 / config::TARGET_FPS));
+            continue;
         }
+
+        if constexpr (config::TARGET_SIMULATION_SPEED <= 0.0) {
+            simulate_step();
+
+            if (++since_check >= MAX_STEPS_PER_BATCH) {
+                since_check = 0;
+                publish_if_due();
+            }
+
+            continue;
+        }
+
+        const auto now = std::chrono::steady_clock::now();
+        const double elapsed = std::chrono::duration<double>(now - last_budget_update).count();
+        last_budget_update = now;
+
+        constexpr double max_budget = std::max(
+            1.0,
+            config::TARGET_STEPS_PER_SECOND * MAX_CATCH_UP_SECONDS
+        );
+
+        step_budget = std::min(
+            step_budget + elapsed * config::TARGET_STEPS_PER_SECOND,
+            max_budget
+        );
+
+        const auto steps_to_run = static_cast<std::size_t>(
+            std::min(step_budget, static_cast<double>(MAX_STEPS_PER_BATCH))
+        );
+
+        if (steps_to_run == 0) {
+            const double seconds_to_next_step =
+                (1.0 - step_budget) / config::TARGET_STEPS_PER_SECOND;
+
+            std::this_thread::sleep_for(std::chrono::duration<double>(
+                std::min(seconds_to_next_step, 1.0 / config::TARGET_FPS)
+            ));
+            continue;
+        }
+
+        for (std::size_t i = 0; i < steps_to_run; ++i) {
+            simulate_step();
+        }
+
+        step_budget -= static_cast<double>(steps_to_run);
+        publish_if_due();
     }
 }
 
@@ -403,8 +457,8 @@ void draw_legend() {
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (const auto& celestial_body = celestial_bodies[i]; celestial_body->color.has_value()) {
-            DrawCircle({config::WINDOW_WIDTH - config::WINDOW_MARGIN - 83, config::WINDOW_MARGIN + spacing * i + (font_size / 2)}, 5, *celestial_body->color);
-            DrawText(uiFont, celestial_body->name.c_str(), Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN - 75, config::WINDOW_MARGIN + spacing * i), font_size, 1, BLACK);
+            DrawCircle({config::WINDOW_WIDTH - config::WINDOW_MARGIN - 80, config::WINDOW_MARGIN + spacing * i + (font_size / 2)}, 5, *celestial_body->color);
+            DrawText(uiFont, celestial_body->name.c_str(), Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN - 65, config::WINDOW_MARGIN + spacing * i), font_size, 1, BLACK);
         }
     }
 
@@ -421,6 +475,7 @@ void draw_stats() {
     // Right side
     DrawText(uiFont, std::format("Simulated years per second: {}", round_to_hundreds(((static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))) / timer.seconds())).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, BLACK);
     DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index]->name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, BLACK);
+    DrawText(uiFont, std::format("Target years per second: {}", config::TARGET_SIMULATION_SPEED > 0.0 ? round_to_hundreds(config::TARGET_SIMULATION_SPEED) : "Unlimited").c_str(), Vec2(config::WINDOW_MARGIN + 400, 50), 20, 1, BLACK);
 }
 
 void draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
@@ -458,16 +513,23 @@ void draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
 }
 
 void draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
+    const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
+
     for (const auto& [pts, color] : snap->orbits) {
         if (!color || pts.size() < 2) continue;
         const auto n = static_cast<float>(pts.size() - 1);
-        for (size_t j = 1; j < pts.size(); j++) {
-            const float alpha = 0.10f + 0.70f * (static_cast<float>(j) / n);
-            constexpr float thick = 0.005f;
-            // DrawCylinderEx(to_world(pts[j - 1]), to_world(pts[j]), thick, thick, 8, Fade(*color, alpha));
 
-            // TODO: I would like a thicker line without costing that much performance
-            DrawLine3D(to_world(pts[j - 1]), to_world(pts[j]), Fade(*color, alpha));
+        for (size_t j = 1; j < pts.size(); j++) {
+            const Vector3 start = to_world(pts[j - 1]);
+            const Vector3 end = to_world(pts[j]);
+
+            // GetWorldToScreen doesn't clip points behind the camera
+            // it can project them to a wrong on-screen spot, so skip those segments
+            if (Vector3DotProduct(Vector3Subtract(start, cam.position), forward) <= 0) continue;
+            if (Vector3DotProduct(Vector3Subtract(end, cam.position), forward) <= 0) continue;
+
+            const float alpha = 0.10f + 0.70f * (static_cast<float>(j) / n);
+            DrawLineEx(GetWorldToScreen(start, cam), GetWorldToScreen(end, cam), 2.0f, Fade(*color, alpha));
         }
     }
 }
@@ -487,11 +549,13 @@ void draw_axes_3d() {
 }
 
 void draw_axes_labels_3d(const Camera3D& cam) {
-    auto forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
+    // TODO: Should change percentile when zooming in & out
+
+    const auto forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
     auto label_axis = [&](auto anchor_of, const char* unit) {
         for (int k = -8; k <= 8; k++) {
             if (k == 0) continue;
-            Vector3 w = anchor_of(k);
+            const Vector3 w = anchor_of(k);
 
             // don't draw labels behind the camera
             if (Vector3DotProduct(Vector3Subtract(w, cam.position), forward) <= 0) continue;
@@ -534,6 +598,7 @@ void UpdateDrawFrame() {
     General
         r: Reset scaling
         Space: Continue / Pause simulation
+        t: Change 2d/3d
 
     Zooming
         Scrolling: Zoom in & out
@@ -589,19 +654,23 @@ void UpdateDrawFrame() {
             auto [x, y] = GetMouseDelta();
             cam_azimuth   += x * config::DRAG_SENSITIVITY; // left/right = spin
             cam_elevation += y * config::DRAG_SENSITIVITY; // up/down = tilt
-            const float lim = 89.0f * DEG2RAD; // clamp
+            constexpr float lim = 89.0f * DEG2RAD; // clamp
             cam_elevation = std::clamp(cam_elevation, -lim, lim);
         }
-        if (scroll != 0) {
-            cam_distance *= (scroll > 0 ? 1/config::ZOOM_3D_FACTOR: config::ZOOM_3D_FACTOR);
+        const float zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR) : config::ZOOM_3D_FACTOR;
+
+        if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
+            cam_distance *= 1/zoom_factor;
+        } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
+            cam_distance *= zoom_factor;
         }
 
         cam_distance = std::clamp(cam_distance, 0.1f, 200.0f);
         if (IsKeyPressed(KEY_R)) {
-            /* reset azimuth/elevation/distance to defaults */
-            cam_azimuth = 5;
-            cam_elevation = 5;
-            cam_distance = 5;
+            // reset azimuth/elevation/distance to defaults
+            cam_azimuth = config::DEFAULT_CAM_AZIMUTH;
+            cam_elevation = config::DEFAULT_CAM_ELEVATION;
+            cam_distance = config::DEFAULT_CAM_DISTANCE;
          }
     } else {
         const double zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_FACTOR*config::ZOOM_FACTOR) : config::ZOOM_FACTOR;
@@ -638,16 +707,17 @@ void UpdateDrawFrame() {
     ClearBackground(WHITE);
 
     if (view_3d) {
-        Camera3D cam = make_camera();
+        const Camera3D cam = make_camera();
+
         BeginMode3D(cam);
-        DrawGrid(20, 1.0f);
+        // DrawGrid(20, 1.0f);
         draw_axes_3d();
-        if (snap) {
-            draw_orbits_3d(snap, cam);
-            draw_planets_3d(snap);
-        }
+        if (snap) draw_planets_3d(snap);
+
         EndMode3D();
-        draw_axes_labels_3d(cam);
+        if (snap) draw_orbits_3d(snap, cam); // 2D overlay, projected by 3D points
+
+        // draw_axes_labels_3d(cam);
         draw_legend();
         draw_stats();
     } else {
@@ -665,9 +735,9 @@ void UpdateDrawFrame() {
 }
 
 int main() {
-    SetConfigFlags(FLAG_WINDOW_HIGHDPI);
+    SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "Umlaufbahn Simulation");
-    SetTargetFPS(TARGET_FPS);
+    SetTargetFPS(config::TARGET_FPS);
 
     std::jthread cpu_thread(simulate_cpu);
 

@@ -34,4 +34,12 @@ namespace config {
 
     constexpr float DRAG_SENSITIVITY = 0.01;
     constexpr float ZOOM_3D_FACTOR = 1.0717734625362931;
+
+    constexpr double SECONDS_PER_YEAR = 86'400 * 365;
+
+    // <= 0 -> unlimited
+    constexpr double TARGET_SIMULATION_SPEED = -1; // years per second
+    constexpr double TARGET_STEPS_PER_SECOND = TARGET_SIMULATION_SPEED * SECONDS_PER_YEAR / TIME_STEP;
+
+    constexpr int TARGET_FPS = 60;
 }
