@@ -4,7 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <memory>
-#include "utilities.hpp"
+#include "utils.hpp"
 
 
 class Vec2 {
@@ -61,7 +61,11 @@ public:
     }
 
     [[nodiscard]] str to_string() const {
-        return "[" + std::to_string(x) + ", " + std::to_string(y) + ", " + std::to_string(z) + "]";
+        return std::format("[{:.2e}, {:.2e}, {:.2e}]", x, y, z);
+    }
+
+    [[nodiscard]] str to_exact_string() const {
+        return std::format("[{}, {}, {}]", x, y, z);
     }
 
     [[nodiscard]] Vec2 to_vec2() const {

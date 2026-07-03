@@ -1,7 +1,8 @@
 #pragma once
 
-#include "utilities.hpp"
 #include <raylib.h>
+
+#include "utils.hpp"
 
 namespace config {
     constexpr double ORIGINAL_SCALING = 8e12;
@@ -29,7 +30,7 @@ namespace config {
 
     constexpr float DEFAULT_CAM_AZIMUTH = 45.0f * DEG2RAD;
     constexpr float DEFAULT_CAM_ELEVATION = 35.0f * DEG2RAD;
-    constexpr float DEFAULT_CAM_DISTANCE = 15.0f;
+    constexpr float DEFAULT_CAM_DISTANCE = 25.0f;
     constexpr bool DEFAULT_VIEW_3D = false;
 
     constexpr float DRAG_SENSITIVITY = 0.01;
@@ -37,8 +38,8 @@ namespace config {
 
     constexpr double SECONDS_PER_YEAR = 86'400 * 365;
 
-    // <= 0 -> unlimited
-    constexpr double TARGET_SIMULATION_SPEED = -1; // years per second
+    constexpr double TARGET_TOTAL_SIMULATION_TIME = -1; // years; <= 0 unlimited
+    constexpr double TARGET_SIMULATION_SPEED = -1; // years per second; <= 0 unlimited
     constexpr double TARGET_STEPS_PER_SECOND = TARGET_SIMULATION_SPEED * SECONDS_PER_YEAR / TIME_STEP;
 
     constexpr int TARGET_FPS = 60;
