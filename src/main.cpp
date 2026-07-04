@@ -3,6 +3,7 @@
 #include <atomic>
 #include <barrier>
 #include <chrono>
+#include <cstdio>
 #include <deque>
 #include <format>
 #include <memory>
@@ -54,6 +55,46 @@ namespace solar_system {
         return seconds > 0.0 ? simulated_years() / seconds : 0.0;
     }
 
+    class PlanetVisual {
+    public:
+        Model model{};
+        Texture2D texture{};
+        std::optional<const char*> texture_path;
+        bool loaded = false;
+
+        void load_planet_visual() {
+            if (loaded || !texture_path.has_value()) return;
+
+            model = LoadModelFromMesh(GenMeshSphere(1.0f, 64, 128));
+            texture = LoadTexture(*texture_path);
+
+            if (texture.id == 0 || model.materials == nullptr) {
+                TraceLog(LOG_ERROR, "Could not load planet texture: %s", *texture_path);
+                UnloadModel(model);
+                model = {};
+                texture = {};
+                return;
+            }
+
+            GenTextureMipmaps(&texture);
+            SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR);
+            SetMaterialTexture(&model.materials[0], MATERIAL_MAP_ALBEDO, texture);
+
+            loaded = true;
+        }
+
+        void unload_planet_visual() {
+            if (!loaded) return;
+
+            UnloadTexture(texture);
+            UnloadModel(model);
+
+            texture = {};
+            model = {};
+            loaded = false;
+        }
+    };
+
     class CelestialBody {
     public:
         str name;
@@ -66,8 +107,32 @@ namespace solar_system {
         std::optional<Color> color;
         int max_rendered_orbit_segments_per_body;
         int max_rendered_orbit_tail;
+        PlanetVisual planet_visual;
 
-        CelestialBody(str name, const Vec3 &position, const Vec3 &velocity, const double mass, const float radius_2d, const float radius_3d, const std::optional<Color>& color, const int max_rendered_orbit_segments_per_body, const int max_rendered_orbit_tail) : name(std::move(name)), position(position), velocity(velocity), mass(mass), gravitational_mass(mass * config::GRAVITATIONAL_CONSTANT), draw_radius_2d(radius_2d), draw_radius_3d(radius_3d), color(color), max_rendered_orbit_segments_per_body(max_rendered_orbit_segments_per_body), max_rendered_orbit_tail(max_rendered_orbit_tail) {}
+        CelestialBody(
+            str name,
+            const Vec3 &position,
+            const Vec3 &velocity,
+            const double mass,
+            const float radius_2d,
+            const float radius_3d,
+            const std::optional<Color>& color,
+            const int max_rendered_orbit_segments_per_body,
+            const int max_rendered_orbit_tail,
+            std::optional<const char*> texture_path
+        )
+        : name(std::move(name)),
+        position(position),
+        velocity(velocity),
+        mass(mass),
+        gravitational_mass(mass * config::GRAVITATIONAL_CONSTANT),
+        draw_radius_2d(radius_2d),
+        draw_radius_3d(radius_3d),
+        color(color),
+        max_rendered_orbit_segments_per_body(max_rendered_orbit_segments_per_body),
+        max_rendered_orbit_tail(max_rendered_orbit_tail) {
+            planet_visual.texture_path = texture_path;
+        }
 
         [[nodiscard]] double distance_to(const CelestialBody &body) const {
             return (position - body.position).length();
@@ -82,16 +147,16 @@ namespace solar_system {
         }
     };
 
-    CelestialBody sun = {"Sun", {5.254258484891016e8, -8.691526594804802e8, -1.013312408460682e7}, {1.486418097392948e1, 1.867348026651063e0, -4.030379227978539e-1}, 1988410e24, 10, 0.03, (Color){255, 230,  40, 255}, 30'000, 100'000};
-    CelestialBody mercury = {"Mercury", {-3.863295206424535e10, 3.095205136713375e10, 6.195274889256019e9}, {-4.061253084483177e4, -3.574724011520127e4, 8.385974494151380e2}, 3.302e23, 5, 0.01, (Color){150, 150, 150, 255}, 40'000, 1'000};
-    CelestialBody venus = {"Venus", {-9.442641552608661e10, 4.918920270156867e10, 6.142101433096975e9}, {-1.646745669837079e4, -3.114773688845666e4, 5.450657096441862e2}, 48.685e23, 5, 0.01, (Color){245, 190,  70, 255}, 30'000, 10'000};
-    CelestialBody earth = {"Earth", {-3.821000604658472e10, 1.410274684528763e11, 5.275940805160999e7}, {-2.920909465286638e4, -7.960531594616490e3, -6.079433916260868e0}, 5.97219e24, 5, 0.01, (Color){ 40, 120, 204, 255}, 20'000, 10'000};
-    CelestialBody mars = {"Mars", {-1.603072902891413e11, -1.693943532268408e11, 4.939584574298635e8}, {1.848810083914610e4, -1.467137544186248e4, -7.687147050137604e2}, 6.4171e23, 10, 0.02, (Color){220,  60,  40, 255}, 15'000, 10'000};
-    CelestialBody jupiter = {"Jupiter", {-6.174066213916292e9, 7.669935543317993e11, -2.919675836705565e9}, {-1.321414969549137e4, 4.963533982492354e2, 2.948696326167778e2}, 18.9819e26, 10, 0.15, (Color){220, 150,  85, 255}, 4'000, 10'000};
-    CelestialBody saturn = {"Saturn", {-8.515017102896239e11, 1.061724056177945e12, 1.475763099241823e10}, {-8.067709138805704e3, -6.064681250795719e3, 4.267881978436692e2}, 5.6834e26, 10, 0.15, (Color){235, 205, 120, 255}, 4'000, 50'000};
-    CelestialBody uranus = {"Uranus", {-2.732875467120085e12, 1.447663723744908e11, 3.619086410308249e10}, {-4.165944517727502e2, -7.115869467058308e3, -2.130718237900275e1}, 86.813e24, 10, 0.15, (Color){ 80, 220, 220, 255}, 4'000, 50'000};
-    CelestialBody neptune = {"Neptune", {-3.037153665467541e12, -3.366573860211023e12, 1.392493943615987e11}, {4.002395710519806e3, -3.608893452530916e3, -1.753789063721323e1}, 102.409e24, 10, 0.15, (Color){ 40,  80, 230, 255}, 4'000, 50'000};
-    CelestialBody pluto = {"Pluto", {5.435493283758588e12, -2.498597656155004e12, -1.304284834205698e12}, {2.629139130853487e3, 3.571607925259364e3, -1.120892268633253e3}, 1.307e22, 10, 0.15, (Color){185, 155, 130, 255}, 4'000, 100'000};
+    CelestialBody sun = {"Sun", {5.254258484891016e8, -8.691526594804802e8, -1.013312408460682e7}, {1.486418097392948e1, 1.867348026651063e0, -4.030379227978539e-1}, 1988410e24, 10, 0.03, (Color){255, 230,  40, 255}, 30'000, 100'000, "resources/sun.jpg"};
+    CelestialBody mercury = {"Mercury", {-3.863295206424535e10, 3.095205136713375e10, 6.195274889256019e9}, {-4.061253084483177e4, -3.574724011520127e4, 8.385974494151380e2}, 3.302e23, 5, 0.01, (Color){150, 150, 150, 255}, 40'000, 1'000, "resources/mercury.jpg"};
+    CelestialBody venus = {"Venus", {-9.442641552608661e10, 4.918920270156867e10, 6.142101433096975e9}, {-1.646745669837079e4, -3.114773688845666e4, 5.450657096441862e2}, 48.685e23, 5, 0.01, (Color){245, 190,  70, 255}, 30'000, 10'000, "resources/venus.jpg"};
+    CelestialBody earth = {"Earth", {-3.821000604658472e10, 1.410274684528763e11, 5.275940805160999e7}, {-2.920909465286638e4, -7.960531594616490e3, -6.079433916260868e0}, 5.97219e24, 5, 0.01, (Color){ 40, 120, 204, 255}, 20'000, 10'000, "resources/earth.jpg"};
+    CelestialBody mars = {"Mars", {-1.603072902891413e11, -1.693943532268408e11, 4.939584574298635e8}, {1.848810083914610e4, -1.467137544186248e4, -7.687147050137604e2}, 6.4171e23, 10, 0.02, (Color){220,  60,  40, 255}, 15'000, 10'000, "resources/mars.jpg"};
+    CelestialBody jupiter = {"Jupiter", {-6.174066213916292e9, 7.669935543317993e11, -2.919675836705565e9}, {-1.321414969549137e4, 4.963533982492354e2, 2.948696326167778e2}, 18.9819e26, 10, 0.15, (Color){220, 150,  85, 255}, 4'000, 10'000, "resources/jupiter.jpg"};
+    CelestialBody saturn = {"Saturn", {-8.515017102896239e11, 1.061724056177945e12, 1.475763099241823e10}, {-8.067709138805704e3, -6.064681250795719e3, 4.267881978436692e2}, 5.6834e26, 10, 0.15, (Color){235, 205, 120, 255}, 4'000, 50'000, "resources/saturn.jpg"};
+    CelestialBody uranus = {"Uranus", {-2.732875467120085e12, 1.447663723744908e11, 3.619086410308249e10}, {-4.165944517727502e2, -7.115869467058308e3, -2.130718237900275e1}, 86.813e24, 10, 0.15, (Color){ 80, 220, 220, 255}, 4'000, 50'000, "resources/uranus.jpg"};
+    CelestialBody neptune = {"Neptune", {-3.037153665467541e12, -3.366573860211023e12, 1.392493943615987e11}, {4.002395710519806e3, -3.608893452530916e3, -1.753789063721323e1}, 102.409e24, 10, 0.15, (Color){ 40,  80, 230, 255}, 4'000, 50'000, "resources/neptune.jpg"};
+    CelestialBody pluto = {"Pluto", {5.435493283758588e12, -2.498597656155004e12, -1.304284834205698e12}, {2.629139130853487e3, 3.571607925259364e3, -1.120892268633253e3}, 1.307e22, 10, 0.15, (Color){185, 155, 130, 255}, 4'000, 100'000, std::nullopt};
 
     int center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
     int planet_info_display_index = -1; // -1 -> none
@@ -105,10 +170,16 @@ namespace solar_system {
     // Positions & orbit points: relative to the center body => render thread can re-project them under the current zoom every frame
     struct RenderSnapshot {
         struct Body {
-            str name; Vec3 position; float radius_2d = 0; float radius_3d = 0; std::optional<Color> color;
+            str name;
+            Vec3 position;
+            float radius_2d = 0;
+            float radius_3d = 0;
+            std::optional<Color> color;
+            PlanetVisual planet_visual;
         };
         struct Orbit {
-            std::vector<Vec3> points; std::optional<Color> color;
+            std::vector<Vec3> points;
+            std::optional<Color> color;
         };
         std::array<Body,  NUM_CELESTIAL_BODIES> bodies;
         std::array<Orbit, NUM_CELESTIAL_BODIES> orbits; // already decimated to max_rendered_orbit_segments_per_body
@@ -132,24 +203,35 @@ namespace solar_system {
         }
     }
 
-    void simulate_step() {
-        Vec3 accelerations[NUM_CELESTIAL_BODIES] = {};
+    std::array<Vec3, NUM_CELESTIAL_BODIES> compute_accelerations() {
+        std::array<Vec3, NUM_CELESTIAL_BODIES> accelerations = {};
 
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
             for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                if (i == j) continue; // Do not apply gravity from this object to this
+                if (i == j) continue; // do not apply gravity from this object to this
                 accelerations[i] += celestial_bodies[i]->acceleration_due_to(*celestial_bodies[j]);
             }
         }
 
-        // Semi-implicit (this is used) vs. forward Euler: update velocity before updating the positions
+        return accelerations;
+    }
 
+    void simulate_step() {
+        // TODO: Understand
+        const std::array<Vec3, NUM_CELESTIAL_BODIES> accelerations = compute_accelerations();
+        constexpr double half_dt_squared = 0.5 * config::TIME_STEP * config::TIME_STEP;
+
+        // Velocity Verlet: keep the orbit phase stable over many short-period inner-planet revolutions
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            celestial_bodies[i]->velocity += accelerations[i] * config::TIME_STEP;
+            celestial_bodies[i]->position += celestial_bodies[i]->velocity * config::TIME_STEP
+                + accelerations[i] * half_dt_squared;
         }
 
-        for (auto& celestial_body : celestial_bodies) {
-            celestial_body->position += celestial_body->velocity * config::TIME_STEP;
+        const std::array<Vec3, NUM_CELESTIAL_BODIES> next_accelerations = compute_accelerations();
+        constexpr double half_dt = 0.5 * config::TIME_STEP;
+
+        for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+            celestial_bodies[i]->velocity += (accelerations[i] + next_accelerations[i]) * half_dt;
         }
 
         ++steps_simulated;
@@ -173,7 +255,7 @@ namespace solar_system {
             if (config::RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
                 pos -= center;
             }
-            snap->bodies[i] = {body.name, pos, body.draw_radius_2d, body.draw_radius_3d, body.color};
+            snap->bodies[i] = {body.name, pos, body.draw_radius_2d, body.draw_radius_3d, body.color, body.planet_visual};
 
             const auto& history = orbit_history[i];
             max_used = std::max(max_used, history.size());
@@ -440,10 +522,12 @@ namespace solar_system {
             }
         }
 
-        DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, 2, BLACK);
-        DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, 2, BLACK);
-        DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, 2, BLACK);
-        DrawLine({config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + config::GRID_SPACING * 2}, 2, BLACK);
+        constexpr float thick = 1.2f;
+
+        DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, thick, BLACK);
+        DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, thick, BLACK);
+        DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, thick, BLACK);
+        DrawLine({config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + config::GRID_SPACING * 2}, thick, BLACK);
     }
 
     std::pair<Vec2, Vec2> center_button_coordinates() {
@@ -495,7 +579,7 @@ namespace solar_system {
         bool timer_running = timer.is_running();
 
         // snap->bodies positions are already relative to the center body (see publish_snapshot)
-        for (const auto& [name, position, radius_2d, _radius_3d, color] : snap->bodies) {
+        for (const auto& [name, position, radius_2d, _radius_3d, color, _planet_visual] : snap->bodies) {
             if (color.has_value() && inside_screen(position)) {
                 const Vector2 pos = to_raylib(position);
                 DrawCircleV(pos, radius_2d, *color);
@@ -557,8 +641,19 @@ namespace solar_system {
     }
 
     void draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
-        for (const auto& [name, pos, _radius_2d, radius_3d, color] : snap->bodies) {
-            if (color) DrawSphereEx(to_world(pos), radius_3d, 12, 12, *color);
+        for (const auto& [name, pos, _radius_2d, radius_3d, color, planet_visual] : snap->bodies) {
+            if (planet_visual.loaded) {
+                DrawModel(
+                    planet_visual.model,
+                    to_world(pos),
+                    radius_3d,
+                    WHITE // don't tint texture
+                );
+            }
+            else if (color.has_value()) {
+                // fallback for bodies without a texture
+                DrawSphereEx(to_world(pos), radius_3d, 12, 12, *color);
+            }
         }
     }
 
@@ -567,7 +662,7 @@ namespace solar_system {
 
         const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
-        for (const auto& [name, pos, _radius_2d, _radius_3d, color] : snap->bodies) {
+        for (const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual] : snap->bodies) {
             if (!color.has_value()) continue;
 
             const Vector3 world = to_world(pos);
@@ -837,13 +932,35 @@ namespace solar_system {
 
         if (view_3d) {
             // TODO: Make arrow keys work too!
+            bool cam_turned = true;
+
+            const float drag_summand = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::DRAG_SENSITIVITY * 5) : config::DRAG_SENSITIVITY * 2;
+
+            if (IsKeyDown(KEY_LEFT)) {
+                cam_azimuth += drag_summand;
+            } else if (IsKeyDown(KEY_UP)) {
+                cam_elevation += drag_summand;
+            } else if (IsKeyDown(KEY_RIGHT)) {
+                cam_azimuth -= drag_summand;
+            } else if (IsKeyDown(KEY_DOWN)) {
+                cam_elevation -= drag_summand;
+            } else {
+                cam_turned = false;
+            }
+
             if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
                 auto [x, y] = GetMouseDelta();
                 cam_azimuth   += x * config::DRAG_SENSITIVITY; // left/right = spin
                 cam_elevation += y * config::DRAG_SENSITIVITY; // up/down = tilt
-                constexpr float lim = 89.0f * DEG2RAD; // clamp
+                cam_turned = true;
+            }
+
+            if (cam_turned) {
+                // Clamp
+                constexpr float lim = 89.0f * DEG2RAD;
                 cam_elevation = std::clamp(cam_elevation, -lim, lim);
             }
+
             const float zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR) : config::ZOOM_3D_FACTOR;
 
             if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
@@ -888,6 +1005,7 @@ namespace solar_system {
         ClearBackground(WHITE);
 
         if (view_3d) {
+            DrawRectangle(0, config::WINDOW_MARGIN, config::WINDOW_WIDTH, config::WINDOW_HEIGHT - config::WINDOW_MARGIN, BLACK);
             const Camera3D cam = make_camera();
 
             BeginMode3D(cam);
@@ -923,12 +1041,51 @@ namespace solar_system {
 
         EndDrawing();
     }
+
+    void print_final_state() {
+        const double seconds = timer.seconds();
+
+        printf("Computation time: %.2f seconds\n", seconds);
+        printf("Simulated years per second: %.2f\n\n", seconds > 0.0 ? simulated_years() / seconds : 0);
+
+        printf("Simulation time: %.8f years (@ 365 days)\n", simulated_years());
+        printf("Steps simulated: %zu\n", steps_simulated.load());
+        printf("Time step: %.17g seconds\n", config::TIME_STEP);
+
+        for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+            const auto& celestial_body = celestial_bodies[i];
+            printf("%s", celestial_body->position.to_exact_string().c_str());
+            if (i != NUM_CELESTIAL_BODIES - 1) {
+                printf("|");
+            }
+        }
+        printf("\n");
+    }
 }
 
-int main() {
+int main(const int argc, char* argv[]) {
+    if (argc > 1 && str(argv[1]) == "--headless") {
+        if constexpr (config::TARGET_TOTAL_SIMULATION_TIME <= 0.0) {
+            std::fprintf(stderr, "--headless requires a positive TARGET_TOTAL_SIMULATION_TIME\n");
+            return 1;
+        } else {
+            while (solar_system::simulated_years() < config::TARGET_TOTAL_SIMULATION_TIME) {
+                solar_system::simulate_step();
+            }
+
+            solar_system::timer.pause();
+            solar_system::print_final_state();
+            return 0;
+        }
+    }
+
     SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "Umlaufbahn Simulation");
     SetTargetFPS(config::TARGET_FPS);
+
+    for (const auto& celestial_body : solar_system::celestial_bodies) {
+        celestial_body->planet_visual.load_planet_visual();
+    }
 
     std::jthread cpu_thread(solar_system::simulate_cpu);
 
@@ -950,31 +1107,19 @@ int main() {
     }
     #endif
 
-
-    solar_system::timer.pause();
     cpu_thread.request_stop();
+    solar_system::timer.pause();
+    cpu_thread.join();
+
+    for (const auto& celestial_body : solar_system::celestial_bodies) {
+        celestial_body->planet_visual.unload_planet_visual();
+    }
 
     UnloadFont(solar_system::uiFont);
     CloseWindow();
     printf("\n");
 
-    const double seconds = solar_system::timer.seconds();
-
-    printf("Computation time: %.2f seconds\n", seconds);
-    printf("Simulated years per second: %.2f\n\n", seconds > 0.0 ? (static_cast<double>(solar_system::steps_simulated) * config::TIME_STEP / (86'400 * 365)) / seconds : 0);
-
-    printf("Simulation time: %.8f years (@ 365 days)\n", solar_system::simulated_years());
-    printf("Steps simulated: %zu\n", solar_system::steps_simulated.load());
-    printf("Time step: %.17g seconds\n", config::TIME_STEP);
-
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        const auto& celestial_body = solar_system::celestial_bodies[i];
-        printf("%s", celestial_body->position.to_exact_string().c_str());
-        if (i != NUM_CELESTIAL_BODIES - 1) {
-            printf("|");
-        }
-    }
-    printf("\n");
+    solar_system::print_final_state();
 
     return 0;
 }

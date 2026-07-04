@@ -22,6 +22,10 @@ add_executable(simulation-orbit
 
 target_include_directories(simulation-orbit PRIVATE include)
 
+target_compile_definitions(raylib PRIVATE
+        SUPPORT_FILEFORMAT_JPG=1
+)
+
 target_link_libraries(simulation-orbit PRIVATE raylib)
 
 # Required when linking raylib statically on macOS
