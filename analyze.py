@@ -202,8 +202,8 @@ def analyze_error() -> None:
     print(f"JPL positions: {expected_positions}")
     print(f"Program positions: {given_positions}\n")
 
-    expected_sun: Vec3 = expected_positions[0]
-    given_sun: Vec3 = given_positions[1]
+    expected_sun: Vec3 = expected_positions[names.index("Sun")]
+    given_sun: Vec3 = given_positions[names.index("Sun")]
 
     for name, expected_pos, given_pos in zip(names, expected_positions, given_positions):
         if name == "Sun":
