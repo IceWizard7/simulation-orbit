@@ -4,6 +4,7 @@ import requests
 import re
 import datetime
 import math
+import pathlib
 
 planet_to_horizon_id: dict[str, int] = {
     "Sun": 10,
@@ -58,6 +59,22 @@ class Vec3:
 
     def __str__(self) -> str:
         return f"[{self.x}, {self.y}, {self.z}]"
+
+def read_program_output() -> str:
+    if len(sys.argv) >= 3:
+        return pathlib.Path(sys.argv[2]).read_text()
+
+    if not sys.stdin.isatty():
+        text = sys.stdin.read()
+        if text.strip():
+            return text
+
+    raise SystemExit(
+        "Usage:\n"
+        "  python3 analyze.py analyze program-output.txt\n"
+        "or:\n"
+        "  ./cmake-build-release/simulation-orbit | python3 analyze.py analyze"
+    )
 
 def parse_program_output(text: str) -> tuple[float, int | None, float | None, list[Vec3]]:
     years = float(re.search(r"Simulation time:\s*([0-9.]+)", text).group(1))

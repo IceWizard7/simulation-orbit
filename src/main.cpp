@@ -466,7 +466,7 @@ namespace solar_system {
         DrawText(uiFont, "Use as center", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, 20, 1, BLACK);
 
         DrawCircle({config::WINDOW_MARGIN + 22.5, config::WINDOW_MARGIN + 60}, 7.5, *celestial_body->color);
-        if (1 <= planet_info_display_index && planet_info_display_index <= 9) {
+        if (1 <= planet_info_display_index && planet_info_display_index <= 8) {
             DrawText(uiFont, std::format("{} ({}{} planet from sun)", celestial_body->name, planet_info_display_index, get_numerical_suffix(planet_info_display_index)).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, BLACK);
         } else {
             DrawText(uiFont, std::format("{} (index {})", celestial_body->name, planet_info_display_index).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, BLACK);
