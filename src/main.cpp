@@ -244,7 +244,6 @@ namespace solar_system {
             if constexpr (config::TARGET_TOTAL_SIMULATION_TIME > 0.0) {
                 if (config::TARGET_TOTAL_SIMULATION_TIME <= simulated_years()) {
                     timer.pause();
-                    return;
                 }
             }
 
