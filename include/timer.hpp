@@ -9,7 +9,7 @@ class PausableTimer {
     mutable std::mutex mutex_;
     Clock::time_point last_start = Clock::now();
     Clock::duration elapsed{};
-    bool running = true;
+    bool running = false;
 
 public:
     bool is_running() const {

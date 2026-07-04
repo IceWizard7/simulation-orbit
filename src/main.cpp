@@ -27,7 +27,6 @@
 #include "vectors.hpp"
 
 // TODO: Parallel Execution?
-// TODO: Real 3d textures
 // TODO: Calculate how much "error" there is compared to real NASA data
 // TODO: (=>) Analyze which forces we can skip calculating (or calculate ex. every 1000 steps) to reach certain accuracy
 // TODO: Topic: ""
@@ -36,6 +35,8 @@
 // TODO: On hover over a planet, display it's name + info (and maybe on a click display even more info?)
 
 // TODO: Add a "copy" button for positions etc.?
+
+// TODO: Internal planet rotation
 
 #define NUM_CELESTIAL_BODIES 10
 
@@ -55,6 +56,68 @@ namespace solar_system {
         return seconds > 0.0 ? simulated_years() / seconds : 0.0;
     }
 
+    Mesh make_equirectangular_sphere_mesh(const float radius, const int rings, const int slices) {
+        // builds a custom textured sphere mesh for planet maps
+        Mesh mesh{};
+
+        const int columns = slices + 1; // duplicate seam vertices at u=0 and u=1
+        mesh.vertexCount = (rings + 1) * columns;
+        mesh.triangleCount = rings * slices * 2;
+
+        mesh.vertices = static_cast<float*>(MemAlloc(sizeof(float) * 3 * mesh.vertexCount));
+        mesh.normals = static_cast<float*>(MemAlloc(sizeof(float) * 3 * mesh.vertexCount));
+        mesh.texcoords = static_cast<float*>(MemAlloc(sizeof(float) * 2 * mesh.vertexCount));
+        mesh.indices = static_cast<unsigned short*>(MemAlloc(sizeof(unsigned short) * 3 * mesh.triangleCount));
+
+        for (int row = 0; row <= rings; ++row) {
+            const float v = static_cast<float>(row) / static_cast<float>(rings);
+            const float phi = v * PI;
+            const float sin_phi = sinf(phi);
+            const float cos_phi = cosf(phi);
+
+            for (int col = 0; col <= slices; ++col) {
+                const float u = static_cast<float>(col) / static_cast<float>(slices);
+                const float theta = (u - 0.5f) * 2.0f * PI;
+                const float nx = sin_phi * cosf(theta);
+                const float ny = cos_phi;
+                const float nz = -sin_phi * sinf(theta);
+                const int vertex = row * columns + col;
+
+                mesh.vertices[vertex * 3] = radius * nx;
+                mesh.vertices[vertex * 3 + 1] = radius * ny;
+                mesh.vertices[vertex * 3 + 2] = radius * nz;
+
+                mesh.normals[vertex * 3] = nx;
+                mesh.normals[vertex * 3 + 1] = ny;
+                mesh.normals[vertex * 3 + 2] = nz;
+
+                mesh.texcoords[vertex * 2] = u;
+                mesh.texcoords[vertex * 2 + 1] = v;
+            }
+        }
+
+        int index = 0;
+        for (int row = 0; row < rings; ++row) {
+            for (int col = 0; col < slices; ++col) {
+                const auto top_left = static_cast<unsigned short>(row * columns + col);
+                const auto top_right = static_cast<unsigned short>(top_left + 1);
+                const auto bottom_left = static_cast<unsigned short>((row + 1) * columns + col);
+                const auto bottom_right = static_cast<unsigned short>(bottom_left + 1);
+
+                mesh.indices[index++] = top_left;
+                mesh.indices[index++] = bottom_left;
+                mesh.indices[index++] = top_right;
+
+                mesh.indices[index++] = top_right;
+                mesh.indices[index++] = bottom_left;
+                mesh.indices[index++] = bottom_right;
+            }
+        }
+
+        UploadMesh(&mesh, false);
+        return mesh;
+    }
+
     class PlanetVisual {
     public:
         Model model{};
@@ -65,7 +128,7 @@ namespace solar_system {
         void load_planet_visual() {
             if (loaded || !texture_path.has_value()) return;
 
-            model = LoadModelFromMesh(GenMeshSphere(1.0f, 64, 128));
+            model = LoadModelFromMesh(make_equirectangular_sphere_mesh(1.0f, 64, 128));
             texture = LoadTexture(*texture_path);
 
             if (texture.id == 0 || model.materials == nullptr) {
@@ -76,8 +139,9 @@ namespace solar_system {
                 return;
             }
 
-            GenTextureMipmaps(&texture);
-            SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR);
+            GenTextureMipmaps(&texture); // generate textures for far-away rendering
+            SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR); // smooth sampling between pixels
+            SetTextureWrap(texture, TEXTURE_WRAP_CLAMP); // clamp pixels [0, 1] instead of repeating the opposite side
             SetMaterialTexture(&model.materials[0], MATERIAL_MAP_ALBEDO, texture);
 
             loaded = true;
@@ -175,7 +239,7 @@ namespace solar_system {
             float radius_2d = 0;
             float radius_3d = 0;
             std::optional<Color> color;
-            PlanetVisual planet_visual;
+            const PlanetVisual* planet_visual = nullptr;
         };
         struct Orbit {
             std::vector<Vec3> points;
@@ -217,7 +281,6 @@ namespace solar_system {
     }
 
     void simulate_step() {
-        // TODO: Understand
         const std::array<Vec3, NUM_CELESTIAL_BODIES> accelerations = compute_accelerations();
         constexpr double half_dt_squared = 0.5 * config::TIME_STEP * config::TIME_STEP;
 
@@ -255,7 +318,7 @@ namespace solar_system {
             if (config::RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
                 pos -= center;
             }
-            snap->bodies[i] = {body.name, pos, body.draw_radius_2d, body.draw_radius_3d, body.color, body.planet_visual};
+            snap->bodies[i] = {body.name, pos, body.draw_radius_2d, body.draw_radius_3d, body.color, &body.planet_visual};
 
             const auto& history = orbit_history[i];
             max_used = std::max(max_used, history.size());
@@ -534,45 +597,47 @@ namespace solar_system {
         return {{config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}};
     }
 
-    void draw_planet_info() {
+    void draw_planet_info(const Color text_color, const Color background_color) {
         if (planet_info_display_index == -1) return;
 
         CelestialBody* celestial_body = celestial_bodies[planet_info_display_index];
 
-        DrawRectangle(config::WINDOW_MARGIN, config::WINDOW_MARGIN, 5.5 * config::GRID_SPACING, 1.5 * config::GRID_SPACING, WHITE);
-        DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN}, 2, BLACK);
-        DrawLine({config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, BLACK);
-        DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, BLACK);
-        DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, BLACK);
+        DrawRectangle(config::WINDOW_MARGIN, config::WINDOW_MARGIN, 5.5 * config::GRID_SPACING, 1.5 * config::GRID_SPACING, background_color);
+        DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN}, 2, text_color);
+        DrawLine({config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, text_color);
+        DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, text_color);
+        DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, text_color);
 
-        DrawText(uiFont, "Celestial body information", {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 10}, 20, 1, BLACK);
+        DrawText(uiFont, "Celestial body information", {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
 
-        DrawText(uiFont, "Use as center", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, 20, 1, BLACK);
+        DrawText(uiFont, "Use as center", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
 
         DrawCircle({config::WINDOW_MARGIN + 22.5, config::WINDOW_MARGIN + 60}, 7.5, *celestial_body->color);
         if (1 <= planet_info_display_index && planet_info_display_index <= 8) {
-            DrawText(uiFont, std::format("{} ({}{} planet from sun)", celestial_body->name, planet_info_display_index, get_numerical_suffix(planet_info_display_index)).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, BLACK);
+            DrawText(uiFont, std::format("{} ({}{} planet from sun)", celestial_body->name, planet_info_display_index, get_numerical_suffix(planet_info_display_index)).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
         } else {
-            DrawText(uiFont, std::format("{} (index {})", celestial_body->name, planet_info_display_index).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, BLACK);
+            DrawText(uiFont, std::format("{} (index {})", celestial_body->name, planet_info_display_index).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
         }
-        DrawText(uiFont, std::format("Position: {:<34}m", celestial_body->position.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 70}, 20, 1, BLACK);
-        DrawText(uiFont, std::format("Velocity: {:<34}m/s", celestial_body->velocity.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 90}, 20, 1, BLACK);
-        DrawText(uiFont, std::format("Mass: {:<38}kg", celestial_body->mass).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 110}, 20, 1, BLACK);
+        DrawText(uiFont, std::format("Position: {:<34}m", celestial_body->position.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 70}, 20, 1, text_color);
+        DrawText(uiFont, std::format("Velocity: {:<34}m/s", celestial_body->velocity.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 90}, 20, 1, text_color);
+        DrawText(uiFont, std::format("Mass: {:<38}kg", celestial_body->mass).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 110}, 20, 1, text_color);
     }
 
 
-    void draw_stats() {
+    void draw_stats(const Color text_color, const Color background_color) {
         const double seconds = timer.seconds();
 
+        DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_MARGIN, background_color);
+
         // Left side
-        DrawText(uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))).c_str(), Vec2(config::WINDOW_MARGIN, 10), 20, 1, BLACK);
-        DrawText(uiFont, std::format("Computation time: {} seconds", round_to_hundreds(seconds)).c_str(), Vec2(config::WINDOW_MARGIN, 30), 20, 1, BLACK);
-        DrawText(uiFont, std::format("Step size: {}", config::TIME_STEP_STRING).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, BLACK);
+        DrawText(uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))).c_str(), Vec2(config::WINDOW_MARGIN, 10), 20, 1, text_color);
+        DrawText(uiFont, std::format("Computation time: {} seconds", round_to_hundreds(seconds)).c_str(), Vec2(config::WINDOW_MARGIN, 30), 20, 1, text_color);
+        DrawText(uiFont, std::format("Step size: {}", config::TIME_STEP_STRING).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, text_color);
 
         // Right side
-        DrawText(uiFont, std::format("Simulated years per second: {}", (seconds > 0.0 ? round_to_hundreds(((static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))) / seconds) : "0")).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, BLACK);
-        DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index]->name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, BLACK);
-        DrawText(uiFont, std::format("Target years per second: {}", config::TARGET_SIMULATION_SPEED > 0.0 ? round_to_hundreds(config::TARGET_SIMULATION_SPEED) : "Unlimited").c_str(), Vec2(config::WINDOW_MARGIN + 400, 50), 20, 1, BLACK);
+        DrawText(uiFont, std::format("Simulated years per second: {}", (seconds > 0.0 ? round_to_hundreds(((static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))) / seconds) : "0")).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, text_color);
+        DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index]->name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, text_color);
+        DrawText(uiFont, std::format("Target years per second: {}", config::TARGET_SIMULATION_SPEED > 0.0 ? round_to_hundreds(config::TARGET_SIMULATION_SPEED) : "Unlimited").c_str(), Vec2(config::WINDOW_MARGIN + 400, 50), 20, 1, text_color);
     }
 
     void draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
@@ -634,7 +699,7 @@ namespace solar_system {
                 if (Vector3DotProduct(Vector3Subtract(start, cam.position), forward) <= 0) continue;
                 if (Vector3DotProduct(Vector3Subtract(end, cam.position), forward) <= 0) continue;
 
-                const float alpha = 0.10f + 0.70f * (static_cast<float>(j) / n);
+                const float alpha = (0.10f + 0.70f * (static_cast<float>(j) / n)) / 3;
                 DrawLineEx(GetWorldToScreen(start, cam), GetWorldToScreen(end, cam), 2.0f, Fade(*color, alpha));
             }
         }
@@ -642,9 +707,9 @@ namespace solar_system {
 
     void draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
         for (const auto& [name, pos, _radius_2d, radius_3d, color, planet_visual] : snap->bodies) {
-            if (planet_visual.loaded) {
+            if (planet_visual != nullptr && planet_visual->loaded) {
                 DrawModel(
-                    planet_visual.model,
+                    planet_visual->model,
                     to_world(pos),
                     radius_3d,
                     WHITE // don't tint texture
@@ -931,21 +996,25 @@ namespace solar_system {
         const float scroll = GetMouseWheelMove();
 
         if (view_3d) {
-            // TODO: Make arrow keys work too!
-            bool cam_turned = true;
+            bool cam_turned = false;
 
             const float drag_summand = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::DRAG_SENSITIVITY * 5) : config::DRAG_SENSITIVITY * 2;
 
             if (IsKeyDown(KEY_LEFT)) {
                 cam_azimuth += drag_summand;
-            } else if (IsKeyDown(KEY_UP)) {
+                cam_turned = true;
+            }
+            if (IsKeyDown(KEY_UP)) {
                 cam_elevation += drag_summand;
-            } else if (IsKeyDown(KEY_RIGHT)) {
+                cam_turned = true;
+            }
+            if (IsKeyDown(KEY_RIGHT)) {
                 cam_azimuth -= drag_summand;
-            } else if (IsKeyDown(KEY_DOWN)) {
+                cam_turned = true;
+            }
+            if (IsKeyDown(KEY_DOWN)) {
                 cam_elevation -= drag_summand;
-            } else {
-                cam_turned = false;
+                cam_turned = true;
             }
 
             if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
@@ -1005,37 +1074,35 @@ namespace solar_system {
         ClearBackground(WHITE);
 
         if (view_3d) {
-            DrawRectangle(0, config::WINDOW_MARGIN, config::WINDOW_WIDTH, config::WINDOW_HEIGHT - config::WINDOW_MARGIN, BLACK);
+            DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_HEIGHT, BLACK);
             const Camera3D cam = make_camera();
 
+            // TODO: Make orbits & planets overlap correctly, according to real perspective
+
+            if (snap) draw_orbits_3d(snap, cam);
+
             BeginMode3D(cam);
-            // DrawGrid(20, 1.0f);
-            draw_axes_3d();
+            DrawGrid(10, 2.0f);
             if (snap) draw_planets_3d(snap);
 
             EndMode3D();
 
             // 2D overlays, projected by 3D points
             if (snap) {
-                draw_orbits_3d(snap, cam);
                 draw_planet_labels_3d(snap, cam);
             }
 
-            // draw_axes_labels_3d(cam);
-            DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_MARGIN, WHITE);
-            // DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, 2, BLACK);
-            draw_legend();
-            draw_stats();
-            draw_planet_info();
+            draw_stats(WHITE, BLACK);
+            draw_planet_info(WHITE, BLACK);
         } else {
             if (snap) {
                 draw_orbits(snap);
                 draw_planets(snap);
             }
             draw_legend();
-            draw_stats();
+            draw_stats(BLACK, WHITE);
             draw_ui(snap);
-            draw_planet_info();
+            draw_planet_info(BLACK, WHITE);
         }
 
 
@@ -1087,8 +1154,6 @@ int main(const int argc, char* argv[]) {
         celestial_body->planet_visual.load_planet_visual();
     }
 
-    std::jthread cpu_thread(solar_system::simulate_cpu);
-
     solar_system::uiFont = LoadFontEx(
         "resources/JetBrainsMono-Regular.ttf",
         96,
@@ -1098,6 +1163,10 @@ int main(const int argc, char* argv[]) {
 
     GenTextureMipmaps(&solar_system::uiFont.texture);
     SetTextureFilter(solar_system::uiFont.texture, TEXTURE_FILTER_TRILINEAR);
+
+    solar_system::timer.resume();
+
+    std::jthread cpu_thread(solar_system::simulate_cpu);
 
     #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
