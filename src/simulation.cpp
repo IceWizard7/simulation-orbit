@@ -181,8 +181,9 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             last_budget_update = std::chrono::steady_clock::now();
 
             if (config::republish_needed) {
-                publish_snapshot();
                 config::republish_needed = false;
+                publish_snapshot();
+                last_publish = std::chrono::steady_clock::now();
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(1000 / config::TARGET_FPS));
@@ -192,6 +193,8 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
         if constexpr (config::TARGET_TOTAL_SIMULATION_TIME > 0.0) {
             if (config::TARGET_TOTAL_SIMULATION_TIME <= ui::simulated_years()) {
                 config::timer.pause();
+                publish_snapshot();
+                last_publish = std::chrono::steady_clock::now();
             }
         }
 

@@ -626,6 +626,7 @@ void ui::UpdateDrawFrame() {
     if (IsKeyPressed(KEY_SPACE)) {
         if (config::timer.is_running()) {
             config::timer.pause();
+            config::republish_needed = true;
         } else {
             if (config::TARGET_TOTAL_SIMULATION_TIME < 0.0 || config::TARGET_TOTAL_SIMULATION_TIME > simulated_years()) {
                 config::timer.resume();
@@ -643,19 +644,19 @@ void ui::UpdateDrawFrame() {
 
         const float drag_summand = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::DRAG_SENSITIVITY * 5) : config::DRAG_SENSITIVITY * 2;
 
-        if (IsKeyDown(KEY_LEFT)) {
+        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
             cam_azimuth += drag_summand;
             cam_turned = true;
         }
-        if (IsKeyDown(KEY_UP)) {
+        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
             cam_elevation += drag_summand;
             cam_turned = true;
         }
-        if (IsKeyDown(KEY_RIGHT)) {
+        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
             cam_azimuth -= drag_summand;
             cam_turned = true;
         }
-        if (IsKeyDown(KEY_DOWN)) {
+        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
             cam_elevation -= drag_summand;
             cam_turned = true;
         }
