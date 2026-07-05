@@ -10,6 +10,7 @@ float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0
 float cam_elevation = config::DEFAULT_CAM_ELEVATION; // 35° shows 3D immediately
 float cam_distance = config::DEFAULT_CAM_DISTANCE; // radius in world units
 bool view_3d = false; // toggle with keybind
+auto last_copied = std::chrono::steady_clock::now() - std::chrono::seconds(10);
 
 void ui::DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, const float angle, const float fontSize, const float spacing, const Color color) {
     auto [x, y] = MeasureTextEx(font, text, fontSize, spacing);
@@ -167,6 +168,11 @@ void ui::draw_planet_info(const Color text_color, const Color background_color, 
     DrawText(config::uiFont, "Celestial body information", {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
 
     DrawText(config::uiFont, "Use as center", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
+    if (std::chrono::steady_clock::now() - last_copied >= std::chrono::milliseconds(1000)) { // TODO!
+        DrawText(config::uiFont, "Copy info", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, 20, 1, text_color);
+    } else {
+        DrawText(config::uiFont, "Copied!", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, 20, 1, text_color);
+    }
 
     DrawCircle({config::WINDOW_MARGIN + 22.5, config::WINDOW_MARGIN + 60}, 7.5, *body->color);
     if (1 <= config::planet_info_display_index && config::planet_info_display_index <= 8) {
@@ -579,18 +585,27 @@ void ui::UpdateDrawFrame() {
     if (IsKeyPressed(KEY_NINE)) { new_center_i=9; }
 
     bool center_button_pressed = false;
+    bool copied_button_pressed = false;
 
     if (config::planet_info_display_index != -1 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        auto [b_start, b_end] = center_button_coordinates();
+        auto [center_start, center_end] = center_button_coordinates();
+        auto [copy_start, copy_end] = copy_button_coordinates();
 
-        if (const auto [mx, my] = GetMousePosition();
-            b_start.x <= mx && mx <= b_end.x &&
-            b_start.y <= my && my <= b_end.y) {
+        const auto [mx, my] = GetMousePosition();
+
+        if (center_start.x <= mx && mx <= center_end.x &&
+            center_start.y <= my && my <= center_end.y) {
             center_button_pressed = true;
+        }
+
+        if (copy_start.x <= mx && mx <= copy_end.x &&
+            copy_start.y <= my && my <= copy_end.y) {
+            copied_button_pressed = true;
+            last_copied = std::chrono::steady_clock::now();
         }
     }
 
-    if (!center_button_pressed) {
+    if (!center_button_pressed && !copied_button_pressed) {
         int selected_body_i = -2;
         if (view_3d) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -616,6 +631,14 @@ void ui::UpdateDrawFrame() {
     } else if (new_center_i != -1 && new_center_i != config::center_celestial_body_index) {
         config::center_celestial_body_index = new_center_i;
         config::republish_needed = true;
+    }
+
+    if (copied_button_pressed) {
+        const auto& body = snap->detailed_body_display;
+        if (body.has_value()) {
+            const str text = std::format("{}\nYears simulated: {:.2f}\nPosition: {} m\nVelocity: {} m/s\nMass: {} kg", body->name, simulated_years(), body->position.to_string(), body->velocity.to_string(), body->mass);
+            SetClipboardText(text.c_str());
+        }
     }
 
     if (IsKeyPressed(KEY_R)) {

@@ -71,6 +71,10 @@ namespace ui {
         return {{config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}};
     }
 
+    inline std::pair<Vec2, Vec2> copy_button_coordinates() {
+        return {{config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 50}};
+    }
+
     void draw_planet_info(Color text_color, Color background_color, const std::shared_ptr<const RenderSnapshot>& snap);
 
     void draw_stats(Color text_color, Color background_color, const std::shared_ptr<const RenderSnapshot>& snap);

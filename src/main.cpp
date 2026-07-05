@@ -12,11 +12,7 @@
 // TODO: (=>) Analyze which forces we can skip calculating (or calculate ex. every 1000 steps) to reach certain accuracy
 // TODO: Topic: ""
 // TODO: Research question: "?"
-// TODO: Add moons (=> how many?)
-// TODO: On hover over a planet, display it's name + info (and maybe on a click display even more info?)
-
 // TODO: Add a "copy" button for positions etc.?
-
 // TODO: Internal planet rotation
 
 int main(const int argc, char* argv[]) {
