@@ -1,0 +1,228 @@
+# All moons added into the simulation
+Sun error:
+ distance = 18060 km (0.000121 AU)
+ relative = 1.553%
+ angle    = 0.888 deg
+ radial   = 0.000008 AU
+
+Mercury error:
+ distance = 130546 km (0.000873 AU)
+ relative = 0.280%
+ angle    = 0.159 deg
+ radial   = -0.000087 AU
+
+Venus error:
+ distance = 74078 km (0.000495 AU)
+ relative = 0.069%
+ angle    = 0.039 deg
+ radial   = -0.000002 AU
+
+Earth error:
+ distance = 66821 km (0.000447 AU)
+ relative = 0.045%
+ angle    = 0.026 deg
+ radial   = -0.000013 AU
+
+Mars error:
+ distance = 52464 km (0.000351 AU)
+ relative = 0.025%
+ angle    = 0.015 deg
+ radial   = -0.000011 AU
+
+Jupiter error:
+ distance = 24381932 km (0.162983 AU)
+ relative = 3.286%
+ angle    = 1.883 deg
+ radial   = -0.001347 AU
+
+Saturn error:
+ distance = 440828 km (0.002947 AU)
+ relative = 0.032%
+ angle    = 0.018 deg
+ radial   = -0.000408 AU
+
+Uranus error:
+ distance = 810897 km (0.005421 AU)
+ relative = 0.027%
+ angle    = 0.016 deg
+ radial   = 0.000260 AU
+
+Neptune error:
+ distance = 3297023 km (0.022039 AU)
+ relative = 0.073%
+ angle    = 0.040 deg
+ radial   = -0.005749 AU
+
+Pluto error:
+ distance = 40912216 km (0.273481 AU)
+ relative = 0.905%
+ angle    = 0.485 deg
+ radial   = 0.095654 AU
+
+Moon error:
+ distance = 117101 km (0.000783 AU)
+ relative = 0.079%
+ angle    = 0.030 deg
+ radial   = 0.000586 AU
+
+Phobos error:
+ distance = 56900 km (0.000380 AU)
+ relative = 0.028%
+ angle    = 0.016 deg
+ radial   = -0.000016 AU
+
+Deimos error:
+ distance = 67241 km (0.000449 AU)
+ relative = 0.033%
+ angle    = 0.018 deg
+ radial   = -0.000098 AU
+
+Io error:
+ distance = 24242476 km (0.162051 AU)
+ relative = 3.268%
+ angle    = 1.873 deg
+ radial   = -0.002394 AU
+
+Europa error:
+ distance = 24642169 km (0.164723 AU)
+ relative = 3.324%
+ angle    = 1.901 deg
+ radial   = 0.006709 AU
+
+Ganymede error:
+ distance = 24691178 km (0.165050 AU)
+ relative = 3.323%
+ angle    = 1.898 deg
+ radial   = -0.015568 AU
+
+Callisto error:
+ distance = 26873424 km (0.179638 AU)
+ relative = 3.627%
+ angle    = 2.065 deg
+ radial   = 0.017272 AU
+
+Mimas error:
+ distance = 505443 km (0.003379 AU)
+ relative = 0.037%
+ angle    = 0.021 deg
+ radial   = -0.000555 AU
+
+Enceladus error:
+ distance = 486655 km (0.003253 AU)
+ relative = 0.035%
+ angle    = 0.017 deg
+ radial   = -0.001871 AU
+
+Tethys error:
+ distance = 775970 km (0.005187 AU)
+ relative = 0.056%
+ angle    = 0.024 deg
+ radial   = -0.003474 AU
+
+Dione error:
+ distance = 413285 km (0.002763 AU)
+ relative = 0.030%
+ angle    = 0.004 deg
+ radial   = -0.002699 AU
+
+Rhea error:
+ distance = 1062786 km (0.007104 AU)
+ relative = 0.077%
+ angle    = 0.044 deg
+ radial   = -0.000623 AU
+
+Titan error:
+ distance = 1592580 km (0.010646 AU)
+ relative = 0.116%
+ angle    = 0.034 deg
+ radial   = 0.009160 AU
+
+Hyperion error:
+ distance = 1681669 km (0.011241 AU)
+ relative = 0.122%
+ angle    = 0.037 deg
+ radial   = -0.009555 AU
+
+Iapetus error:
+ distance = 1055625 km (0.007056 AU)
+ relative = 0.077%
+ angle    = 0.038 deg
+ radial   = 0.003616 AU
+
+Phoebe error:
+ distance = 406690 km (0.002719 AU)
+ relative = 0.030%
+ angle    = 0.015 deg
+ radial   = -0.001301 AU
+
+Ariel error:
+ distance = 961711 km (0.006429 AU)
+ relative = 0.032%
+ angle    = 0.018 deg
+ radial   = 0.001667 AU
+
+Umbriel error:
+ distance = 673447 km (0.004502 AU)
+ relative = 0.023%
+ angle    = 0.010 deg
+ radial   = -0.002676 AU
+
+Titania error:
+ distance = 800435 km (0.005351 AU)
+ relative = 0.027%
+ angle    = 0.015 deg
+ radial   = -0.000019 AU
+
+Oberon error:
+ distance = 892213 km (0.005964 AU)
+ relative = 0.030%
+ angle    = 0.008 deg
+ radial   = -0.005339 AU
+
+Miranda error:
+ distance = 968278 km (0.006473 AU)
+ relative = 0.032%
+ angle    = 0.018 deg
+ radial   = 0.001585 AU
+
+Triton error:
+ distance = 2870676 km (0.019189 AU)
+ relative = 0.064%
+ angle    = 0.035 deg
+ radial   = -0.005149 AU
+
+Nereid error:
+ distance = 6276438 km (0.041955 AU)
+ relative = 0.139%
+ angle    = 0.004 deg
+ radial   = 0.041906 AU
+
+Proteus error:
+ distance = 3203460 km (0.021414 AU)
+ relative = 0.071%
+ angle    = 0.039 deg
+ radial   = -0.005268 AU
+
+Charon error:
+ distance = 40920061 km (0.273534 AU)
+ relative = 0.905%
+ angle    = 0.485 deg
+ radial   = 0.095719 AU
+
+Nix error:
+ distance = 41019653 km (0.274199 AU)
+ relative = 0.908%
+ angle    = 0.486 deg
+ radial   = 0.096561 AU
+
+Hydra error:
+ distance = 41079626 km (0.274600 AU)
+ relative = 0.909%
+ angle    = 0.486 deg
+ radial   = 0.097091 AU
+
+Kerberos error:
+ distance = 40975781 km (0.273906 AU)
+ relative = 0.907%
+ angle    = 0.486 deg
+ radial   = 0.096190 AU

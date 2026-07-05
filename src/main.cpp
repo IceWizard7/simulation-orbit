@@ -27,7 +27,6 @@
 #include "vectors.hpp"
 
 // TODO: Parallel Execution?
-// TODO: Calculate how much "error" there is compared to real NASA data
 // TODO: (=>) Analyze which forces we can skip calculating (or calculate ex. every 1000 steps) to reach certain accuracy
 // TODO: Topic: ""
 // TODO: Research question: "?"
@@ -38,7 +37,7 @@
 
 // TODO: Internal planet rotation
 
-#define NUM_CELESTIAL_BODIES 10
+#define NUM_CELESTIAL_BODIES 38
 
 namespace solar_system {
     std::atomic<std::size_t> steps_simulated = 0;
@@ -183,7 +182,7 @@ namespace solar_system {
             const std::optional<Color>& color,
             const int max_rendered_orbit_segments_per_body,
             const int max_rendered_orbit_tail,
-            std::optional<const char*> texture_path
+            std::optional<const char*> texture_path = std::nullopt
         )
         : name(std::move(name)),
         position(position),
@@ -210,23 +209,50 @@ namespace solar_system {
             return direction * (source.gravitational_mass / (distance * distance));
         }
     };
-
-    CelestialBody sun = {"Sun", {5.254258484891016e8, -8.691526594804802e8, -1.013312408460682e7}, {1.486418097392948e1, 1.867348026651063e0, -4.030379227978539e-1}, 1988410e24, 10, 0.03, (Color){255, 230,  40, 255}, 30'000, 100'000, "resources/sun.jpg"};
-    CelestialBody mercury = {"Mercury", {-3.863295206424535e10, 3.095205136713375e10, 6.195274889256019e9}, {-4.061253084483177e4, -3.574724011520127e4, 8.385974494151380e2}, 3.302e23, 5, 0.01, (Color){150, 150, 150, 255}, 40'000, 1'000, "resources/mercury.jpg"};
-    CelestialBody venus = {"Venus", {-9.442641552608661e10, 4.918920270156867e10, 6.142101433096975e9}, {-1.646745669837079e4, -3.114773688845666e4, 5.450657096441862e2}, 48.685e23, 5, 0.01, (Color){245, 190,  70, 255}, 30'000, 10'000, "resources/venus.jpg"};
-    CelestialBody earth = {"Earth", {-3.821000604658472e10, 1.410274684528763e11, 5.275940805160999e7}, {-2.920909465286638e4, -7.960531594616490e3, -6.079433916260868e0}, 5.97219e24, 5, 0.01, (Color){ 40, 120, 204, 255}, 20'000, 10'000, "resources/earth.jpg"};
-    CelestialBody mars = {"Mars", {-1.603072902891413e11, -1.693943532268408e11, 4.939584574298635e8}, {1.848810083914610e4, -1.467137544186248e4, -7.687147050137604e2}, 6.4171e23, 10, 0.02, (Color){220,  60,  40, 255}, 15'000, 10'000, "resources/mars.jpg"};
-    CelestialBody jupiter = {"Jupiter", {-6.174066213916292e9, 7.669935543317993e11, -2.919675836705565e9}, {-1.321414969549137e4, 4.963533982492354e2, 2.948696326167778e2}, 18.9819e26, 10, 0.15, (Color){220, 150,  85, 255}, 4'000, 10'000, "resources/jupiter.jpg"};
-    CelestialBody saturn = {"Saturn", {-8.515017102896239e11, 1.061724056177945e12, 1.475763099241823e10}, {-8.067709138805704e3, -6.064681250795719e3, 4.267881978436692e2}, 5.6834e26, 10, 0.15, (Color){235, 205, 120, 255}, 4'000, 50'000, "resources/saturn.jpg"};
-    CelestialBody uranus = {"Uranus", {-2.732875467120085e12, 1.447663723744908e11, 3.619086410308249e10}, {-4.165944517727502e2, -7.115869467058308e3, -2.130718237900275e1}, 86.813e24, 10, 0.15, (Color){ 80, 220, 220, 255}, 4'000, 50'000, "resources/uranus.jpg"};
-    CelestialBody neptune = {"Neptune", {-3.037153665467541e12, -3.366573860211023e12, 1.392493943615987e11}, {4.002395710519806e3, -3.608893452530916e3, -1.753789063721323e1}, 102.409e24, 10, 0.15, (Color){ 40,  80, 230, 255}, 4'000, 50'000, "resources/neptune.jpg"};
-    CelestialBody pluto = {"Pluto", {5.435493283758588e12, -2.498597656155004e12, -1.304284834205698e12}, {2.629139130853487e3, 3.571607925259364e3, -1.120892268633253e3}, 1.307e22, 10, 0.15, (Color){185, 155, 130, 255}, 4'000, 100'000, std::nullopt};
-
     int center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
     int planet_info_display_index = -1; // -1 -> none
 
     // Don't change order of celestial_bodies
-    CelestialBody* celestial_bodies[NUM_CELESTIAL_BODIES] = {&sun, &mercury, &venus, &earth, &mars, &jupiter, &saturn, &uranus, &neptune, &pluto};
+    CelestialBody celestial_bodies[NUM_CELESTIAL_BODIES] = {
+        {"Sun", {5.254258484891016e8, -8.691526594804802e8, -1.013312408460682e7}, {1.486418097392948e1, 1.867348026651063e0, -4.030379227978539e-1}, 1988410e24, 10, 0.03, (Color){255, 230,  40, 255}, 30'000, 100'000, "resources/sun.jpg"},
+        {"Mercury", {-3.863295206424535e10, 3.095205136713375e10, 6.195274889256019e9}, {-4.061253084483177e4, -3.574724011520127e4, 8.385974494151380e2}, 3.302e23, 5, 0.01, (Color){150, 150, 150, 255}, 40'000, 1'000, "resources/mercury.jpg"},
+        {"Venus", {-9.442641552608661e10, 4.918920270156867e10, 6.142101433096975e9}, {-1.646745669837079e4, -3.114773688845666e4, 5.450657096441862e2}, 48.685e23, 5, 0.01, (Color){245, 190,  70, 255}, 30'000, 10'000, "resources/venus.jpg"},
+        {"Earth", {-3.821000604658472e10, 1.410274684528763e11, 5.275940805160999e7}, {-2.920909465286638e4, -7.960531594616490e3, -6.079433916260868e0}, 5.97219e24, 5, 0.01, (Color){ 40, 120, 204, 255}, 20'000, 10'000, "resources/earth.jpg"},
+        {"Mars", {-1.603072902891413e11, -1.693943532268408e11, 4.939584574298635e8}, {1.848810083914610e4, -1.467137544186248e4, -7.687147050137604e2}, 6.4171e23, 10, 0.02, (Color){220,  60,  40, 255}, 15'000, 10'000, "resources/mars.jpg"},
+        {"Jupiter", {-6.174066213916292e9, 7.669935543317993e11, -2.919675836705565e9}, {-1.321414969549137e4, 4.963533982492354e2, 2.948696326167778e2}, 18.9819e26, 10, 0.15, (Color){220, 150,  85, 255}, 4'000, 10'000, "resources/jupiter.jpg"},
+        {"Saturn", {-8.515017102896239e11, 1.061724056177945e12, 1.475763099241823e10}, {-8.067709138805704e3, -6.064681250795719e3, 4.267881978436692e2}, 5.6834e26, 10, 0.15, (Color){235, 205, 120, 255}, 4'000, 50'000, "resources/saturn.jpg"},
+        {"Uranus", {-2.732875467120085e12, 1.447663723744908e11, 3.619086410308249e10}, {-4.165944517727502e2, -7.115869467058308e3, -2.130718237900275e1}, 86.813e24, 10, 0.15, (Color){ 80, 220, 220, 255}, 4'000, 50'000, "resources/uranus.jpg"},
+        {"Neptune", {-3.037153665467541e12, -3.366573860211023e12, 1.392493943615987e11}, {4.002395710519806e3, -3.608893452530916e3, -1.753789063721323e1}, 102.409e24, 10, 0.15, (Color){ 40,  80, 230, 255}, 4'000, 50'000, "resources/neptune.jpg"},
+        {"Pluto", {5.435493283758588e12, -2.498597656155004e12, -1.304284834205698e12}, {2.629139130853487e3, 3.571607925259364e3, -1.120892268633253e3}, 1.307e22, 10, 0.15, (Color){185, 155, 130, 255}, 4'000, 100'000},
+        {"Moon", {-3.782417827609404e10, 1.411362073094813e11, 3.993214356346428e7}, {-2.943549761633117e4, -7.016310635821375e3, 7.358756789024357e1}, 7.349e22, 5, 0.01, (Color){200, 200, 200, 255}, 40'000, 1'000},
+        {"Phobos", {-1.603144727827997e11, -1.693895510926101e11, 4.979424081231654e8}, {1.748181894901772e4, -1.648636466442317e4, -4.084555018062686e2}, 1.08e16, 5, 0.01, (Color){105, 93, 82, 255}, 40'000, 1'000},
+        {"Deimos", {-1.603285635818097e11, -1.693959085793375e11, 5.037242108345851e8}, {1.852373428359592e4, -1.601519698639884e4, -9.046220102407760e2}, 1.80e15, 5, 0.01, (Color){139, 118, 99, 255}, 40'000, 1'000},
+        {"Io", {-6.233966160638074e9, 7.665746591434332e11, -2.935518177157819e9}, {3.880765477003187e3, -1.934781545909256e3, 4.632707592579830e2}, 0, 5, 0.01, (Color){240, 197, 79, 255}, 40'000, 1'000},
+        {"Europa", {-5.524824063946516e9, 7.668193677270226e11, -2.921204185672104e9}, {-9.538034154701794e3, 1.370099415341497e4, 8.680637549578591e2}, 0, 5, 0.01, (Color){210, 199, 174, 255}, 40'000, 1'000},
+        {"Ganymede", {-5.723547525943480e9, 7.660214110618627e11, -2.944168016637921e9}, {-3.356350373049795e3, 5.063255070955623e3, 5.911561261992728e2}, 0, 5, 0.01, (Color){139, 126, 112, 255}, 40'000, 1'000},
+        {"Callisto", {-6.727058694929393e9, 7.687975581029507e11, -2.865250786776066e9}, {-2.101874814219247e4, -1.952231661511678e3, 1.802771219350360e2}, 0, 5, 0.01, (Color){76, 66, 60, 255}, 40'000, 1'000},
+        {"Mimas", {-8.516636581629769e11, 1.061807980517000e12, 1.472360319106400e10}, {-1.474897014376366e4, -1.697383155305549e4, 6.853184301229338e3}, 3.75e19, 5, 0.01, (Color){207, 208, 197, 255}, 40'000, 1'000},
+        {"Enceladus", {-8.515107031148618e11, 1.061512709436290e12, 1.486921881305206e10}, {4.450800374170360e3, -6.989483977905879e3, -2.979779046934832e2}, 10.805e19, 5, 0.01, (Color){231, 240, 242, 255}, 40'000, 1'000},
+        {"Tethys", {-8.512188824985989e11, 1.061642053707790e12, 1.476698511971587e10}, {-5.115510688254963e3, 3.511397721990353e3, -4.909965695299988e3}, 61.76e19, 5, 0.01, (Color){202, 203, 191, 255}, 40'000, 1'000},
+        {"Dione", {-8.518781555267210e11, 1.061732633450093e12, 1.478965692075050e10}, {-7.858318030862320e3, -1.494278928583686e4, 5.057131541893256e3}, 109.572e19, 5, 0.01, (Color){190, 190, 180, 255}, 40'000, 1'000},
+        {"Rhea", {-8.512081243267576e11, 1.061324823121111e12, 1.493666597036761e10}, {-1.049824839418538e3, -2.120834237853587e3, -2.262008728035155e3}, 230.9e19, 5, 0.01, (Color){180, 180, 170, 255}, 40'000, 1'000},
+        {"Titan", {-8.522235383588899e11, 1.062636909412597e12, 1.435545804601282e10}, {-1.243404316489154e4, -8.910715502593630e3, 2.274078165657974e3}, 13455.3e19, 5, 0.01, (Color){201, 141, 71, 255}, 40'000, 1'000},
+        {"Hyperion", {-8.498936584797186e11, 1.061657170549778e12, 1.463885077849942e10}, {-8.302698690947226e3, -1.957528662676872e3, -1.687587676827684e3}, 1.08e19, 5, 0.01, (Color){136, 99, 70, 255}, 40'000, 1'000},
+        {"Iapetus", {-8.500748912276926e11, 1.058599343338804e12, 1.540162810358328e10}, {-5.123261858488538e3, -4.828112583515693e3, -4.944844931578785e2}, 180.59e19, 5, 0.01, (Color){154, 137, 108, 255}, 40'000, 1'000},
+        {"Phoebe", {-8.596026791222472e11, 1.074004499023409e12, 1.536507341007924e10}, {-6.776370060222495e3, -5.315086922292050e3, 4.729529789854172e2}, 0.8289e19, 5, 0.01, (Color){71, 68, 67, 255}, 40'000, 1'000},
+        {"Ariel", {-2.732926592440873e12, 1.448027471019274e11, 3.637137283902641e10}, {4.757137601380178e3, -8.020697343188287e3, 1.624044551554098e3}, 0, 5, 0.01, (Color){188, 203, 205, 255}, 40'000, 1'000},
+        {"Umbriel", {-2.732675563041831e12, 1.447467928691133e11, 3.636333632755692e10}, {2.493028286681002e3, -8.245372951301391e3, -3.520939634330069e3}, 0, 5, 0.01, (Color){79, 85, 91, 255}, 40'000, 1'000},
+        {"Titania", {-2.732787677630899e12, 1.448064216307254e11, 3.661602093365331e10}, {3.070103306269134e3, -7.968837078556122e3, -6.678648147948683e2}, 0, 5, 0.01, (Color){150, 153, 160, 255}, 40'000, 1'000},
+        {"Oberon", {-2.732558933353387e12, 1.447666066918093e11, 3.668055480000018e10}, {2.150769994181039e3, -7.902392191027546e3, -1.675388617524444e3}, 0, 5, 0.01, (Color){102, 97, 92, 255}, 40'000, 1'000},
+        {"Miranda", {-2.732777161966636e12, 1.447492623984428e11, 3.627381035799313e10}, {3.688720362717225e3, -8.339561536683586e3, -5.153670218630429e3}, 0, 5, 0.01, (Color){169, 174, 163, 255}, 40'000, 1'000},
+        {"Triton", {-3.036850320077638e12, -3.366749578337694e12, 1.391950131041121e11}, {1.732102699200397e3, -7.092865988918522e3, -1.424379895857080e3}, 0, 5, 0.01, (Color){194, 190, 183, 255}, 40'000, 1'000},
+        {"Nereid", {-3.038400387853745e12, -3.359190987547935e12, 1.397450069277501e11}, {3.562827418047810e3, -4.230357350225681e3, -8.167864661330615e1}, 0, 5, 0.01, (Color){164, 171, 174, 255}, 40'000, 1'000},
+        {"Proteus", {-3.037150258549777e12, -3.366462464179123e12, 1.392870571929171e11}, {-3.159702433964280e3, -4.249881205430017e3, 2.514683508520289e3}, 0, 5, 0.01, (Color){89, 91, 89, 255}, 40'000, 1'000},
+        {"Charon", {5.435507571739943e12, -2.498585169590914e12, -1.304289714788928e12}, {2.649794155054928e3, 3.470637020560921e3, -1.318807330374422e3}, 0, 5, 0.01, (Color){126, 117, 109, 255}, 40'000, 1'000},
+        {"Nix", {5.435506231426013e12, -2.498562926832713e12, -1.304251732310032e12}, {2.730701004502762e3, 3.613724687258064e3, -1.230248067585195e3}, 0, 5, 0.01, (Color){184, 183, 175, 255}, 40'000, 1'000},
+        {"Hydra", {5.435541905260762e12, -2.498564246715345e12, -1.304315503974369e12}, {2.619335786799016e3, 3.486905755936516e3, -1.240844499188735e3}, 0, 5, 0.01, (Color){164, 165, 157, 255}, 40'000, 1'000},
+        {"Kerberos", {5.435454730070845e12, -2.498637906440255e12, -1.304282146787419e12}, {2.598784079825089e3, 3.601093273190158e3, -1.023177596881631e3}, 0, 5, 0.01, (Color){84, 80, 78, 255}, 40'000, 1'000}
+    };
     std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
 
     // Immutable, render-ready view of the system
@@ -259,7 +285,7 @@ namespace solar_system {
 
             auto& history = orbit_history[i];
 
-            history.push_back(celestial_bodies[i]->position);
+            history.push_back(celestial_bodies[i].position);
 
             if (history.size() > config::MAX_ORBIT_POINTS) {
                 history.pop_front();
@@ -273,7 +299,7 @@ namespace solar_system {
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
             for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
                 if (i == j) continue; // do not apply gravity from this object to this
-                accelerations[i] += celestial_bodies[i]->acceleration_due_to(*celestial_bodies[j]);
+                accelerations[i] += celestial_bodies[i].acceleration_due_to(celestial_bodies[j]);
             }
         }
 
@@ -286,7 +312,7 @@ namespace solar_system {
 
         // Velocity Verlet: keep the orbit phase stable over many short-period inner-planet revolutions
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            celestial_bodies[i]->position += celestial_bodies[i]->velocity * config::TIME_STEP
+            celestial_bodies[i].position += celestial_bodies[i].velocity * config::TIME_STEP
                 + accelerations[i] * half_dt_squared;
         }
 
@@ -294,7 +320,7 @@ namespace solar_system {
         constexpr double half_dt = 0.5 * config::TIME_STEP;
 
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            celestial_bodies[i]->velocity += (accelerations[i] + next_accelerations[i]) * half_dt;
+            celestial_bodies[i].velocity += (accelerations[i] + next_accelerations[i]) * half_dt;
         }
 
         ++steps_simulated;
@@ -306,13 +332,13 @@ namespace solar_system {
     void publish_snapshot() {
         auto snap = std::make_shared<RenderSnapshot>();
 
-        const Vec3 center = celestial_bodies[center_celestial_body_index]->position;
+        const Vec3 center = celestial_bodies[center_celestial_body_index].position;
         const auto& center_history = orbit_history[center_celestial_body_index];
 
         std::size_t max_used = 0;
 
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            const auto& body = *celestial_bodies[i];
+            const auto& body = celestial_bodies[i];
 
             Vec3 pos = body.position;
             if (config::RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
@@ -579,9 +605,9 @@ namespace solar_system {
         DrawRectangle(start, end, WHITE);
 
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            if (const auto& celestial_body = celestial_bodies[i]; celestial_body->color.has_value()) {
-                DrawCircle({config::WINDOW_WIDTH - config::WINDOW_MARGIN - 80, config::WINDOW_MARGIN + spacing * i + (font_size / 2)}, 5, *celestial_body->color);
-                DrawText(uiFont, celestial_body->name.c_str(), Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN - 65, config::WINDOW_MARGIN + spacing * i), font_size, 1, BLACK);
+            if (const auto& celestial_body = celestial_bodies[i]; celestial_body.color.has_value()) {
+                DrawCircle({config::WINDOW_WIDTH - config::WINDOW_MARGIN - 80, config::WINDOW_MARGIN + spacing * i + (font_size / 2)}, 5, *celestial_body.color);
+                DrawText(uiFont, celestial_body.name.c_str(), Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN - 65, config::WINDOW_MARGIN + spacing * i), font_size, 1, BLACK);
             }
         }
 
@@ -600,7 +626,7 @@ namespace solar_system {
     void draw_planet_info(const Color text_color, const Color background_color) {
         if (planet_info_display_index == -1) return;
 
-        CelestialBody* celestial_body = celestial_bodies[planet_info_display_index];
+        const auto& celestial_body = celestial_bodies[planet_info_display_index];
 
         DrawRectangle(config::WINDOW_MARGIN, config::WINDOW_MARGIN, 5.5 * config::GRID_SPACING, 1.5 * config::GRID_SPACING, background_color);
         DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN}, 2, text_color);
@@ -612,15 +638,15 @@ namespace solar_system {
 
         DrawText(uiFont, "Use as center", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
 
-        DrawCircle({config::WINDOW_MARGIN + 22.5, config::WINDOW_MARGIN + 60}, 7.5, *celestial_body->color);
+        DrawCircle({config::WINDOW_MARGIN + 22.5, config::WINDOW_MARGIN + 60}, 7.5, *celestial_body.color);
         if (1 <= planet_info_display_index && planet_info_display_index <= 8) {
-            DrawText(uiFont, std::format("{} ({}{} planet from sun)", celestial_body->name, planet_info_display_index, get_numerical_suffix(planet_info_display_index)).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
+            DrawText(uiFont, std::format("{} ({}{} planet from sun)", celestial_body.name, planet_info_display_index, get_numerical_suffix(planet_info_display_index)).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
         } else {
-            DrawText(uiFont, std::format("{} (index {})", celestial_body->name, planet_info_display_index).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
+            DrawText(uiFont, std::format("{} (index {})", celestial_body.name, planet_info_display_index).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
         }
-        DrawText(uiFont, std::format("Position: {:<34}m", celestial_body->position.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 70}, 20, 1, text_color);
-        DrawText(uiFont, std::format("Velocity: {:<34}m/s", celestial_body->velocity.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 90}, 20, 1, text_color);
-        DrawText(uiFont, std::format("Mass: {:<38}kg", celestial_body->mass).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 110}, 20, 1, text_color);
+        DrawText(uiFont, std::format("Position: {:<34}m", celestial_body.position.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 70}, 20, 1, text_color);
+        DrawText(uiFont, std::format("Velocity: {:<34}m/s", celestial_body.velocity.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 90}, 20, 1, text_color);
+        DrawText(uiFont, std::format("Mass: {:<38}kg", celestial_body.mass).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 110}, 20, 1, text_color);
     }
 
 
@@ -636,7 +662,7 @@ namespace solar_system {
 
         // Right side
         DrawText(uiFont, std::format("Simulated years per second: {}", (seconds > 0.0 ? round_to_hundreds(((static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))) / seconds) : "0")).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, text_color);
-        DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index]->name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, text_color);
+        DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index].name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, text_color);
         DrawText(uiFont, std::format("Target years per second: {}", config::TARGET_SIMULATION_SPEED > 0.0 ? round_to_hundreds(config::TARGET_SIMULATION_SPEED) : "Unlimited").c_str(), Vec2(config::WINDOW_MARGIN + 400, 50), 20, 1, text_color);
     }
 
@@ -699,7 +725,8 @@ namespace solar_system {
                 if (Vector3DotProduct(Vector3Subtract(start, cam.position), forward) <= 0) continue;
                 if (Vector3DotProduct(Vector3Subtract(end, cam.position), forward) <= 0) continue;
 
-                const float alpha = (0.10f + 0.70f * (static_cast<float>(j) / n)) / 3;
+                // const float alpha = (0.10f + 0.70f * (static_cast<float>(j) / n)) / 3;
+                constexpr float alpha = 1.0f; // TODO: We need to stop overlapping. Otherwise, even if alpha is 0.1f for all planets, for some, the lines will appear as if they had higher alpha
                 DrawLineEx(GetWorldToScreen(start, cam), GetWorldToScreen(end, cam), 2.0f, Fade(*color, alpha));
             }
         }
@@ -722,23 +749,57 @@ namespace solar_system {
         }
     }
 
-    void draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
-        if (timer.is_running()) return; // draw labels only while paused
+    void draw_grid_3d(const Camera3D& cam) {
+        constexpr float spacing = 5.0f;
+        constexpr int half_grid = 5;
+        constexpr float near_epsilon = 0.01f;
 
         const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
-        for (const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual] : snap->bodies) {
-            if (!color.has_value()) continue;
+        auto draw_clipped_line = [&](Vector3 a, Vector3 b) {
+            const float depth_a = Vector3DotProduct(Vector3Subtract(a, cam.position), forward);
+            const float depth_b = Vector3DotProduct(Vector3Subtract(b, cam.position), forward);
 
-            const Vector3 world = to_world(pos);
-            // GetWorldToScreen doesn't clip points behind the camera
-            // it can project them to a wrong on-screen spot, so skip those segments
-            if (Vector3DotProduct(Vector3Subtract(world, cam.position), forward) <= 0) continue;
+            // Entire segment is behind the camera
+            if (depth_a <= near_epsilon && depth_b <= near_epsilon) {
+                return;
+            }
 
-            Vector2 text_pos = GetWorldToScreen(world, cam);
-            text_pos.y -= 10;
-            text_pos.x += 10;
-            DrawTextOutlined(uiFont, name.c_str(), text_pos, 20, 1, *color, {0, 0, 0, 125});
+            // Clip the endpoint that is behind the camera.
+            if (depth_a <= near_epsilon || depth_b <= near_epsilon) {
+                const float t = (near_epsilon - depth_a) / (depth_b - depth_a);
+
+                const Vector3 clipped = Vector3Add(a, Vector3Scale(Vector3Subtract(b, a), t));
+
+                if (depth_a <= near_epsilon) {
+                    a = clipped;
+                } else {
+                    b = clipped;
+                }
+            }
+
+            DrawLineEx(
+                GetWorldToScreen(a, cam),
+                GetWorldToScreen(b, cam),
+                1.0f,
+                Fade(WHITE, 0.5f)
+            );
+        };
+
+        for (int i = -half_grid; i <= half_grid; ++i) {
+            const float p = static_cast<float>(i) * spacing;
+
+            // lines running along Z
+            draw_clipped_line(
+                {p, 0.0f, -half_grid * spacing},
+                {p, 0.0f,  half_grid * spacing}
+            );
+
+            // lines running along X
+            draw_clipped_line(
+                {-half_grid * spacing, 0.0f, p},
+                { half_grid * spacing, 0.0f, p}
+            );
         }
     }
 
@@ -872,6 +933,29 @@ namespace solar_system {
         return best;
     }
 
+    void draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
+        if (timer.is_running()) return; // draw labels only while paused
+
+        const int hovered_body_i = pick_body_at_mouse_3d(snap, cam);
+
+        if (hovered_body_i == -1) return;
+
+        const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
+
+        const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual] = snap->bodies[hovered_body_i];
+        if (!color.has_value()) return;
+
+        const Vector3 world = to_world(pos);
+        // GetWorldToScreen doesn't clip points behind the camera
+        // it can project them to a wrong on-screen spot, so skip those segments
+        if (Vector3DotProduct(Vector3Subtract(world, cam.position), forward) <= 0) return;
+
+        Vector2 text_pos = GetWorldToScreen(world, cam);
+        text_pos.y -= 10;
+        text_pos.x += 10;
+        DrawTextOutlined(uiFont, name.c_str(), text_pos, 20, 1, *color, {0, 0, 0, 125});
+    }
+
     Camera3D make_camera() {
         Camera3D c{};
         c.target = {0, 0, 0};
@@ -945,7 +1029,7 @@ namespace solar_system {
                 b_start.x <= mx && mx <= b_end.x &&
                 b_start.y <= my && my <= b_end.y) {
                 center_button_pressed = true;
-                }
+            }
         }
 
         if (!center_button_pressed) {
@@ -1081,16 +1165,15 @@ namespace solar_system {
 
             if (snap) draw_orbits_3d(snap, cam);
 
+            draw_grid_3d(cam);
+
             BeginMode3D(cam);
-            DrawGrid(10, 2.0f);
             if (snap) draw_planets_3d(snap);
 
             EndMode3D();
 
             // 2D overlays, projected by 3D points
-            if (snap) {
-                draw_planet_labels_3d(snap, cam);
-            }
+            if (snap) draw_planet_labels_3d(snap, cam);
 
             draw_stats(WHITE, BLACK);
             draw_planet_info(WHITE, BLACK);
@@ -1121,7 +1204,7 @@ namespace solar_system {
 
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
             const auto& celestial_body = celestial_bodies[i];
-            printf("%s", celestial_body->position.to_exact_string().c_str());
+            printf("%s", celestial_body.position.to_exact_string().c_str());
             if (i != NUM_CELESTIAL_BODIES - 1) {
                 printf("|");
             }
@@ -1150,8 +1233,8 @@ int main(const int argc, char* argv[]) {
     InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "Umlaufbahn Simulation");
     SetTargetFPS(config::TARGET_FPS);
 
-    for (const auto& celestial_body : solar_system::celestial_bodies) {
-        celestial_body->planet_visual.load_planet_visual();
+    for (auto& celestial_body : solar_system::celestial_bodies) {
+        celestial_body.planet_visual.load_planet_visual();
     }
 
     solar_system::uiFont = LoadFontEx(
@@ -1180,8 +1263,8 @@ int main(const int argc, char* argv[]) {
     solar_system::timer.pause();
     cpu_thread.join();
 
-    for (const auto& celestial_body : solar_system::celestial_bodies) {
-        celestial_body->planet_visual.unload_planet_visual();
+    for (auto& celestial_body : solar_system::celestial_bodies) {
+        celestial_body.planet_visual.unload_planet_visual();
     }
 
     UnloadFont(solar_system::uiFont);
