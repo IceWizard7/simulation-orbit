@@ -165,7 +165,8 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
     auto publish_if_due = [&] {
         const auto now = std::chrono::steady_clock::now();
-        if (now - last_publish >= std::chrono::milliseconds(1000 / (config::TARGET_FPS * 2))) {
+        // publish at 2x the target FPS
+        if (now - last_publish >= std::chrono::duration<double>(1.0 / (config::TARGET_FPS * 2.0))) {
             publish_snapshot();
             last_publish = now;
         }
