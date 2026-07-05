@@ -1,8 +1,9 @@
 #pragma once
 
+#include <raylib.h>
+
 #include "config.hpp"
 #include "vectors.hpp"
-#include <raylib.h>
 
 inline Vector2 to_raylib(const Vec2& v) {
     // x in interval [0, WINDOW_WIDTH]

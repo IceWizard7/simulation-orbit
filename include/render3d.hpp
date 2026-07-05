@@ -1,8 +1,9 @@
 #pragma once
 
 #include <raylib.h>
-#include "vectors.hpp"
+
 #include "config.hpp"
+#include "vectors.hpp"
 
 inline Vector3 to_world(const Vec3& m) { // meters
     return {

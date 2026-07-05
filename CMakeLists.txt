@@ -18,6 +18,10 @@ FetchContent_MakeAvailable(raylib)
 add_executable(simulation-orbit
         src/main.cpp
         src/utils.cpp
+        src/planet_visual.cpp
+        src/celestial_body.cpp
+        src/celestial_body.cpp
+        src/ui.cpp
 )
 
 target_include_directories(simulation-orbit PRIVATE include)

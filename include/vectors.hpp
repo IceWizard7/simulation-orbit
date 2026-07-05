@@ -1,11 +1,9 @@
 #pragma once
 
-#include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <memory>
-#include "utils.hpp"
 
+#include "utils.hpp"
 
 class Vec2 {
 public:

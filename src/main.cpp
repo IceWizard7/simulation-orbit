@@ -10,20 +10,20 @@
 #include <mutex>
 #include <optional>
 #include <raylib.h>
+#include <raymath.h>
 #include <stop_token>
 #include <thread>
 #include <utility>
 #include <vector>
 
-#include "raymath.h"
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
 
+#include "celestial_body.hpp"
 #include "config.hpp"
-#include "render3d.hpp"
-#include "screen_utils.hpp"
 #include "timer.hpp"
+#include "ui.hpp"
 #include "vectors.hpp"
 
 // TODO: Parallel Execution?
@@ -37,181 +37,7 @@
 
 // TODO: Internal planet rotation
 
-#define NUM_CELESTIAL_BODIES 38
-
 namespace solar_system {
-    std::atomic<std::size_t> steps_simulated = 0;
-    std::atomic center_celestial_body_changed = false;
-
-    Font uiFont;
-    PausableTimer timer;
-
-    double simulated_years() {
-        return static_cast<double>(steps_simulated.load()) * config::TIME_STEP / config::SECONDS_PER_YEAR;
-    }
-
-    double measured_simulation_speed() {
-        const double seconds = timer.seconds();
-        return seconds > 0.0 ? simulated_years() / seconds : 0.0;
-    }
-
-    Mesh make_equirectangular_sphere_mesh(const float radius, const int rings, const int slices) {
-        // builds a custom textured sphere mesh for planet maps
-        Mesh mesh{};
-
-        const int columns = slices + 1; // duplicate seam vertices at u=0 and u=1
-        mesh.vertexCount = (rings + 1) * columns;
-        mesh.triangleCount = rings * slices * 2;
-
-        mesh.vertices = static_cast<float*>(MemAlloc(sizeof(float) * 3 * mesh.vertexCount));
-        mesh.normals = static_cast<float*>(MemAlloc(sizeof(float) * 3 * mesh.vertexCount));
-        mesh.texcoords = static_cast<float*>(MemAlloc(sizeof(float) * 2 * mesh.vertexCount));
-        mesh.indices = static_cast<unsigned short*>(MemAlloc(sizeof(unsigned short) * 3 * mesh.triangleCount));
-
-        for (int row = 0; row <= rings; ++row) {
-            const float v = static_cast<float>(row) / static_cast<float>(rings);
-            const float phi = v * PI;
-            const float sin_phi = sinf(phi);
-            const float cos_phi = cosf(phi);
-
-            for (int col = 0; col <= slices; ++col) {
-                const float u = static_cast<float>(col) / static_cast<float>(slices);
-                const float theta = (u - 0.5f) * 2.0f * PI;
-                const float nx = sin_phi * cosf(theta);
-                const float ny = cos_phi;
-                const float nz = -sin_phi * sinf(theta);
-                const int vertex = row * columns + col;
-
-                mesh.vertices[vertex * 3] = radius * nx;
-                mesh.vertices[vertex * 3 + 1] = radius * ny;
-                mesh.vertices[vertex * 3 + 2] = radius * nz;
-
-                mesh.normals[vertex * 3] = nx;
-                mesh.normals[vertex * 3 + 1] = ny;
-                mesh.normals[vertex * 3 + 2] = nz;
-
-                mesh.texcoords[vertex * 2] = u;
-                mesh.texcoords[vertex * 2 + 1] = v;
-            }
-        }
-
-        int index = 0;
-        for (int row = 0; row < rings; ++row) {
-            for (int col = 0; col < slices; ++col) {
-                const auto top_left = static_cast<unsigned short>(row * columns + col);
-                const auto top_right = static_cast<unsigned short>(top_left + 1);
-                const auto bottom_left = static_cast<unsigned short>((row + 1) * columns + col);
-                const auto bottom_right = static_cast<unsigned short>(bottom_left + 1);
-
-                mesh.indices[index++] = top_left;
-                mesh.indices[index++] = bottom_left;
-                mesh.indices[index++] = top_right;
-
-                mesh.indices[index++] = top_right;
-                mesh.indices[index++] = bottom_left;
-                mesh.indices[index++] = bottom_right;
-            }
-        }
-
-        UploadMesh(&mesh, false);
-        return mesh;
-    }
-
-    class PlanetVisual {
-    public:
-        Model model{};
-        Texture2D texture{};
-        std::optional<const char*> texture_path;
-        bool loaded = false;
-
-        void load_planet_visual() {
-            if (loaded || !texture_path.has_value()) return;
-
-            model = LoadModelFromMesh(make_equirectangular_sphere_mesh(1.0f, 64, 128));
-            texture = LoadTexture(*texture_path);
-
-            if (texture.id == 0 || model.materials == nullptr) {
-                TraceLog(LOG_ERROR, "Could not load planet texture: %s", *texture_path);
-                UnloadModel(model);
-                model = {};
-                texture = {};
-                return;
-            }
-
-            GenTextureMipmaps(&texture); // generate textures for far-away rendering
-            SetTextureFilter(texture, TEXTURE_FILTER_TRILINEAR); // smooth sampling between pixels
-            SetTextureWrap(texture, TEXTURE_WRAP_CLAMP); // clamp pixels [0, 1] instead of repeating the opposite side
-            SetMaterialTexture(&model.materials[0], MATERIAL_MAP_ALBEDO, texture);
-
-            loaded = true;
-        }
-
-        void unload_planet_visual() {
-            if (!loaded) return;
-
-            UnloadTexture(texture);
-            UnloadModel(model);
-
-            texture = {};
-            model = {};
-            loaded = false;
-        }
-    };
-
-    class CelestialBody {
-    public:
-        str name;
-        Vec3 position;
-        Vec3 velocity;
-        double mass;
-        double gravitational_mass; // mass * G
-        float draw_radius_2d;
-        float draw_radius_3d;
-        std::optional<Color> color;
-        int max_rendered_orbit_segments_per_body;
-        int max_rendered_orbit_tail;
-        PlanetVisual planet_visual;
-
-        CelestialBody(
-            str name,
-            const Vec3 &position,
-            const Vec3 &velocity,
-            const double mass,
-            const float radius_2d,
-            const float radius_3d,
-            const std::optional<Color>& color,
-            const int max_rendered_orbit_segments_per_body,
-            const int max_rendered_orbit_tail,
-            std::optional<const char*> texture_path = std::nullopt
-        )
-        : name(std::move(name)),
-        position(position),
-        velocity(velocity),
-        mass(mass),
-        gravitational_mass(mass * config::GRAVITATIONAL_CONSTANT),
-        draw_radius_2d(radius_2d),
-        draw_radius_3d(radius_3d),
-        color(color),
-        max_rendered_orbit_segments_per_body(max_rendered_orbit_segments_per_body),
-        max_rendered_orbit_tail(max_rendered_orbit_tail) {
-            planet_visual.texture_path = texture_path;
-        }
-
-        [[nodiscard]] double distance_to(const CelestialBody &body) const {
-            return (position - body.position).length();
-        }
-
-        [[nodiscard]] Vec3 acceleration_due_to(const CelestialBody &source) const {
-            const double distance = distance_to(source);
-            const Vec3 direction = (source.position - position) / distance;
-
-            // (G * M / r^2) * direction
-            return direction * (source.gravitational_mass / (distance * distance));
-        }
-    };
-    int center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
-    int planet_info_display_index = -1; // -1 -> none
-
     // Don't change order of celestial_bodies
     CelestialBody celestial_bodies[NUM_CELESTIAL_BODIES] = {
         {"Sun", {5.254258484891016e8, -8.691526594804802e8, -1.013312408460682e7}, {1.486418097392948e1, 1.867348026651063e0, -4.030379227978539e-1}, 1988410e24, 10, 0.03, (Color){255, 230,  40, 255}, 30'000, 100'000, "resources/sun.jpg"},
@@ -224,7 +50,7 @@ namespace solar_system {
         {"Uranus", {-2.732875467120085e12, 1.447663723744908e11, 3.619086410308249e10}, {-4.165944517727502e2, -7.115869467058308e3, -2.130718237900275e1}, 86.813e24, 10, 0.15, (Color){ 80, 220, 220, 255}, 4'000, 50'000, "resources/uranus.jpg"},
         {"Neptune", {-3.037153665467541e12, -3.366573860211023e12, 1.392493943615987e11}, {4.002395710519806e3, -3.608893452530916e3, -1.753789063721323e1}, 102.409e24, 10, 0.15, (Color){ 40,  80, 230, 255}, 4'000, 50'000, "resources/neptune.jpg"},
         {"Pluto", {5.435493283758588e12, -2.498597656155004e12, -1.304284834205698e12}, {2.629139130853487e3, 3.571607925259364e3, -1.120892268633253e3}, 1.307e22, 10, 0.15, (Color){185, 155, 130, 255}, 4'000, 100'000},
-        {"Moon", {-3.782417827609404e10, 1.411362073094813e11, 3.993214356346428e7}, {-2.943549761633117e4, -7.016310635821375e3, 7.358756789024357e1}, 7.349e22, 5, 0.01, (Color){200, 200, 200, 255}, 40'000, 1'000},
+        /*{"Moon", {-3.782417827609404e10, 1.411362073094813e11, 3.993214356346428e7}, {-2.943549761633117e4, -7.016310635821375e3, 7.358756789024357e1}, 7.349e22, 5, 0.01, (Color){200, 200, 200, 255}, 40'000, 1'000},
         {"Phobos", {-1.603144727827997e11, -1.693895510926101e11, 4.979424081231654e8}, {1.748181894901772e4, -1.648636466442317e4, -4.084555018062686e2}, 1.08e16, 5, 0.01, (Color){105, 93, 82, 255}, 40'000, 1'000},
         {"Deimos", {-1.603285635818097e11, -1.693959085793375e11, 5.037242108345851e8}, {1.852373428359592e4, -1.601519698639884e4, -9.046220102407760e2}, 1.80e15, 5, 0.01, (Color){139, 118, 99, 255}, 40'000, 1'000},
         {"Io", {-6.233966160638074e9, 7.665746591434332e11, -2.935518177157819e9}, {3.880765477003187e3, -1.934781545909256e3, 4.632707592579830e2}, 0, 5, 0.01, (Color){240, 197, 79, 255}, 40'000, 1'000},
@@ -251,37 +77,13 @@ namespace solar_system {
         {"Charon", {5.435507571739943e12, -2.498585169590914e12, -1.304289714788928e12}, {2.649794155054928e3, 3.470637020560921e3, -1.318807330374422e3}, 0, 5, 0.01, (Color){126, 117, 109, 255}, 40'000, 1'000},
         {"Nix", {5.435506231426013e12, -2.498562926832713e12, -1.304251732310032e12}, {2.730701004502762e3, 3.613724687258064e3, -1.230248067585195e3}, 0, 5, 0.01, (Color){184, 183, 175, 255}, 40'000, 1'000},
         {"Hydra", {5.435541905260762e12, -2.498564246715345e12, -1.304315503974369e12}, {2.619335786799016e3, 3.486905755936516e3, -1.240844499188735e3}, 0, 5, 0.01, (Color){164, 165, 157, 255}, 40'000, 1'000},
-        {"Kerberos", {5.435454730070845e12, -2.498637906440255e12, -1.304282146787419e12}, {2.598784079825089e3, 3.601093273190158e3, -1.023177596881631e3}, 0, 5, 0.01, (Color){84, 80, 78, 255}, 40'000, 1'000}
+        {"Kerberos", {5.435454730070845e12, -2.498637906440255e12, -1.304282146787419e12}, {2.598784079825089e3, 3.601093273190158e3, -1.023177596881631e3}, 0, 5, 0.01, (Color){84, 80, 78, 255}, 40'000, 1'000}*/
     };
     std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
 
-    // Immutable, render-ready view of the system
-    // Producer: simulation thread, Consumer: render thread
-    // Positions & orbit points: relative to the center body => render thread can re-project them under the current zoom every frame
-    struct RenderSnapshot {
-        struct Body {
-            str name;
-            Vec3 position;
-            float radius_2d = 0;
-            float radius_3d = 0;
-            std::optional<Color> color;
-            const PlanetVisual* planet_visual = nullptr;
-        };
-        struct Orbit {
-            std::vector<Vec3> points;
-            std::optional<Color> color;
-        };
-        std::array<Body,  NUM_CELESTIAL_BODIES> bodies;
-        std::array<Orbit, NUM_CELESTIAL_BODIES> orbits; // already decimated to max_rendered_orbit_segments_per_body
-        std::size_t max_orbit_points_used = 0;
-    };
-
-    std::mutex snapshot_lock; // held only for the pointer swap (nanoseconds)
-    std::shared_ptr<const RenderSnapshot> latest_snapshot; // produced by simulation thread, read by render thread
-
     void save_orbit_points() {
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            if (steps_simulated % static_cast<int>(config::ORBIT_SAMPLE_EVERY_SECONDS / config::TIME_STEP) != 0) continue;
+            if (config::steps_simulated % static_cast<int>(config::ORBIT_SAMPLE_EVERY_SECONDS / config::TIME_STEP) != 0) continue;
 
             auto& history = orbit_history[i];
 
@@ -323,7 +125,7 @@ namespace solar_system {
             celestial_bodies[i].velocity += (accelerations[i] + next_accelerations[i]) * half_dt;
         }
 
-        ++steps_simulated;
+        ++config::steps_simulated;
         save_orbit_points();
     }
 
@@ -332,8 +134,8 @@ namespace solar_system {
     void publish_snapshot() {
         auto snap = std::make_shared<RenderSnapshot>();
 
-        const Vec3 center = celestial_bodies[center_celestial_body_index].position;
-        const auto& center_history = orbit_history[center_celestial_body_index];
+        const Vec3 center = celestial_bodies[config::center_celestial_body_index].position;
+        const auto& center_history = orbit_history[config::center_celestial_body_index];
 
         std::size_t max_used = 0;
 
@@ -351,7 +153,7 @@ namespace solar_system {
 
             // Don't include center in snapshot
             if constexpr (config::RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
-                if (i == center_celestial_body_index) continue;
+                if (i == config::center_celestial_body_index) continue;
             }
             if (history.size() < 2 || !body.color.has_value()) continue;
 
@@ -376,9 +178,16 @@ namespace solar_system {
 
         snap->max_orbit_points_used = max_used;
 
+        const int planet_info_display_index = config::planet_info_display_index; // load once
+
+        if (planet_info_display_index != -1) {
+            const auto& body = celestial_bodies[planet_info_display_index];
+            snap->detailed_body_display = {body.name, body.position, body.velocity, body.mass, body.color};
+        }
+
         {
-            std::lock_guard lock(snapshot_lock);
-            latest_snapshot = std::move(snap);
+            std::lock_guard lock(config::snapshot_lock);
+            config::latest_snapshot = std::move(snap);
         }
     }
 
@@ -397,15 +206,17 @@ namespace solar_system {
         };
 
         while (!stop_token.stop_requested()) {
+            // If the **animation** appears laggy / slow, try lowering this
+            // It does not affect CPU simulation speed
             constexpr std::size_t MAX_STEPS_PER_BATCH = 4096;
             constexpr double MAX_CATCH_UP_SECONDS = 0.25;
-            if (!timer.is_running()) {
+            if (!config::timer.is_running()) {
                 step_budget = 0.0;
                 last_budget_update = std::chrono::steady_clock::now();
 
-                if (center_celestial_body_changed) {
+                if (config::republish_needed) {
                     publish_snapshot();
-                    center_celestial_body_changed = false;
+                    config::republish_needed = false;
                 }
 
                 std::this_thread::sleep_for(std::chrono::milliseconds(1000 / config::TARGET_FPS));
@@ -414,7 +225,7 @@ namespace solar_system {
 
             if constexpr (config::TARGET_TOTAL_SIMULATION_TIME > 0.0) {
                 if (config::TARGET_TOTAL_SIMULATION_TIME <= simulated_years()) {
-                    timer.pause();
+                    config::timer.pause();
                 }
             }
 
@@ -466,740 +277,14 @@ namespace solar_system {
         }
     }
 
-    void DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, const float angle, const float fontSize, const float spacing, const Color color) {
-        auto [x, y] = MeasureTextEx(font, text, fontSize, spacing);
-
-        DrawTextPro(
-            font,
-            text,
-            Vector2(static_cast<float>(center.x), static_cast<float>(center.y)),
-            Vector2(x/2, y/2),
-            angle,
-            fontSize,
-            spacing,
-            color
-        );
-    }
-
-    void DrawCircle(const Vec2& pos, const float radius, const Color color) {
-        DrawCircleV(Vector2(static_cast<float>(pos.x), static_cast<float>(pos.y)), radius, color);
-    }
-
-    void DrawRectangle(const Vec2& a, const Vec2& b, const Color color) {
-        const auto left = static_cast<float>(std::min(a.x, b.x));
-        const auto top = static_cast<float>(std::min(a.y, b.y));
-        const auto width = static_cast<float>(std::abs(b.x - a.x));
-        const auto height = static_cast<float>(std::abs(b.y - a.y));
-
-        DrawRectangleV({left, top}, {width, height}, color);
-    }
-
-    void DrawText(const Font &font, const char *text, const Vec2 &position, const float fontSize, const float spacing, const Color color) {
-        DrawTextEx(font, text, Vector2(static_cast<float>(position.x), static_cast<float>(position.y)), fontSize, spacing, color);
-    }
-
-    void DrawLine(const Vec2& start_pos, const Vec2& end_pos, const float thick, const Color color) {
-        DrawLineEx(Vector2(static_cast<float>(start_pos.x), static_cast<float>(start_pos.y)), Vector2(static_cast<float>(end_pos.x), static_cast<float>(end_pos.y)), thick, color);
-    }
-
-    void DrawTextOutlined(const Font& font, const char* text, const Vector2& pos, const float fontSize, const float spacing, const Color& fill, const Color& outline) {
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                if (dx || dy) {
-                    DrawTextEx(font, text, {pos.x + static_cast<float>(dx), pos.y + static_cast<float>(dy)}, fontSize, spacing, outline);
-                }
-            }
-        }
-        DrawTextEx(font, text, pos, fontSize, spacing, fill); // colored fill on top
-    }
-
-    void draw_ui(const std::shared_ptr<const RenderSnapshot>& snap) {
-        constexpr int horizontal_lines = (config::WINDOW_HEIGHT - 2 * config::WINDOW_MARGIN) / config::GRID_SPACING + 1;
-        constexpr int vertical_lines = (config::WINDOW_WIDTH - 2 * config::WINDOW_MARGIN) / config::GRID_SPACING + 1;
-
-        const str SCALING_STRING = to_power_of10(config::SCALING / config::AXIS_SCALING);
-
-        // Grid, axes & labels
-        for (int x = config::WINDOW_MARGIN; x <= config::WINDOW_WIDTH - config::WINDOW_MARGIN; x += static_cast<int>(config::GRID_SPACING)) {
-            float thick = 1.5;
-            Color color = Fade(DARKGRAY, 0.35f);
-            if (x == config::WINDOW_MARGIN || x == config::WINDOW_WIDTH - config::WINDOW_MARGIN) {
-                thick = 2;
-                color = BLACK;
-            }
-            DrawLine(
-                Vec2(x, config::WINDOW_MARGIN),
-                Vec2(x, config::WINDOW_HEIGHT - config::WINDOW_MARGIN),
-                thick,
-                color
-            );
-            if (x != config::WINDOW_WIDTH - config::WINDOW_MARGIN && x != config::WINDOW_MARGIN) {
-                DrawTextCenteredEx(
-                    uiFont,
-                    round_to_hundreds(((static_cast<double>(x) / config::GRID_SPACING) - static_cast<double>(vertical_lines) / 2 - 0.5) * config::AXIS_SCALING / static_cast<int>(vertical_lines / 2)).c_str(),
-                    {static_cast<double>(x), static_cast<double>(config::WINDOW_HEIGHT - config::WINDOW_MARGIN + 25)},
-                    315,
-                    24,
-                    1,
-                    BLACK
-                );
-            }
-        }
-
-        for (int y = config::WINDOW_MARGIN; y <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN; y += static_cast<int>(config::GRID_SPACING)) {
-            float thick = 1.5;
-            Color color = Fade(DARKGRAY, 0.35f);
-            if (y == config::WINDOW_MARGIN || y == config::WINDOW_HEIGHT - config::WINDOW_MARGIN) {
-                thick = 2;
-                color = BLACK;
-            }
-
-            DrawLine(
-                Vec2(config::WINDOW_MARGIN, y),
-                Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN, y),
-                thick,
-                color
-            );
-            if (y != config::WINDOW_WIDTH - config::WINDOW_MARGIN && y != config::WINDOW_MARGIN) {
-                DrawTextCenteredEx(
-                    uiFont,
-                    round_to_hundreds(((static_cast<double>(y) / config::GRID_SPACING) - static_cast<double>(horizontal_lines) / 2 - 0.5) * config::AXIS_SCALING / static_cast<int>(horizontal_lines / 2)).c_str(),
-                    {static_cast<double>(config::WINDOW_MARGIN - 25), static_cast<double>(y)},
-                    315,
-                    24,
-                    1,
-                    BLACK
-                );
-            }
-        }
-
-        DrawTextCenteredEx(
-            uiFont,
-            std::format("Y Position ({} m)", SCALING_STRING).c_str(),
-            {static_cast<double>(config::WINDOW_MARGIN) / 2 - 15, static_cast<double>(config::WINDOW_HEIGHT) / 2},
-            -90.0f,
-            24,
-            1,
-            BLACK
-        );
-
-        DrawTextCenteredEx(
-            uiFont,
-            std::format("X Position ({} m)", SCALING_STRING).c_str(),
-            {static_cast<double>(config::WINDOW_WIDTH) / 2, config::WINDOW_HEIGHT - static_cast<double>(config::WINDOW_MARGIN) / 2 + 15},
-            0,
-            24,
-            1,
-            BLACK
-        );
-    }
-
-    void draw_legend() {
-        // Legend
-
-        constexpr double font_size = 16;
-        constexpr double spacing = font_size + 2;
-        const Vec2 start = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN};
-        const Vec2 end = {config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES};
-
-        DrawRectangle(start, end, WHITE);
-
-        for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            if (const auto& celestial_body = celestial_bodies[i]; celestial_body.color.has_value()) {
-                DrawCircle({config::WINDOW_WIDTH - config::WINDOW_MARGIN - 80, config::WINDOW_MARGIN + spacing * i + (font_size / 2)}, 5, *celestial_body.color);
-                DrawText(uiFont, celestial_body.name.c_str(), Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN - 65, config::WINDOW_MARGIN + spacing * i), font_size, 1, BLACK);
-            }
-        }
-
-        constexpr float thick = 1.2f;
-
-        DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, thick, BLACK);
-        DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, thick, BLACK);
-        DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, thick, BLACK);
-        DrawLine({config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + config::GRID_SPACING * 2}, thick, BLACK);
-    }
-
-    std::pair<Vec2, Vec2> center_button_coordinates() {
-        return {{config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}};
-    }
-
-    void draw_planet_info(const Color text_color, const Color background_color) {
-        if (planet_info_display_index == -1) return;
-
-        const auto& celestial_body = celestial_bodies[planet_info_display_index];
-
-        DrawRectangle(config::WINDOW_MARGIN, config::WINDOW_MARGIN, 5.5 * config::GRID_SPACING, 1.5 * config::GRID_SPACING, background_color);
-        DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN}, 2, text_color);
-        DrawLine({config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, text_color);
-        DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, text_color);
-        DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, text_color);
-
-        DrawText(uiFont, "Celestial body information", {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
-
-        DrawText(uiFont, "Use as center", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
-
-        DrawCircle({config::WINDOW_MARGIN + 22.5, config::WINDOW_MARGIN + 60}, 7.5, *celestial_body.color);
-        if (1 <= planet_info_display_index && planet_info_display_index <= 8) {
-            DrawText(uiFont, std::format("{} ({}{} planet from sun)", celestial_body.name, planet_info_display_index, get_numerical_suffix(planet_info_display_index)).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
-        } else {
-            DrawText(uiFont, std::format("{} (index {})", celestial_body.name, planet_info_display_index).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
-        }
-        DrawText(uiFont, std::format("Position: {:<34}m", celestial_body.position.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 70}, 20, 1, text_color);
-        DrawText(uiFont, std::format("Velocity: {:<34}m/s", celestial_body.velocity.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 90}, 20, 1, text_color);
-        DrawText(uiFont, std::format("Mass: {:<38}kg", celestial_body.mass).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 110}, 20, 1, text_color);
-    }
-
-
-    void draw_stats(const Color text_color, const Color background_color) {
-        const double seconds = timer.seconds();
-
-        DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_MARGIN, background_color);
-
-        // Left side
-        DrawText(uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))).c_str(), Vec2(config::WINDOW_MARGIN, 10), 20, 1, text_color);
-        DrawText(uiFont, std::format("Computation time: {} seconds", round_to_hundreds(seconds)).c_str(), Vec2(config::WINDOW_MARGIN, 30), 20, 1, text_color);
-        DrawText(uiFont, std::format("Step size: {}", config::TIME_STEP_STRING).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, text_color);
-
-        // Right side
-        DrawText(uiFont, std::format("Simulated years per second: {}", (seconds > 0.0 ? round_to_hundreds(((static_cast<double>(steps_simulated) * config::TIME_STEP / (86'400 * 365))) / seconds) : "0")).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, text_color);
-        DrawText(uiFont, std::format("Rendering relative to: {}", celestial_bodies[center_celestial_body_index].name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, text_color);
-        DrawText(uiFont, std::format("Target years per second: {}", config::TARGET_SIMULATION_SPEED > 0.0 ? round_to_hundreds(config::TARGET_SIMULATION_SPEED) : "Unlimited").c_str(), Vec2(config::WINDOW_MARGIN + 400, 50), 20, 1, text_color);
-    }
-
-    void draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
-        bool timer_running = timer.is_running();
-
-        // snap->bodies positions are already relative to the center body (see publish_snapshot)
-        for (const auto& [name, position, radius_2d, _radius_3d, color, _planet_visual] : snap->bodies) {
-            if (color.has_value() && inside_screen(position)) {
-                const Vector2 pos = to_raylib(position);
-                DrawCircleV(pos, radius_2d, *color);
-                Vector2 text_pos = pos;
-                text_pos.y -= 10;
-                text_pos.x += 10;
-                if (!timer_running) {
-                    DrawTextOutlined(uiFont, name.c_str(), text_pos, 20, 1, *color, {0, 0, 0, 125});
-                }
-            }
-        }
-    }
-
-    void draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
-        for (const auto& [points, color] : snap->orbits) {
-            if (!color.has_value() || points.size() < 2) continue;
-
-            const auto segment_count = static_cast<float>(points.size() - 1);
-
-            for (std::size_t j = 1; j < points.size(); j++) {
-                const float age = static_cast<float>(j) / segment_count;
-                const float alpha = 0.10f + 0.70f * age;
-
-                const Vec3 start = points[j - 1];
-                const Vec3 end = points[j];
-
-                if (inside_screen(start) && inside_screen(end)) {
-                    DrawLineEx(
-                        to_raylib(start),
-                        to_raylib(end),
-                        1.5f,
-                        Fade(*color, alpha)
-                    );
-                }
-            }
-        }
-    }
-
-    void draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
-        const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
-
-        for (const auto& [pts, color] : snap->orbits) {
-            if (!color || pts.size() < 2) continue;
-            const auto n = static_cast<float>(pts.size() - 1);
-
-            for (size_t j = 1; j < pts.size(); j++) {
-                const Vector3 start = to_world(pts[j - 1]);
-                const Vector3 end = to_world(pts[j]);
-
-                // GetWorldToScreen doesn't clip points behind the camera
-                // it can project them to a wrong on-screen spot, so skip those segments
-                if (Vector3DotProduct(Vector3Subtract(start, cam.position), forward) <= 0) continue;
-                if (Vector3DotProduct(Vector3Subtract(end, cam.position), forward) <= 0) continue;
-
-                // const float alpha = (0.10f + 0.70f * (static_cast<float>(j) / n)) / 3;
-                constexpr float alpha = 1.0f; // TODO: We need to stop overlapping. Otherwise, even if alpha is 0.1f for all planets, for some, the lines will appear as if they had higher alpha
-                DrawLineEx(GetWorldToScreen(start, cam), GetWorldToScreen(end, cam), 2.0f, Fade(*color, alpha));
-            }
-        }
-    }
-
-    void draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
-        for (const auto& [name, pos, _radius_2d, radius_3d, color, planet_visual] : snap->bodies) {
-            if (planet_visual != nullptr && planet_visual->loaded) {
-                DrawModel(
-                    planet_visual->model,
-                    to_world(pos),
-                    radius_3d,
-                    WHITE // don't tint texture
-                );
-            }
-            else if (color.has_value()) {
-                // fallback for bodies without a texture
-                DrawSphereEx(to_world(pos), radius_3d, 12, 12, *color);
-            }
-        }
-    }
-
-    void draw_grid_3d(const Camera3D& cam) {
-        constexpr float spacing = 5.0f;
-        constexpr int half_grid = 5;
-        constexpr float near_epsilon = 0.01f;
-
-        const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
-
-        auto draw_clipped_line = [&](Vector3 a, Vector3 b) {
-            const float depth_a = Vector3DotProduct(Vector3Subtract(a, cam.position), forward);
-            const float depth_b = Vector3DotProduct(Vector3Subtract(b, cam.position), forward);
-
-            // Entire segment is behind the camera
-            if (depth_a <= near_epsilon && depth_b <= near_epsilon) {
-                return;
-            }
-
-            // Clip the endpoint that is behind the camera.
-            if (depth_a <= near_epsilon || depth_b <= near_epsilon) {
-                const float t = (near_epsilon - depth_a) / (depth_b - depth_a);
-
-                const Vector3 clipped = Vector3Add(a, Vector3Scale(Vector3Subtract(b, a), t));
-
-                if (depth_a <= near_epsilon) {
-                    a = clipped;
-                } else {
-                    b = clipped;
-                }
-            }
-
-            DrawLineEx(
-                GetWorldToScreen(a, cam),
-                GetWorldToScreen(b, cam),
-                1.0f,
-                Fade(WHITE, 0.5f)
-            );
-        };
-
-        for (int i = -half_grid; i <= half_grid; ++i) {
-            const float p = static_cast<float>(i) * spacing;
-
-            // lines running along Z
-            draw_clipped_line(
-                {p, 0.0f, -half_grid * spacing},
-                {p, 0.0f,  half_grid * spacing}
-            );
-
-            // lines running along X
-            draw_clipped_line(
-                {-half_grid * spacing, 0.0f, p},
-                { half_grid * spacing, 0.0f, p}
-            );
-        }
-    }
-
-    void draw_axes_3d() {
-        constexpr float L = 10.0f;
-
-        // x
-        DrawLine3D({-L, 0, 0}, {L, 0, 0}, RED);
-        DrawTriangle3D(
-            {0.90 * L, 0, 0.025 * L},
-            {L, 0, 0},
-            {0.90 * L, 0, 0.025 * -L},
-            RED
-        );
-
-        // y
-        DrawLine3D({0, -L, 0}, {0, L, 0}, GREEN);
-        DrawTriangle3D(
-            {0.025 * L, 0.90 * L, 0},
-            {0, L, 0},
-            {0.025 * -L, 0.90 * L, 0},
-            GREEN
-        );
-
-        // z
-        DrawLine3D({0, 0, -L}, {0, 0, L}, BLUE);
-        DrawTriangle3D(
-            {0.025 * L, 0, 0.90 * L},
-            {0.025 * -L, 0, 0.90 * L},
-            {0, 0, L},
-            BLUE
-        );
-    }
-
-    void draw_axes_labels_3d(const Camera3D& cam) {
-        // TODO: Should change percentile when zooming in & out
-
-        const auto forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
-        auto label_axis = [&](auto anchor_of, const char* unit) {
-            for (int k = -8; k <= 8; k++) {
-                if (k == 0) continue;
-                const Vector3 w = anchor_of(k);
-
-                // don't draw labels behind the camera
-                if (Vector3DotProduct(Vector3Subtract(w, cam.position), forward) <= 0) continue;
-
-                auto [x, y] = GetWorldToScreen(w, cam);
-                str text = to_power_of10(k * config::WORLD_UNIT_METERS);
-                DrawText(uiFont, text.c_str(), {x, y}, 14, 1, LIGHTGRAY);
-            }
-        };
-
-        label_axis([](const int k){return Vector3{static_cast<float>(k), 0, 0};}, "x");
-        label_axis([](const int k){return Vector3{0, 0, static_cast<float>(k)};}, "x"); // physics y -> raylib z
-        label_axis([](const int k){return Vector3{0, static_cast<float>(k), 0};}, "x"); // raylib z -> raylib y
-    }
-
-    float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0
-    float cam_elevation = config::DEFAULT_CAM_ELEVATION; // 35° shows 3D immediately
-    float cam_distance = config::DEFAULT_CAM_DISTANCE; // radius in world units
-    bool view_3d = false; // toggle with keybind
-
-    int pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
-        if (!snap) return -1;
-
-        const auto [mx, my] = GetMousePosition();
-
-        int best = -1;
-        float best_dist_sq = 0;
-
-        for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            constexpr float MIN_CLICK_RADIUS = 8.0f; // keeps tiny planets clickable
-
-            const auto& body = snap->bodies[i];
-            if (!body.color.has_value() || !inside_screen(body.position)) continue;
-
-            const auto [sx, sy] = to_raylib(body.position);
-            const float dx = mx - sx;
-            const float dy = my - sy;
-            const float dist_sq = dx * dx + dy * dy;
-
-            const float hit_radius = std::max(body.radius_2d, MIN_CLICK_RADIUS);
-            if (dist_sq <= hit_radius * hit_radius && (best == -1 || dist_sq < best_dist_sq)) {
-                best = i;
-                best_dist_sq = dist_sq;
-            }
-        }
-
-        return best;
-    }
-
-    int pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
-        if (!snap) return -1;
-
-        const auto [mx, my]   = GetMousePosition();
-        const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
-
-        int best = -1;
-        float best_cam_dist = 0; // front-most body under the cursor wins
-
-        const Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, cam.up));
-
-        for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            constexpr float MIN_CLICK_RADIUS_PX = 12.0f;
-            const auto& body = snap->bodies[i];
-            if (!body.color.has_value()) continue;
-
-            const Vector3 world = to_world(body.position);
-
-            // Behind the camera → GetWorldToScreen would give a bogus spot, so skip
-            if (Vector3DotProduct(Vector3Subtract(world, cam.position), forward) <= 0) continue;
-
-            const auto [sx, sy] = GetWorldToScreen(world, cam);
-            const float dx = mx - sx;
-            const float dy = my - sy;
-
-            const Vector3 edge = Vector3Add(world, Vector3Scale(right, body.radius_3d));
-            const auto [ex, ey] = GetWorldToScreen(edge, cam);
-            const float radius_px  = std::hypot(ex - sx, ey - sy); // sphere radius in pixels
-            const float hit_radius = std::max(radius_px, MIN_CLICK_RADIUS_PX);
-
-            if (dx * dx + dy * dy > hit_radius * hit_radius) continue;
-
-            const float cam_dist = Vector3Distance(cam.position, world);
-            if (best == -1 || cam_dist < best_cam_dist) {
-                best = i;
-                best_cam_dist = cam_dist;
-            }
-        }
-
-        return best;
-    }
-
-    void draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
-        if (timer.is_running()) return; // draw labels only while paused
-
-        const int hovered_body_i = pick_body_at_mouse_3d(snap, cam);
-
-        if (hovered_body_i == -1) return;
-
-        const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
-
-        const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual] = snap->bodies[hovered_body_i];
-        if (!color.has_value()) return;
-
-        const Vector3 world = to_world(pos);
-        // GetWorldToScreen doesn't clip points behind the camera
-        // it can project them to a wrong on-screen spot, so skip those segments
-        if (Vector3DotProduct(Vector3Subtract(world, cam.position), forward) <= 0) return;
-
-        Vector2 text_pos = GetWorldToScreen(world, cam);
-        text_pos.y -= 10;
-        text_pos.x += 10;
-        DrawTextOutlined(uiFont, name.c_str(), text_pos, 20, 1, *color, {0, 0, 0, 125});
-    }
-
-    Camera3D make_camera() {
-        Camera3D c{};
-        c.target = {0, 0, 0};
-        c.up = {0, 1, 0};
-        c.fovy = 45.0f;
-        c.projection = CAMERA_PERSPECTIVE; // alternative: CAMERA_ORTHOGRAPHIC
-        c.position = {
-            cam_distance * cosf(cam_elevation) * cosf(cam_azimuth),
-            cam_distance * sinf(cam_elevation),
-            cam_distance * cosf(cam_elevation) * sinf(cam_azimuth)
-        };
-
-        return c;
-    }
-
-    /*
-    Keybinds
-
-    General
-        r: Reset scaling
-        Space: Continue / Pause simulation
-        t: Change 2d/3d
-        Left click: More info on celestial body
-
-    Zooming
-        Scrolling: Zoom in & out
-        +: Zoom in
-        -: Zoom in
-
-    Changing center celestial body
-        0: Sun
-        1: Mercury
-        2: Venus
-        3: Earth
-        4: Mars
-        5: Jupiter
-        6: Saturn
-        7: Uranus
-        8: Neptun
-        9: Pluto
-
-    3D-only
-        Right click: Change angle of camera
-    */
-    void UpdateDrawFrame() {
-        std::shared_ptr<const RenderSnapshot> snap;
-        {
-            std::lock_guard lock(snapshot_lock);
-            snap = latest_snapshot;
-        }
-
-        int new_center_i = -1;
-
-        if (IsKeyPressed(KEY_ZERO)) { new_center_i=0; }
-        if (IsKeyPressed(KEY_ONE)) { new_center_i=1; }
-        if (IsKeyPressed(KEY_TWO)) { new_center_i=2; }
-        if (IsKeyPressed(KEY_THREE)) { new_center_i=3; }
-        if (IsKeyPressed(KEY_FOUR)) { new_center_i=4; }
-        if (IsKeyPressed(KEY_FIVE)) { new_center_i=5; }
-        if (IsKeyPressed(KEY_SIX)) { new_center_i=6; }
-        if (IsKeyPressed(KEY_SEVEN)) { new_center_i=7; }
-        if (IsKeyPressed(KEY_EIGHT)) { new_center_i=8; }
-        if (IsKeyPressed(KEY_NINE)) { new_center_i=9; }
-
-        bool center_button_pressed = false;
-
-        if (planet_info_display_index != -1 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-            auto [b_start, b_end] = center_button_coordinates();
-
-            if (const auto [mx, my] = GetMousePosition();
-                b_start.x <= mx && mx <= b_end.x &&
-                b_start.y <= my && my <= b_end.y) {
-                center_button_pressed = true;
-            }
-        }
-
-        if (!center_button_pressed) {
-            int selected_body_i = -2;
-            if (view_3d) {
-                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                    selected_body_i = pick_body_at_mouse_3d(snap, make_camera());
-                }
-            }
-            else {
-                if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                    selected_body_i = pick_body_at_mouse_2d(snap);
-                }
-            }
-
-            if (selected_body_i != -2 && selected_body_i != planet_info_display_index) {
-                planet_info_display_index = selected_body_i;
-            }
-        }
-
-        if (center_button_pressed) {
-            center_celestial_body_index = planet_info_display_index;
-            center_celestial_body_changed = true;
-            planet_info_display_index = -1; // optional: reset planet_info_display_index
-        } else if (new_center_i != -1 && new_center_i != center_celestial_body_index) {
-            center_celestial_body_index = new_center_i;
-            center_celestial_body_changed = true;
-        }
-
-        if (IsKeyPressed(KEY_R)) {
-            config::SCALING = config::ORIGINAL_SCALING;
-            config::AXIS_SCALING = config::ORIGINAL_AXIS_SCALING;
-        }
-
-        if (IsKeyPressed(KEY_SPACE)) {
-            if (timer.is_running()) {
-                timer.pause();
-            } else {
-                if (config::TARGET_TOTAL_SIMULATION_TIME < 0.0 || config::TARGET_TOTAL_SIMULATION_TIME > simulated_years()) {
-                    timer.resume();
-                }
-            }
-
-        }
-
-        if (IsKeyPressed(KEY_T)) view_3d = !view_3d;
-
-        const float scroll = GetMouseWheelMove();
-
-        if (view_3d) {
-            bool cam_turned = false;
-
-            const float drag_summand = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::DRAG_SENSITIVITY * 5) : config::DRAG_SENSITIVITY * 2;
-
-            if (IsKeyDown(KEY_LEFT)) {
-                cam_azimuth += drag_summand;
-                cam_turned = true;
-            }
-            if (IsKeyDown(KEY_UP)) {
-                cam_elevation += drag_summand;
-                cam_turned = true;
-            }
-            if (IsKeyDown(KEY_RIGHT)) {
-                cam_azimuth -= drag_summand;
-                cam_turned = true;
-            }
-            if (IsKeyDown(KEY_DOWN)) {
-                cam_elevation -= drag_summand;
-                cam_turned = true;
-            }
-
-            if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
-                auto [x, y] = GetMouseDelta();
-                cam_azimuth   += x * config::DRAG_SENSITIVITY; // left/right = spin
-                cam_elevation += y * config::DRAG_SENSITIVITY; // up/down = tilt
-                cam_turned = true;
-            }
-
-            if (cam_turned) {
-                // Clamp
-                constexpr float lim = 89.0f * DEG2RAD;
-                cam_elevation = std::clamp(cam_elevation, -lim, lim);
-            }
-
-            const float zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR) : config::ZOOM_3D_FACTOR;
-
-            if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
-                cam_distance *= 1/zoom_factor;
-            } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
-                cam_distance *= zoom_factor;
-            }
-
-            cam_distance = std::clamp(cam_distance, 0.1f, 200.0f);
-            if (IsKeyPressed(KEY_R)) {
-                // reset azimuth/elevation/distance to defaults
-                cam_azimuth = config::DEFAULT_CAM_AZIMUTH;
-                cam_elevation = config::DEFAULT_CAM_ELEVATION;
-                cam_distance = config::DEFAULT_CAM_DISTANCE;
-            }
-        } else {
-            const double zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_FACTOR*config::ZOOM_FACTOR) : config::ZOOM_FACTOR;
-            if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
-                // scrolled up (=> in)
-                if (config::AXIS_SCALING / zoom_factor < 4.0/3) {
-                    config::AXIS_SCALING *= 10;
-                    config::AXIS_SCALING /= zoom_factor;
-                    config::SCALING /= zoom_factor;
-                } else {
-                    config::AXIS_SCALING /= zoom_factor;
-                    config::SCALING /= zoom_factor;
-                }
-            } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
-                // scrolled down (=> out)
-                if (config::AXIS_SCALING * zoom_factor > 10 * 4.0/3) {
-                    config::AXIS_SCALING /= 10;
-                    config::AXIS_SCALING *= zoom_factor;
-                    config::SCALING *= zoom_factor;
-                } else {
-                    config::AXIS_SCALING *= zoom_factor;
-                    config::SCALING *= zoom_factor;
-                }
-            }
-        }
-
-        BeginDrawing();
-        ClearBackground(WHITE);
-
-        if (view_3d) {
-            DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_HEIGHT, BLACK);
-            const Camera3D cam = make_camera();
-
-            // TODO: Make orbits & planets overlap correctly, according to real perspective
-
-            if (snap) draw_orbits_3d(snap, cam);
-
-            draw_grid_3d(cam);
-
-            BeginMode3D(cam);
-            if (snap) draw_planets_3d(snap);
-
-            EndMode3D();
-
-            // 2D overlays, projected by 3D points
-            if (snap) draw_planet_labels_3d(snap, cam);
-
-            draw_stats(WHITE, BLACK);
-            draw_planet_info(WHITE, BLACK);
-        } else {
-            if (snap) {
-                draw_orbits(snap);
-                draw_planets(snap);
-            }
-            draw_legend();
-            draw_stats(BLACK, WHITE);
-            draw_ui(snap);
-            draw_planet_info(BLACK, WHITE);
-        }
-
-
-        EndDrawing();
-    }
-
     void print_final_state() {
-        const double seconds = timer.seconds();
+        const double seconds = config::timer.seconds();
 
         printf("Computation time: %.2f seconds\n", seconds);
         printf("Simulated years per second: %.2f\n\n", seconds > 0.0 ? simulated_years() / seconds : 0);
 
         printf("Simulation time: %.8f years (@ 365 days)\n", simulated_years());
-        printf("Steps simulated: %zu\n", steps_simulated.load());
+        printf("Steps simulated: %zu\n", config::steps_simulated.load());
         printf("Time step: %.17g seconds\n", config::TIME_STEP);
 
         for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
@@ -1219,11 +304,11 @@ int main(const int argc, char* argv[]) {
             std::fprintf(stderr, "--headless requires a positive TARGET_TOTAL_SIMULATION_TIME\n");
             return 1;
         } else {
-            while (solar_system::simulated_years() < config::TARGET_TOTAL_SIMULATION_TIME) {
+            while (simulated_years() < config::TARGET_TOTAL_SIMULATION_TIME) {
                 solar_system::simulate_step();
             }
 
-            solar_system::timer.pause();
+            config::timer.pause();
             solar_system::print_final_state();
             return 0;
         }
@@ -1237,37 +322,38 @@ int main(const int argc, char* argv[]) {
         celestial_body.planet_visual.load_planet_visual();
     }
 
-    solar_system::uiFont = LoadFontEx(
+    config::uiFont = LoadFontEx(
         "resources/JetBrainsMono-Regular.ttf",
         96,
         nullptr,
         0
     );
 
-    GenTextureMipmaps(&solar_system::uiFont.texture);
-    SetTextureFilter(solar_system::uiFont.texture, TEXTURE_FILTER_TRILINEAR);
+    GenTextureMipmaps(&config::uiFont.texture);
+    SetTextureFilter(config::uiFont.texture, TEXTURE_FILTER_TRILINEAR);
 
-    solar_system::timer.resume();
+    config::timer.resume();
 
     std::jthread cpu_thread(solar_system::simulate_cpu);
+    solar_system::publish_snapshot();
 
     #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
     #else
     while (!WindowShouldClose()) {
-        solar_system::UpdateDrawFrame();
+        UpdateDrawFrame();
     }
     #endif
 
     cpu_thread.request_stop();
-    solar_system::timer.pause();
+    config::timer.pause();
     cpu_thread.join();
 
     for (auto& celestial_body : solar_system::celestial_bodies) {
         celestial_body.planet_visual.unload_planet_visual();
     }
 
-    UnloadFont(solar_system::uiFont);
+    UnloadFont(config::uiFont);
     CloseWindow();
     printf("\n");
 

@@ -2,7 +2,12 @@
 
 #include <raylib.h>
 
+#include "timer.hpp"
 #include "utils.hpp"
+
+#define NUM_CELESTIAL_BODIES 10
+
+struct RenderSnapshot;
 
 namespace config {
     constexpr double ORIGINAL_SCALING = 8e12;
@@ -43,4 +48,17 @@ namespace config {
     constexpr double TARGET_STEPS_PER_SECOND = TARGET_SIMULATION_SPEED * SECONDS_PER_YEAR / TIME_STEP;
 
     constexpr int TARGET_FPS = 60;
+
+    // Shared
+    inline std::mutex snapshot_lock; // held only for the pointer swap (nanoseconds)
+    inline std::shared_ptr<const RenderSnapshot> latest_snapshot; // produced by simulation thread, read by render thread
+
+    inline PausableTimer timer;
+    inline std::atomic<std::size_t> steps_simulated = 0;
+    inline std::atomic republish_needed = false;
+
+    inline Font uiFont;
+
+    inline std::atomic center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
+    inline std::atomic planet_info_display_index = -1; // -1 -> none
 }
