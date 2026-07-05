@@ -279,7 +279,6 @@ void ui::draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
 }
 
 void ui::draw_grid_3d(const Camera3D& cam) {
-    constexpr float spacing = 5.0f;
     constexpr int half_grid = 5;
     constexpr float near_epsilon = 0.01f;
 
@@ -316,6 +315,7 @@ void ui::draw_grid_3d(const Camera3D& cam) {
     };
 
     for (int i = -half_grid; i <= half_grid; ++i) {
+        constexpr float spacing = 5.0f;
         const float p = static_cast<float>(i) * spacing;
 
         // lines running along Z

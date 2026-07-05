@@ -45,13 +45,13 @@ namespace ui {
         return seconds > 0.0 ? simulated_years() / seconds : 0.0;
     }
 
-    void DrawTextCenteredEx(const Font &font, const char *text, Vec2 center, const float angle, const float fontSize, const float spacing, const Color color);
+    void DrawTextCenteredEx(const Font &font, const char *text, Vec2 center, float angle, float fontSize, float spacing, Color color);
 
     inline void DrawCircle(const Vec2& pos, const float radius, const Color color) {
         DrawCircleV(Vector2(static_cast<float>(pos.x), static_cast<float>(pos.y)), radius, color);
     }
 
-    void DrawRectangle(const Vec2& a, const Vec2& b, const Color color);
+    void DrawRectangle(const Vec2& a, const Vec2& b, Color color);
 
     inline void DrawText(const Font &font, const char *text, const Vec2 &position, const float fontSize, const float spacing, const Color color) {
         DrawTextEx(font, text, Vector2(static_cast<float>(position.x), static_cast<float>(position.y)), fontSize, spacing, color);
@@ -61,7 +61,7 @@ namespace ui {
         DrawLineEx(Vector2(static_cast<float>(start_pos.x), static_cast<float>(start_pos.y)), Vector2(static_cast<float>(end_pos.x), static_cast<float>(end_pos.y)), thick, color);
     }
 
-    void DrawTextOutlined(const Font& font, const char* text, const Vector2& pos, const float fontSize, const float spacing, const Color& fill, const Color& outline);
+    void DrawTextOutlined(const Font& font, const char* text, const Vector2& pos, float fontSize, float spacing, const Color& fill, const Color& outline);
 
     void draw_ui();
 
@@ -71,9 +71,9 @@ namespace ui {
         return {{config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}};
     }
 
-    void draw_planet_info(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap);
+    void draw_planet_info(Color text_color, Color background_color, const std::shared_ptr<const RenderSnapshot>& snap);
 
-    void draw_stats(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap);
+    void draw_stats(Color text_color, Color background_color, const std::shared_ptr<const RenderSnapshot>& snap);
 
     void draw_planets(const std::shared_ptr<const RenderSnapshot>& snap);
 
