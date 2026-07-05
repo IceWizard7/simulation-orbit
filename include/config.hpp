@@ -7,7 +7,9 @@
 
 #define NUM_CELESTIAL_BODIES 10
 
-struct RenderSnapshot;
+namespace ui {
+    struct RenderSnapshot;
+}
 
 namespace config {
     constexpr double ORIGINAL_SCALING = 8e12;
@@ -51,7 +53,7 @@ namespace config {
 
     // Shared
     inline std::mutex snapshot_lock; // held only for the pointer swap (nanoseconds)
-    inline std::shared_ptr<const RenderSnapshot> latest_snapshot; // produced by simulation thread, read by render thread
+    inline std::shared_ptr<const ui::RenderSnapshot> latest_snapshot; // produced by simulation thread, read by render thread
 
     inline PausableTimer timer;
     inline std::atomic<std::size_t> steps_simulated = 0;

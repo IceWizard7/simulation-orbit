@@ -11,7 +11,7 @@ float cam_elevation = config::DEFAULT_CAM_ELEVATION; // 35° shows 3D immediatel
 float cam_distance = config::DEFAULT_CAM_DISTANCE; // radius in world units
 bool view_3d = false; // toggle with keybind
 
-void DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, const float angle, const float fontSize, const float spacing, const Color color) {
+void ui::DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, const float angle, const float fontSize, const float spacing, const Color color) {
     auto [x, y] = MeasureTextEx(font, text, fontSize, spacing);
 
     DrawTextPro(
@@ -26,7 +26,7 @@ void DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, c
     );
 }
 
-void DrawRectangle(const Vec2& a, const Vec2& b, const Color color) {
+void ui::DrawRectangle(const Vec2& a, const Vec2& b, const Color color) {
     const auto left = static_cast<float>(std::min(a.x, b.x));
     const auto top = static_cast<float>(std::min(a.y, b.y));
     const auto width = static_cast<float>(std::abs(b.x - a.x));
@@ -35,7 +35,7 @@ void DrawRectangle(const Vec2& a, const Vec2& b, const Color color) {
     DrawRectangleV({left, top}, {width, height}, color);
 }
 
-void DrawTextOutlined(const Font& font, const char* text, const Vector2& pos, const float fontSize, const float spacing, const Color& fill, const Color& outline) {
+void ui::DrawTextOutlined(const Font& font, const char* text, const Vector2& pos, const float fontSize, const float spacing, const Color& fill, const Color& outline) {
     for (int dx = -1; dx <= 1; dx++) {
         for (int dy = -1; dy <= 1; dy++) {
             if (dx || dy) {
@@ -46,7 +46,7 @@ void DrawTextOutlined(const Font& font, const char* text, const Vector2& pos, co
     DrawTextEx(font, text, pos, fontSize, spacing, fill); // colored fill on top
 }
 
-void draw_ui(const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_ui() {
     constexpr int horizontal_lines = (config::WINDOW_HEIGHT - 2 * config::WINDOW_MARGIN) / config::GRID_SPACING + 1;
     constexpr int vertical_lines = (config::WINDOW_WIDTH - 2 * config::WINDOW_MARGIN) / config::GRID_SPACING + 1;
 
@@ -127,7 +127,7 @@ void draw_ui(const std::shared_ptr<const RenderSnapshot>& snap) {
     );
 }
 
-void draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
     // Legend
 
     constexpr double font_size = 16;
@@ -152,7 +152,7 @@ void draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
     DrawLine({config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + config::GRID_SPACING * 2}, thick, BLACK);
 }
 
-void draw_planet_info(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_planet_info(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap) {
     if (config::planet_info_display_index == -1) return;
 
     const auto& body = snap->detailed_body_display;
@@ -180,7 +180,7 @@ void draw_planet_info(const Color text_color, const Color background_color, cons
 }
 
 
-void draw_stats(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_stats(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap) {
     const double seconds = config::timer.seconds();
 
     DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_MARGIN, background_color);
@@ -196,7 +196,7 @@ void draw_stats(const Color text_color, const Color background_color, const std:
     DrawText(config::uiFont, std::format("Target years per second: {}", config::TARGET_SIMULATION_SPEED > 0.0 ? round_to_hundreds(config::TARGET_SIMULATION_SPEED) : "Unlimited").c_str(), Vec2(config::WINDOW_MARGIN + 400, 50), 20, 1, text_color);
 }
 
-void draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
     const bool timer_running = config::timer.is_running();
 
     // snap->bodies positions are already relative to the center body (see publish_snapshot)
@@ -214,7 +214,7 @@ void draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
     }
 }
 
-void draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
     for (const auto& [points, color] : snap->orbits) {
         if (!color.has_value() || points.size() < 2) continue;
 
@@ -239,12 +239,11 @@ void draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
     }
 }
 
-void draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
+void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
     for (const auto& [pts, color] : snap->orbits) {
         if (!color || pts.size() < 2) continue;
-        const auto n = static_cast<float>(pts.size() - 1);
 
         for (size_t j = 1; j < pts.size(); j++) {
             const Vector3 start = to_world(pts[j - 1]);
@@ -262,7 +261,7 @@ void draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Cam
     }
 }
 
-void draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
     for (const auto& [name, pos, _radius_2d, radius_3d, color, planet_visual] : snap->bodies) {
         if (planet_visual != nullptr && planet_visual->loaded) {
             DrawModel(
@@ -279,7 +278,7 @@ void draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
     }
 }
 
-void draw_grid_3d(const Camera3D& cam) {
+void ui::draw_grid_3d(const Camera3D& cam) {
     constexpr float spacing = 5.0f;
     constexpr int half_grid = 5;
     constexpr float near_epsilon = 0.01f;
@@ -333,7 +332,7 @@ void draw_grid_3d(const Camera3D& cam) {
     }
 }
 
-void draw_axes_3d() {
+void ui::draw_axes_3d() {
     constexpr float L = 10.0f;
 
     // x
@@ -364,7 +363,7 @@ void draw_axes_3d() {
     );
 }
 
-void draw_axes_labels_3d(const Camera3D& cam) {
+void ui::draw_axes_labels_3d(const Camera3D& cam) {
     // TODO: Should change percentile when zooming in & out
 
     const auto forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
@@ -388,7 +387,7 @@ void draw_axes_labels_3d(const Camera3D& cam) {
 }
 
 
-int pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
+int ui::pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     if (!snap) return -1;
 
     const auto [mx, my] = GetMousePosition();
@@ -417,7 +416,7 @@ int pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     return best;
 }
 
-int pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
+int ui::pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
     if (!snap) return -1;
 
     const auto [mx, my]   = GetMousePosition();
@@ -459,7 +458,7 @@ int pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap, con
     return best;
 }
 
-void draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
+void ui::draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
     if (config::timer.is_running()) return; // draw labels only while paused
 
     const int hovered_body_i = pick_body_at_mouse_3d(snap, cam);
@@ -482,7 +481,7 @@ void draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, co
     DrawTextOutlined(config::uiFont, name.c_str(), text_pos, 20, 1, *color, {0, 0, 0, 125});
 }
 
-Camera3D make_camera() {
+Camera3D ui::make_camera() {
     Camera3D c{};
     c.target = {0, 0, 0};
     c.up = {0, 1, 0};
@@ -497,7 +496,7 @@ Camera3D make_camera() {
     return c;
 }
 
-void draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
     DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_HEIGHT, BLACK);
     const Camera3D cam = make_camera();
 
@@ -519,13 +518,13 @@ void draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
 }
 
 
-void draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     if (snap) {
         draw_orbits(snap);
         draw_planets(snap);
         draw_legend(snap);
         draw_stats(BLACK, WHITE, snap);
-        draw_ui(snap);
+        draw_ui();
         draw_planet_info(BLACK, WHITE, snap);
     }
 }
@@ -559,7 +558,7 @@ Changing center celestial body
 3D-only
     Right click: Change angle of camera
 */
-void UpdateDrawFrame() {
+void ui::UpdateDrawFrame() {
     std::shared_ptr<const RenderSnapshot> snap;
     {
         std::lock_guard lock(config::snapshot_lock);
