@@ -12,13 +12,13 @@ CelestialBody::CelestialBody(
     const std::optional<Color>& color,
     const int max_rendered_orbit_segments_per_body,
     const int max_rendered_orbit_tail,
-    std::optional<const char*> texture_path
+    const std::optional<str>& texture_path
 )
-: name(std::move(name)),
+: mass(mass),
+gravitational_mass(mass * config::GRAVITATIONAL_CONSTANT),
+name(std::move(name)),
 position(position),
 velocity(velocity),
-mass(mass),
-gravitational_mass(mass * config::GRAVITATIONAL_CONSTANT),
 draw_radius_2d(radius_2d),
 draw_radius_3d(radius_3d),
 color(color),
@@ -36,5 +36,5 @@ max_rendered_orbit_tail(max_rendered_orbit_tail) {
     const Vec3 direction = (source.position - position) / distance;
 
     // (G * M / r^2) * direction
-    return direction * (source.gravitational_mass / (distance * distance));
+    return direction * (source.get_gravitational_mass() / (distance * distance));
 }

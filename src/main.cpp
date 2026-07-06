@@ -9,10 +9,8 @@
 #include "ui.hpp"
 
 // TODO: Parallel Execution?
-// TODO: (=>) Analyze which forces we can skip calculating (or calculate ex. every 1000 steps) to reach certain accuracy
-// TODO: Topic: ""
-// TODO: Research question: "?"
-// TODO: Add a "copy" button for positions etc.?
+// TODO: Analyze which forces we can skip calculating (or calculate ex. every 1000 steps) to reach certain accuracy
+// TODO: Think of Topic & research questions
 // TODO: Internal planet rotation
 
 int main(const int argc, char* argv[]) {

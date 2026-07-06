@@ -148,7 +148,7 @@ void simulation::publish_snapshot() {
 
     if (planet_info_display_index != -1) {
         const auto& body = celestial_bodies[planet_info_display_index];
-        snap->detailed_body_display = {body.name, body.position, body.velocity, body.mass, body.color};
+        snap->detailed_body_display = {body.name, body.position, body.velocity, body.get_mass(), body.color};
     }
 
     {

@@ -66,10 +66,10 @@ void PlanetVisual::load_planet_visual() {
     if (loaded || !texture_path.has_value()) return;
 
     model = LoadModelFromMesh(make_equirectangular_sphere_mesh(1.0f, 64, 128));
-    texture = LoadTexture(*texture_path);
+    texture = LoadTexture(texture_path->c_str());
 
     if (texture.id == 0 || model.materials == nullptr) {
-        TraceLog(LOG_ERROR, "Could not load planet texture: %s", *texture_path);
+        TraceLog(LOG_ERROR, "Could not load planet texture: %s", texture_path->c_str());
         UnloadModel(model);
         model = {};
         texture = {};

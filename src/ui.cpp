@@ -3,7 +3,6 @@
 #include <raymath.h>
 
 #include "celestial_body.hpp"
-#include "render3d.hpp"
 #include "screen_utils.hpp"
 
 float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0

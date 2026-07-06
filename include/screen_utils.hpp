@@ -32,3 +32,11 @@ static bool inside_screen(const Vec3 &vec3) {
         && config::WINDOW_MARGIN <= y && y <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN
     );
 }
+
+inline Vector3 to_world(const Vec3& m) { // meters
+    return {
+        static_cast<float>(m.x / config::WORLD_UNIT_METERS), // x
+        static_cast<float>(m.z / config::WORLD_UNIT_METERS), // physics z -> up
+        static_cast<float>(m.y / config::WORLD_UNIT_METERS), // physics y -> raylib z
+    };
+}
