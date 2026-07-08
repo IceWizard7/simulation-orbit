@@ -9,7 +9,8 @@ float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0
 float cam_elevation = config::DEFAULT_CAM_ELEVATION; // 35° shows 3D immediately
 float cam_distance = config::DEFAULT_CAM_DISTANCE; // radius in world units
 bool view_3d = false; // toggle with keybind
-auto last_copied = std::chrono::steady_clock::now() - std::chrono::seconds(10);
+auto last_copied = std::chrono::steady_clock::now();
+bool copied = false;
 
 void ui::DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, const float angle, const float fontSize, const float spacing, const Color color) {
     auto [x, y] = MeasureTextEx(font, text, fontSize, spacing);
@@ -167,10 +168,10 @@ void ui::draw_planet_info(const Color text_color, const Color background_color, 
     DrawText(config::uiFont, "Celestial body information", {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
 
     DrawText(config::uiFont, "Use as center", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
-    if (std::chrono::steady_clock::now() - last_copied >= std::chrono::milliseconds(1000)) { // TODO!
-        DrawText(config::uiFont, "Copy info", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, 20, 1, text_color);
-    } else {
+    if (copied && std::chrono::steady_clock::now() - last_copied < std::chrono::milliseconds(1000)) {
         DrawText(config::uiFont, "Copied!", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, 20, 1, text_color);
+    } else {
+        DrawText(config::uiFont, "Copy info", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, 20, 1, text_color);
     }
 
     DrawCircle({config::WINDOW_MARGIN + 22.5, config::WINDOW_MARGIN + 60}, 7.5, *body->color);
@@ -601,6 +602,7 @@ void ui::UpdateDrawFrame() {
             copy_start.y <= my && my <= copy_end.y) {
             copied_button_pressed = true;
             last_copied = std::chrono::steady_clock::now();
+            copied = true;
         }
     }
 
