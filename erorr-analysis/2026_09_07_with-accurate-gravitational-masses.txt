@@ -1,5 +1,6 @@
 # Done after switching from `mass` to `gravitational mass` (more accuracy & no celestial bodies have mass=0)
 # 200 years, 15 mins step size
+# -03, -mcpu=native, -ffast-math
 
 Sun error:
  distance = 252 km (0.000002 AU)

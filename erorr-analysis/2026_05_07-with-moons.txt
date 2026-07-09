@@ -1,5 +1,6 @@
 # All moons added into the simulation
 # 200 years, 15 mins step size
+# -03, -mcpu=native, -ffast-math
 
 Sun error:
  distance = 18060 km (0.000121 AU)
