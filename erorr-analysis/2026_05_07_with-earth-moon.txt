@@ -1,4 +1,6 @@
 # Only earths' moon added into the simulation
+# 200 years, 15 mins step size
+
 Sun error:
  distance = 16345 km (0.000109 AU)
  relative = 1.405%

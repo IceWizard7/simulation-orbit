@@ -6,7 +6,7 @@ CelestialBody::CelestialBody(
     str name,
     const Vec3 &position,
     const Vec3 &velocity,
-    const double mass,
+    const double gravitational_mass,
     const float radius_2d,
     const float radius_3d,
     const std::optional<Color>& color,
@@ -14,8 +14,8 @@ CelestialBody::CelestialBody(
     const int max_rendered_orbit_tail,
     const std::optional<str>& texture_path
 )
-: mass(mass),
-gravitational_mass(mass * config::GRAVITATIONAL_CONSTANT),
+: mass(gravitational_mass / config::GRAVITATIONAL_CONSTANT),
+gravitational_mass(gravitational_mass),
 name(std::move(name)),
 position(position),
 velocity(velocity),

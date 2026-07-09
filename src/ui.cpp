@@ -9,6 +9,7 @@ float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0
 float cam_elevation = config::DEFAULT_CAM_ELEVATION; // 35° shows 3D immediately
 float cam_distance = config::DEFAULT_CAM_DISTANCE; // radius in world units
 bool view_3d = false; // toggle with keybind
+bool view_legend = true; // toggle with keybind
 auto last_copied = std::chrono::steady_clock::now();
 bool copied = false;
 
@@ -129,28 +130,26 @@ void ui::draw_ui() {
 }
 
 void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
-    // Legend
-
     constexpr double font_size = 16;
     constexpr double spacing = font_size + 2;
-    const Vec2 start = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN};
-    const Vec2 end = {config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES};
+    const Vec2 start = {config::WINDOW_WIDTH - config::WINDOW_MARGIN * 1.25 - config::GRID_SPACING, config::WINDOW_MARGIN};
+    const Vec2 end = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES};
 
     DrawRectangle(start, end, WHITE);
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (const auto& body = snap->bodies[i]; body.color.has_value()) {
-            DrawCircle({config::WINDOW_WIDTH - config::WINDOW_MARGIN - 80, config::WINDOW_MARGIN + spacing * i + (font_size / 2)}, 5, *body.color);
-            DrawText(config::uiFont, body.name.c_str(), Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN - 65, config::WINDOW_MARGIN + spacing * i), font_size, 1, BLACK);
+            DrawCircle({start.x + 10, start.y + spacing * i + (font_size / 2)}, 5, *body.color);
+            DrawText(config::uiFont, body.name.c_str(), Vec2(start.x + 25, start.y + spacing * i), font_size, 1, BLACK);
         }
     }
 
     constexpr float thick = 1.2f;
 
-    DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, thick, BLACK);
-    DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, thick, BLACK);
-    DrawLine({config::WINDOW_WIDTH - config::GRID_SPACING - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES}, thick, BLACK);
-    DrawLine({config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + config::GRID_SPACING * 2}, thick, BLACK);
+    DrawLine({start.x, start.y}, {end.x, start.y}, thick, BLACK);
+    DrawLine({start.x, start.y}, {start.x, end.y}, thick, BLACK);
+    DrawLine({start.x, end.y}, {end.x, end.y}, thick, BLACK);
+    DrawLine({end.x, start.y}, {end.x, end.y}, thick, BLACK);
 }
 
 void ui::draw_planet_info(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap) {
@@ -528,9 +527,9 @@ void ui::draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     if (snap) {
         draw_orbits(snap);
         draw_planets(snap);
-        draw_legend(snap);
         draw_stats(BLACK, WHITE, snap);
         draw_ui();
+        if (view_legend) draw_legend(snap);
         draw_planet_info(BLACK, WHITE, snap);
     }
 }
@@ -541,7 +540,8 @@ Keybinds
 General
     r: Reset scaling
     Space: Continue / Pause simulation
-    t: Change 2d/3d
+    t: Toggle 2d/3d
+    l: Toggle legend (2d-view only)
     Left click: More info on celestial body
 
 Zooming
@@ -660,6 +660,7 @@ void ui::UpdateDrawFrame() {
     }
 
     if (IsKeyPressed(KEY_T)) view_3d = !view_3d;
+    if (!view_3d && IsKeyPressed(KEY_L)) view_legend = !view_legend;
 
     const float scroll = GetMouseWheelMove();
 

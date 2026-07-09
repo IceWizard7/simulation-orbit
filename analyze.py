@@ -67,6 +67,16 @@ planet_to_horizon_id: dict[str, int] = {
     # "Styx": 905  # Doesn't have data
 }
 
+# GM in m^3/s^2
+# Phobos/Deimos: JPL satellite solution values (Horizons lists only Mass for 401/402).
+# Nereid: no mass or GM anywhere in Horizons
+# => this is a density-based estimate (~3.1e19 kg), fine since Nereid is tiny
+hardcoded_gm: dict[int, float] = {
+    401: 7.087546066894452e-4 * 1e9,  # Phobos ≈ 7.0875e5 m^3/s^2
+    402: 9.615569648120313e-5 * 1e9,  # Deimos ≈ 9.6156e4 m^3/s^2
+    802: 2.07e9,                      # Nereid ≈ 3.1e19 kg * G
+}
+
 AU: float = 149_597_870_700  # astronomical unit (meters)
 EPS: float = 1e-12  # epsilon
 START = datetime.datetime(1800, 1, 3)
@@ -193,22 +203,23 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
     planet_to_code: dict[str, str] = {planet: "" for planet in planet_to_horizon_id.keys()}
     
     base_coordinate_regex: str = " ?= ?((\\+|-)?\\d\\.(\\d)+(E(\\+|-)?(\\d)+)?)"
-    mass_physical_regex: re.Pattern[str] = re.compile(
+    gm_physical_regex: re.Pattern[str] = re.compile(
         r"""
-        \bMass\b
-        \s*(?:,\s*)?              # optional comma: "Mass, x10^22"
-        (?:\(\s*)?                # optional opening parenthesis: "Mass (10^20 kg)"
-        x?\s*10\s*\^\s*
-        (?P<unit_exp>[+-]?\d+)    # 20, 24, 22
-        \s*(?:\(\s*kg\s*\)|kg)    # "(kg)" or "kg"
-        \s*\)?                    # optional closing parenthesis
-        \s*=\s*~?\s*
-        (?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+))
-        (?:                       # optional value multiplier: "(10^-4)"
-            \s*\(\s*10\s*\^\s*
-            (?P<value_exp>[+-]?\d+)
-            \s*\)
+        \bGM\b
+        (?!\s*1[-\s]?sigma)             # skip the "GM 1-sigma" uncertainty line
+        \s*(?:,\s*)?                    # optional comma: "GM, km^3/s^2"
+        (?:                             # optional unit multiplier: "GM 10^-3 (km^3/s^2)"
+            10\s*\^\s*(?P<unit_exp>[+-]?\d+)\s*
         )?
+        (?:\(\s*[a-z ]+\s*\)\s*)?       # optional qualifier: "GM (planet) km^3/s^2"
+        (?:\(\s*)?                      # optional opening parenthesis: "GM (km^3/s^2)"
+        km\s*\^?\s*3                    # "km^3"
+        \s*(?:/\s*s\s*\^?\s*2           # "/s^2"
+           |s\s*\^?\s*-\s*2)            # or "km^3 s^-2"
+        \s*\)?                          # optional closing parenthesis
+        \s*=\s*~?\s*
+        (?P<value>[+-]?(?:\d+(?:\.\d*)?|\.\d+)   # 869.326
+            (?:[eEdD][+-]?\d+)?)                 # or 7.087546066894452E-04
         """,
         re.IGNORECASE | re.VERBOSE,
     )
@@ -220,8 +231,19 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
         post_e_part = num.split("E")[1]
     
         return pre_e_part + "e" + str(int(post_e_part) + e_factor)  # add 4 because km -> m
-    
-    
+
+
+    def parse_gm(physical: str) -> float | None:
+        """GM in m^3/s^2 (== the C++ gravitational_mass), or None if not listed."""
+        match = gm_physical_regex.search(physical)
+        if match is None:
+            return None
+
+        value = float(match.group("value").replace("D", "E").replace("d", "E"))
+        exp = int(match.group("unit_exp") or 0)
+
+        return value * 10.0**exp * 1e9  # km^3/s^2 -> m^3/s^2
+
     for planet_name, horizon_id in planet_to_horizon_id.items():
         try:
             result: str = str(
@@ -241,7 +263,7 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
                 print(f"index error, {result=}")
                 raise
 
-            x, y, z, vx, vy, vz, mass = [None for _ in range(7)]
+            x, y, z, vx, vy, vz, gm = [None for _ in range(7)]
 
             x_match = re.search("X" + base_coordinate_regex, coordinate_part)
             y_match = re.search("Y" + base_coordinate_regex, coordinate_part)
@@ -259,29 +281,23 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
             if vy_match: vy = convert_num(vy_match.group(1), 3)
             if vz_match: vz = convert_num(vz_match.group(1), 3)
 
-            mass_match = mass_physical_regex.search(physical_part)
-            if mass_match:
-                exponent = int(mass_match.group("unit_exp")) + int(mass_match.group("value_exp") or 0)
+            gm = parse_gm(physical_part)
+            if gm is None:
+                gm = hardcoded_gm.get(horizon_id)
 
-                mass = convert_num(
-                    f'{mass_match.group("value")}E{exponent:+d}',
-                    0,
-                )
+            if gm is None:
+                print(f"[WARNING] assuming gm=0 for planet {planet_name} ({horizon_id})")
+                gm = 0.0
 
             if any(val is None for val in [x, y, z]):
                 print(f"No match found for {x=}/{y=}/{z=} for planet {planet_name} ({horizon_id})")
             if any(val is None for val in [vx, vy, vz]):
                 print(f"No match found for {vx=}/{vy=}/{vz=} for planet {planet_name} ({horizon_id})")
-            if mass is None:
-                print(f"No match found for {mass=} for planet {planet_name} ({horizon_id})")
+            if gm is None:
+                print(f"No match found for {gm=} for planet {planet_name} ({horizon_id})")
 
             if any(val is None for val in [x, y, z, vx, vy, vz]):
                 continue
-
-            if mass is None:
-                mass = 0
-                # TODO: We assume mass=0 if we reach this
-                print(f"[WARNING] assuming mass=0 for planet {planet_name} ({horizon_id})")
 
             positions.append(Vec3(
                 scientific_notation_to_float(x),
@@ -290,7 +306,7 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
             ))
 
             planet_to_code[planet_name] = (
-                f"{{\"{planet_name}\", {{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {mass}, {fix_code[planet_name]}}},"
+                f"{{\"{planet_name}\", {{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {gm}, {fix_code[planet_name]}}},"
             )
         except Exception as e:
             print(f"Exception {e} occurred with planet {planet_name} ({horizon_id=})")
@@ -305,10 +321,10 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
 def get_code() -> None:
     start_values: tuple[list[str], list[Vec3]] = compute_vectors(START)
     print(f"#define NUM_CELESTIAL_BODIES {len(start_values[0])}\n")
-    print("    CelestialBody celestial_bodies[NUM_CELESTIAL_BODIES] = {")
+    print("CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES] = {")
     for val in start_values[0]:
-        print(f"        {val}")
-    print("    };")
+        print(f"    {val}")
+    print("};")
 
 def analyze_error() -> None:
     years, steps, dt, given_positions = parse_program_output(read_program_output())

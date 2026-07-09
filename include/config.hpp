@@ -5,7 +5,7 @@
 #include "timer.hpp"
 #include "utils.hpp"
 
-#define NUM_CELESTIAL_BODIES 10
+#define NUM_CELESTIAL_BODIES 38
 
 namespace ui {
     struct RenderSnapshot;
@@ -22,7 +22,7 @@ namespace config {
     constexpr int ORBIT_SAMPLE_EVERY_SECONDS = 259'200;
     constexpr bool RENDERING_COORDINATES_RELATIVE_TO_OBJECT = true;
 
-    constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11;
+    constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2)
 
     constexpr int WINDOW_HEIGHT = 900;
     constexpr int WINDOW_WIDTH = 900;

@@ -27,7 +27,7 @@ public:
         str name,
         const Vec3 &position,
         const Vec3 &velocity,
-        double mass,
+        double gravitational_mass,
         float radius_2d,
         float radius_3d,
         const std::optional<Color>& color,
