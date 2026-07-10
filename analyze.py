@@ -1,3 +1,4 @@
+from __future__ import annotations
 import sys
 import dataclasses
 import requests
@@ -5,6 +6,7 @@ import re
 import datetime
 import math
 import pathlib
+import typing
 
 planet_to_horizon_id: dict[str, int] = {
     # Sun
@@ -118,9 +120,48 @@ class Vec3:
     def __str__(self) -> str:
         return f"[{self.x}, {self.y}, {self.z}]"
 
-def read_program_output() -> str:
-    if len(sys.argv) >= 3:
-        return pathlib.Path(sys.argv[2]).read_text()
+@dataclasses.dataclass(frozen=True)
+class ProgramRun:
+    computation_seconds: float
+    years: float
+    steps: int
+    dt: float
+    vectors: list[Vec3]
+
+def parse_program_output(text: str) -> ProgramRun:
+    computation_seconds_match = re.search(r"Computation time:\s*([0-9.]+)", text)
+    simulated_years_match = re.search(r"Simulation time:\s*([0-9.]+)", text)
+    steps_match = re.search(r"Steps simulated:\s*(\d+)", text)
+    dt_match = re.search(r"Time step:\s*([0-9.eE+-]+)", text)
+
+    if not computation_seconds_match:
+        raise RuntimeError(f"No computation_seconds_match found in {text}")
+
+    if not simulated_years_match:
+        raise RuntimeError(f"No simulated_years_match found in {text}")
+
+    if not steps_match:
+        raise RuntimeError(f"No steps_match found in {text}")
+
+    if not dt_match:
+        raise RuntimeError(f"No dt_match found in {text}")
+
+    computation_seconds = float(computation_seconds_match.group(1))
+    simulated_years = float(simulated_years_match.group(1))
+    steps = int(steps_match.group(1))
+    dt = float(dt_match.group(1))
+
+    positions_line = next(line for line in text.splitlines() if "|" in line and line.startswith("["))
+    vectors = []
+    for raw in re.findall(r"\[([^]]+)]", positions_line):
+        x, y, z = (float(part.strip()) for part in raw.split(","))
+        vectors.append(Vec3(x, y, z))
+
+    return ProgramRun(computation_seconds, simulated_years, steps, dt, vectors)
+
+def read_program_output(path_index: int) -> str:
+    if len(sys.argv) > path_index:
+        return pathlib.Path(sys.argv[path_index]).read_text()
 
     if not sys.stdin.isatty():
         text = sys.stdin.read()
@@ -129,30 +170,12 @@ def read_program_output() -> str:
 
     raise SystemExit(
         "Usage:\n"
-        "  python3 analyze.py analyze program-output.txt\n"
+        f"  python3 {sys.argv[0]} analyze program-output.txt\n"
         "or:\n"
-        "  ./cmake-build-release/simulation-orbit | python3 analyze.py analyze"
+        f"  ./cmake-build-release/simulation-orbit | python3 {sys.argv[0]} analyze"
     )
 
-def parse_program_output(text: str) -> tuple[float, int | None, float | None, list[Vec3]]:
-    years = float(re.search(r"Simulation time:\s*([0-9.]+)", text).group(1))
-
-    steps_match = re.search(r"Steps simulated:\s*(\d+)", text)
-    dt_match = re.search(r"Time step:\s*([0-9.eE+-]+)", text)
-
-    steps = int(steps_match.group(1)) if steps_match else None
-    dt = float(dt_match.group(1)) if dt_match else None
-
-    positions_line = next(line for line in text.splitlines() if "|" in line and line.startswith("["))
-    vectors = []
-    for raw in re.findall(r"\[([^]]+)]", positions_line):
-        x, y, z = (float(part.strip()) for part in raw.split(","))
-        vectors.append(Vec3(x, y, z))
-
-    return years, steps, dt, vectors
-
-
-def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
+def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
     res: list[str] = []
     positions: list[Vec3] = []
 
@@ -244,13 +267,14 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
 
         return value * 10.0**exp * 1e9  # km^3/s^2 -> m^3/s^2
 
-    for planet_name, horizon_id in planet_to_horizon_id.items():
+    for i, (planet_name, horizon_id) in enumerate(planet_to_horizon_id.items()):
         try:
-            result: str = str(
-                requests.get(
-                    f"https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='{horizon_id}'&CENTER='@0'&MAKE_EPHEM='YES'&EPHEM_TYPE='VECTORS'&START_TIME='{start_date.strftime("%Y-%m-%d")}'&STOP_TIME='{(start_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d")}'&STEP_SIZE='1d'&REF_SYSTEM='J2000'&REF_PLANE='ECLIPTIC'&OUT_UNITS='KM-S'&OBJ_DATA='YES'"
-                ).content
+            response = requests.get(
+                f"https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND='{horizon_id}'&CENTER='@0'&MAKE_EPHEM='YES'&EPHEM_TYPE='VECTORS'&START_TIME='{start_date.strftime("%Y-%m-%d")}'&STOP_TIME='{(start_date + datetime.timedelta(days=1)).strftime("%Y-%m-%d")}'&STEP_SIZE='1d'&REF_SYSTEM='J2000'&REF_PLANE='ECLIPTIC'&OUT_UNITS='KM-S'&OBJ_DATA='YES'"
             )
+            response.raise_for_status()
+
+            result: str = response.text
 
             parts: list[str] = result.split(
                 "*******************************************************************************"
@@ -299,6 +323,10 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
             if any(val is None for val in [x, y, z, vx, vy, vz]):
                 continue
 
+            x = typing.cast(str, x)
+            y = typing.cast(str, y)
+            z = typing.cast(str, z)
+
             positions.append(Vec3(
                 scientific_notation_to_float(x),
                 scientific_notation_to_float(y),
@@ -311,6 +339,8 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
         except Exception as e:
             print(f"Exception {e} occurred with planet {planet_name} ({horizon_id=})")
             raise
+        finally:
+            print(f"Fetched vectors of planet {planet_name} ({horizon_id=}) ({i}/{len(planet_to_horizon_id.keys())})")
     
     for planet_name, code_line in planet_to_code.items():
         res.append(code_line)
@@ -318,35 +348,19 @@ def compute_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
 
     return res, positions
 
-def get_code() -> None:
-    start_values: tuple[list[str], list[Vec3]] = compute_vectors(START)
+def print_code() -> None:
+    start_values: tuple[list[str], list[Vec3]] = fetch_vectors(START)
     print(f"#define NUM_CELESTIAL_BODIES {len(start_values[0])}\n")
     print("CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES] = {")
     for val in start_values[0]:
         print(f"    {val}")
     print("};")
 
-def analyze_error() -> None:
-    years, steps, dt, given_positions = parse_program_output(read_program_output())
-    if steps is not None and dt is not None:
-        target_epoch = START + datetime.timedelta(seconds=steps * dt)
-    else:
-        target_epoch = START + datetime.timedelta(seconds=round(years * SECONDS_PER_YEAR))
+def print_error_metric(expected_vectors: list[Vec3], candidate_vectors: list[Vec3], names: list[str]) -> None:
+    expected_sun: Vec3 = expected_vectors[names.index("Sun")]
+    given_sun: Vec3 = candidate_vectors[names.index("Sun")]
 
-    expected_positions: list[Vec3] = compute_vectors(target_epoch)[1]
-    names: list[str] = list(planet_to_horizon_id.keys())
-
-    print("\n")
-    print(f"JPL simulation time: {(target_epoch - START).days / 365} years (@ 365 days)")
-    print(f"Program simulation time: {years}\n")
-
-    print(f"JPL positions: {expected_positions}")
-    print(f"Program positions: {given_positions}\n")
-
-    expected_sun: Vec3 = expected_positions[names.index("Sun")]
-    given_sun: Vec3 = given_positions[names.index("Sun")]
-
-    for name, expected_pos, given_pos in zip(names, expected_positions, given_positions):
+    for name, expected_pos, given_pos in zip(names, expected_vectors, candidate_vectors):
         if name == "Sun":
             expected_rel: Vec3 = expected_pos
             given_rel: Vec3 = given_pos
@@ -356,9 +370,10 @@ def analyze_error() -> None:
 
         delta: Vec3 = given_rel - expected_rel
 
-        abs_error_m = delta.length()
-        abs_error_km = delta.length() / 1_000
-        abs_error_au = delta.length() / AU
+        length: float = delta.length()
+        abs_error_m = length
+        abs_error_km = length / 1_000
+        abs_error_au = length / AU
 
         rel_error = abs_error_m / max(expected_rel.length(), EPS) * 100
         angular_error = expected_rel.angle_degrees(given_rel)
@@ -372,10 +387,54 @@ def analyze_error() -> None:
             f" radial   = {radial_error_au:.6f} AU\n"
         )
 
+def analyze_error() -> None:
+    p_run = parse_program_output(read_program_output(2))
+    target_epoch = START + datetime.timedelta(seconds=p_run.steps * p_run.dt)
+
+    expected_positions: list[Vec3] = fetch_vectors(target_epoch)[1]
+    names: list[str] = list(planet_to_horizon_id.keys())
+
+    print("\n")
+    print(f"JPL simulation time: {(target_epoch - START).days / 365} years (@ 365 days)")
+    print(f"Program simulation time: {p_run.years} years (@ 365 days)\n")
+
+    print(f"JPL positions: {expected_positions}")
+    print(f"Program positions: {p_run.vectors}\n")
+
+    print_error_metric(expected_positions, p_run.vectors, names)
+
+def compare() -> None:
+    reference_run = parse_program_output(pathlib.Path(sys.argv[2]).read_text())
+    candidate_run = parse_program_output(read_program_output(3))
+
+    names: list[str] = list(planet_to_horizon_id.keys())
+
+    print("\n")
+    print(f"Reference simulation time: {reference_run.years} years (@ 365 days)")
+    print(f"Candidate simulation time: {candidate_run.years} years (@ 365 days)\n")
+
+    assert reference_run.years == candidate_run.years
+    assert reference_run.steps * reference_run.dt == candidate_run.steps * candidate_run.dt
+    assert len(reference_run.vectors) == len(candidate_run.vectors) == len(names)
+
+    print(f"Reference positions: {reference_run.vectors}\n")
+    print(f"Candidate positions: {candidate_run.vectors}\n")
+
+    print_error_metric(reference_run.vectors, candidate_run.vectors, names)
+
+    print(f"Reference computation time: {reference_run.computation_seconds} seconds")
+    print(f"Candidate computation time: {candidate_run.computation_seconds} seconds\n")
+
 def print_usage() -> None:
-    print(f"Usage: {sys.argv[0]} [analyze|code]")
+    print("Commands:")
+    print(f"  {sys.argv[0]} code          Formatted celestial body JPL data")
+    print(f"  {sys.argv[0]} analyze       Analyze program output & compare to JPL data")
+    print(f"  {sys.argv[0]} compare")
 
 if __name__ == '__main__':
     if len(sys.argv) < 2: print_usage(); sys.exit(1)
-    if sys.argv[1] == "analyze": analyze_error()
-    if sys.argv[1] == "code": get_code()
+    match sys.argv[1]:
+        case "code": print_code()
+        case "analyze": analyze_error()
+        case "compare": compare()
+        case _: print_usage()
