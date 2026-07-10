@@ -250,9 +250,8 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 void simulation::print_final_state() {
     const double seconds = config::timer.seconds();
 
+    printf("Simulated years per second: %.2f\n", seconds > 0.0 ? ui::simulated_years() / seconds : 0);
     printf("Computation time: %.2f seconds\n", seconds);
-    printf("Simulated years per second: %.2f\n\n", seconds > 0.0 ? ui::simulated_years() / seconds : 0);
-
     printf("Simulation time: %.8f years (@ 365 days)\n", ui::simulated_years());
     printf("Steps simulated: %zu\n", config::steps_simulated.load());
     printf("Time step: %.17g seconds\n", config::TIME_STEP);
