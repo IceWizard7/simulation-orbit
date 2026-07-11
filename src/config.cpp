@@ -51,7 +51,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
     if (argc >= 2 && (str(argv[1]) == "--help" || str(argv[1]) == "-h")) {
         print_logo();
         printf("    Options:\n");
-        printf("    -v, --version          Show version number\n");
+        printf("    -v, --version          Show version\n");
         printf("    -h, --help             Show help\n");
         printf("        --headless         Run without Raylib window\n");
         printf("        --dt <seconds>     Configure time step\n");
@@ -100,13 +100,23 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
 
 
 void runtime_config::set_time_step_string() {
+    auto set_string = [](double val, const str& unit) {
+        constexpr double epsilon = 1e-6;
+        if (std::abs(val - std::round(val)) < epsilon) {
+            // effectively ends in .00
+            TIME_STEP_STRING = std::format("{} {}", static_cast<int>(val), unit);
+        } else {
+            TIME_STEP_STRING = std::format("{:.2f} {}", val, unit);
+        }
+    };
+
     if (TIME_STEP < 60) {
-        TIME_STEP_STRING = std::format("{:.2f} secs", TIME_STEP);
+        set_string(TIME_STEP, "secs");
     } else if (60 <= TIME_STEP && TIME_STEP < 3'600) {
-        TIME_STEP_STRING = std::format("{:.2f} mins", TIME_STEP);
+        set_string(TIME_STEP / 60, "mins");
     } else if (3'600 <= TIME_STEP && TIME_STEP < 86'400) {
-        TIME_STEP_STRING = std::format("{:.2f} hrs", TIME_STEP);
+        set_string(TIME_STEP / 3'600, "hrs");
     } else if (86'400 <= TIME_STEP) {
-        TIME_STEP_STRING = std::format("{:.2f} days", TIME_STEP);
+        set_string(TIME_STEP / 86'400, "days");
     }
 }
