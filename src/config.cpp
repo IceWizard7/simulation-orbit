@@ -3,6 +3,7 @@
 #include <iostream>
 
 namespace runtime_config {
+    str INVOCATION_COMMAND;
     bool exit_immediately = false;
     bool headless = false;
     double TIME_STEP = 900;
@@ -48,6 +49,14 @@ void print_logo() {
 }
 
 int runtime_config::parse_cli_args(const int argc, char* argv[]) {
+    for (int i = 0; i < argc; ++i) {
+        if (i > 0) {
+            INVOCATION_COMMAND += ' ';
+        }
+
+        INVOCATION_COMMAND += argv[i];
+    }
+
     if (argc >= 2 && (str(argv[1]) == "--help" || str(argv[1]) == "-h")) {
         print_logo();
         printf("    Options:\n");

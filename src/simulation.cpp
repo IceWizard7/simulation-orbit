@@ -253,6 +253,7 @@ void simulation::print_final_state() {
     printf("Simulation time: %.8f years (@ 365 days)\n", ui::simulated_years());
     printf("Steps simulated: %zu\n", config::steps_simulated.load());
     printf("Time step: %.17g seconds\n", runtime_config::TIME_STEP);
+    printf("Invocation command: %s\n", runtime_config::INVOCATION_COMMAND.c_str());
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         const auto& celestial_body = celestial_bodies[i];

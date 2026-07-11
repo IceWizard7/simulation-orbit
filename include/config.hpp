@@ -60,6 +60,7 @@ namespace config {
 }
 
 namespace runtime_config {
+    extern str INVOCATION_COMMAND;
     extern bool exit_immediately;
     extern bool headless;
     extern double TIME_STEP;
