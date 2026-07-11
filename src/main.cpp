@@ -14,19 +14,18 @@
 // TODO: Internal planet rotation
 
 int main(const int argc, char* argv[]) {
-    if (argc > 1 && str(argv[1]) == "--headless") {
-        if constexpr (config::TARGET_TOTAL_SIMULATION_TIME <= 0.0) {
-            std::fprintf(stderr, "--headless requires a positive TARGET_TOTAL_SIMULATION_TIME\n");
-            return 1;
-        } else {
-            while (ui::simulated_years() < config::TARGET_TOTAL_SIMULATION_TIME) {
-                simulation::simulate_step();
-            }
+    const int err = runtime_config::parse_cli_args(argc, argv);
+    if (err != 0) return err;
+    if (runtime_config::exit_immediately) return 0;
 
-            config::timer.pause();
-            simulation::print_final_state();
-            return 0;
+    if (runtime_config::headless) {
+        while (ui::simulated_years() < runtime_config::TARGET_TOTAL_SIMULATION_TIME) {
+            simulation::simulate_step();
         }
+
+        config::timer.pause();
+        simulation::print_final_state();
+        return 0;
     }
 
     SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);

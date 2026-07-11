@@ -22,6 +22,7 @@ add_executable(simulation-orbit
         src/celestial_body.cpp
         src/ui.cpp
         src/simulation.cpp
+        src/config.cpp
 )
 
 target_include_directories(simulation-orbit PRIVATE include)

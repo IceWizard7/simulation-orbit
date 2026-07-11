@@ -191,14 +191,14 @@ void ui::draw_stats(const Color text_color, const Color background_color, const 
     DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_MARGIN, background_color);
 
     // Left side
-    DrawText(config::uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(config::steps_simulated) * config::TIME_STEP / (86'400 * 365))).c_str(), Vec2(config::WINDOW_MARGIN, 10), 20, 1, text_color);
+    DrawText(config::uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(config::steps_simulated) * runtime_config::TIME_STEP / (86'400 * 365))).c_str(), Vec2(config::WINDOW_MARGIN, 10), 20, 1, text_color);
     DrawText(config::uiFont, std::format("Computation time: {} seconds", round_to_hundreds(seconds)).c_str(), Vec2(config::WINDOW_MARGIN, 30), 20, 1, text_color);
-    DrawText(config::uiFont, std::format("Step size: {}", config::TIME_STEP_STRING).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, text_color);
+    DrawText(config::uiFont, std::format("Step size: {}", runtime_config::TIME_STEP_STRING).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, text_color);
 
     // Right side
-    DrawText(config::uiFont, std::format("Simulated years per second: {}", (seconds > 0.0 ? round_to_hundreds(((static_cast<double>(config::steps_simulated) * config::TIME_STEP / (86'400 * 365))) / seconds) : "0")).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, text_color);
+    DrawText(config::uiFont, std::format("Simulated years per second: {}", (seconds > 0.0 ? round_to_hundreds(((static_cast<double>(config::steps_simulated) * runtime_config::TIME_STEP / (86'400 * 365))) / seconds) : "0")).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, text_color);
     DrawText(config::uiFont, std::format("Rendering relative to: {}", snap->bodies[config::center_celestial_body_index].name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, text_color);
-    DrawText(config::uiFont, std::format("Target years per second: {}", config::TARGET_SIMULATION_SPEED > 0.0 ? round_to_hundreds(config::TARGET_SIMULATION_SPEED) : "Unlimited").c_str(), Vec2(config::WINDOW_MARGIN + 400, 50), 20, 1, text_color);
+    DrawText(config::uiFont, std::format("Target years per second: {}", runtime_config::TARGET_SIMULATION_SPEED > 0.0 ? round_to_hundreds(runtime_config::TARGET_SIMULATION_SPEED) : "Unlimited").c_str(), Vec2(config::WINDOW_MARGIN + 400, 50), 20, 1, text_color);
 }
 
 void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
@@ -652,7 +652,7 @@ void ui::UpdateDrawFrame() {
             config::timer.pause();
             config::republish_needed = true;
         } else {
-            if (config::TARGET_TOTAL_SIMULATION_TIME < 0.0 || config::TARGET_TOTAL_SIMULATION_TIME > simulated_years()) {
+            if (runtime_config::TARGET_TOTAL_SIMULATION_TIME < 0.0 || runtime_config::TARGET_TOTAL_SIMULATION_TIME > simulated_years()) {
                 config::timer.resume();
             }
         }

@@ -49,7 +49,7 @@ std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> simulation::orbit_history;
 
 void simulation::save_orbit_points() {
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (config::steps_simulated % static_cast<int>(config::ORBIT_SAMPLE_EVERY_SECONDS / config::TIME_STEP) != 0) continue;
+        if (config::steps_simulated % static_cast<int>(config::ORBIT_SAMPLE_EVERY_SECONDS / runtime_config::TIME_STEP) != 0) continue;
 
         auto& history = orbit_history[i];
 
@@ -76,19 +76,17 @@ std::array<Vec3, NUM_CELESTIAL_BODIES> simulation::compute_accelerations() {
 
 void simulation::simulate_step() {
     const std::array<Vec3, NUM_CELESTIAL_BODIES> accelerations = compute_accelerations();
-    constexpr double half_dt_squared = 0.5 * config::TIME_STEP * config::TIME_STEP;
 
     // Velocity Verlet: keep the orbit phase stable over many short-period inner-planet revolutions
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        celestial_bodies[i].position += celestial_bodies[i].velocity * config::TIME_STEP
-            + accelerations[i] * half_dt_squared;
+        celestial_bodies[i].position += celestial_bodies[i].velocity * runtime_config::TIME_STEP
+            + accelerations[i] * runtime_config::half_dt_squared;
     }
 
     const std::array<Vec3, NUM_CELESTIAL_BODIES> next_accelerations = compute_accelerations();
-    constexpr double half_dt = 0.5 * config::TIME_STEP;
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        celestial_bodies[i].velocity += (accelerations[i] + next_accelerations[i]) * half_dt;
+        celestial_bodies[i].velocity += (accelerations[i] + next_accelerations[i]) * runtime_config::half_dt;
     }
 
     ++config::steps_simulated;
@@ -191,15 +189,15 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             continue;
         }
 
-        if constexpr (config::TARGET_TOTAL_SIMULATION_TIME > 0.0) {
-            if (config::TARGET_TOTAL_SIMULATION_TIME <= ui::simulated_years()) {
+        if (runtime_config::TARGET_TOTAL_SIMULATION_TIME > 0.0) {
+            if (runtime_config::TARGET_TOTAL_SIMULATION_TIME <= ui::simulated_years()) {
                 config::timer.pause();
                 publish_snapshot();
                 last_publish = std::chrono::steady_clock::now();
             }
         }
 
-        if constexpr (config::TARGET_SIMULATION_SPEED <= 0.0) {
+        if (runtime_config::TARGET_SIMULATION_SPEED <= 0.0) {
             simulate_step();
 
             if (++since_check >= MAX_STEPS_PER_BATCH) {
@@ -214,13 +212,13 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
         const double elapsed = std::chrono::duration<double>(now - last_budget_update).count();
         last_budget_update = now;
 
-        constexpr double max_budget = std::max(
+        double max_budget = std::max(
             1.0,
-            config::TARGET_STEPS_PER_SECOND * MAX_CATCH_UP_SECONDS
+            runtime_config::TARGET_STEPS_PER_SECOND * MAX_CATCH_UP_SECONDS
         );
 
         step_budget = std::min(
-            step_budget + elapsed * config::TARGET_STEPS_PER_SECOND,
+            step_budget + elapsed * runtime_config::TARGET_STEPS_PER_SECOND,
             max_budget
         );
 
@@ -230,7 +228,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
         if (steps_to_run == 0) {
             const double seconds_to_next_step =
-                (1.0 - step_budget) / config::TARGET_STEPS_PER_SECOND;
+                (1.0 - step_budget) / runtime_config::TARGET_STEPS_PER_SECOND;
 
             std::this_thread::sleep_for(std::chrono::duration<double>(
                 std::min(seconds_to_next_step, 1.0 / config::TARGET_FPS)
@@ -254,7 +252,7 @@ void simulation::print_final_state() {
     printf("Computation time: %.2f seconds\n", seconds);
     printf("Simulation time: %.8f years (@ 365 days)\n", ui::simulated_years());
     printf("Steps simulated: %zu\n", config::steps_simulated.load());
-    printf("Time step: %.17g seconds\n", config::TIME_STEP);
+    printf("Time step: %.17g seconds\n", runtime_config::TIME_STEP);
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         const auto& celestial_body = celestial_bodies[i];
