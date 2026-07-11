@@ -76,7 +76,7 @@ namespace runtime_config {
     extern double target_steps_per_second;
 
     extern std::optional<std::filesystem::path> csv_path;
-    extern std::optional<int> sample_every_seconds;
+    extern std::optional<int> sample_csv_data_every_seconds;
 
     template <typename T>
     struct ParseRes {

@@ -1,6 +1,9 @@
 #include "simulation.hpp"
 
+#include <fstream>
+#include <limits>
 #include <thread>
+#include <mach/machine.h>
 
 #include "ui.hpp"
 
@@ -45,12 +48,13 @@ CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES] = {
     {"Hydra", {5.435541905260762e12, -2.498564246715345e12, -1.304315503974369e12}, {2.619335786799016e3, 3.486905755936516e3, -1.240844499188735e3}, 2010000.0, 5, 0.01, (Color){164, 165, 157, 255}, 40'000, 1'000},
     {"Kerberos", {5.435454730070845e12, -2.498637906440255e12, -1.304282146787419e12}, {2.598784079825089e3, 3.601093273190158e3, -1.023177596881631e3}, 60380.0, 5, 0.01, (Color){84, 80, 78, 255}, 40'000, 1'000},
 };
+std::vector<CSVEntry> simulation::csv_data;
 std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> simulation::orbit_history;
 
 void simulation::save_orbit_points() {
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (config::steps_simulated % static_cast<int>(config::ORBIT_SAMPLE_EVERY_SECONDS / runtime_config::time_step) != 0) continue;
+    if (config::steps_simulated % (config::ORBIT_SAMPLE_EVERY_SECONDS / runtime_config::time_step) != 0) return;
 
+    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         auto& history = orbit_history[i];
 
         history.push_back(celestial_bodies[i].position);
@@ -59,6 +63,22 @@ void simulation::save_orbit_points() {
             history.pop_front();
         }
     }
+}
+
+void simulation::update_csv_data() {
+    if (!runtime_config::sample_csv_data_every_seconds.has_value()) return;
+    if (!runtime_config::csv_path.has_value()) return;
+    if (config::steps_simulated % (*runtime_config::sample_csv_data_every_seconds / runtime_config::time_step) != 0) return;
+
+    CSVEntry entry;
+    entry.step = config::steps_simulated;
+
+    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        entry.positions[i] = celestial_bodies[i].position;
+        entry.velocities[i] = celestial_bodies[i].velocity;
+    }
+
+    csv_data.push_back(entry);
 }
 
 std::array<Vec3, NUM_CELESTIAL_BODIES> simulation::compute_accelerations() {
@@ -91,6 +111,7 @@ void simulation::simulate_step() {
 
     ++config::steps_simulated;
     save_orbit_points();
+    update_csv_data();
 }
 
 // Builds a render snapshot from the simulation-owned state (no lock needed: the simulation thread is the only owner
@@ -242,6 +263,54 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
         step_budget -= static_cast<double>(steps_to_run);
         publish_if_due();
+    }
+}
+
+void simulation::write_csv_data() {
+    if (!runtime_config::csv_path.has_value()) return;
+
+    std::ofstream csv_file(*runtime_config::csv_path);
+
+    if (!csv_file.is_open()) {
+        std::cerr << "Error: Could not open CSV file " << *runtime_config::csv_path << ".\n";
+        return;
+    }
+
+    // Preserve enough digits to reconstruct the original double values.
+    csv_file.precision(std::numeric_limits<double>::max_digits10);
+
+    csv_file << "step";
+    for (const auto& celestial_body : celestial_bodies) {
+        csv_file << ',' << celestial_body.name << "_position_x"
+                 << ',' << celestial_body.name << "_position_y"
+                 << ',' << celestial_body.name << "_position_z"
+                 << ',' << celestial_body.name << "_velocity_x"
+                 << ',' << celestial_body.name << "_velocity_y"
+                 << ',' << celestial_body.name << "_velocity_z";
+    }
+    csv_file << '\n';
+
+    for (const auto&[step, positions, velocities] : csv_data) {
+        csv_file << step;
+
+        for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
+            const auto& position = positions[i];
+            const auto& velocity = velocities[i];
+
+            csv_file << ',' << position.x
+                     << ',' << position.y
+                     << ',' << position.z
+                     << ',' << velocity.x
+                     << ',' << velocity.y
+                     << ',' << velocity.z;
+        }
+
+        csv_file << '\n';
+    }
+
+    csv_file.close();
+    if (!csv_file) {
+        std::cerr << "Error: Failed to write CSV data to " << *runtime_config::csv_path << ".\n";
     }
 }
 

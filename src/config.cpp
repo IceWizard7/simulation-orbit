@@ -16,7 +16,7 @@ namespace runtime_config {
     double target_steps_per_second = target_simulation_speed * config::SECONDS_PER_YEAR / time_step;
 
     std::optional<std::filesystem::path> csv_path = std::nullopt;
-    std::optional<int> sample_every_seconds = std::nullopt;
+    std::optional<int> sample_csv_data_every_seconds = std::nullopt;
 }
 
 
@@ -125,10 +125,12 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
             auto [val, err] = parse_str("--csv", i, argc, argv);
             if (err != 0) return err;
             csv_path = val;
+            i++;
         } else if (arg == "--sample-every-seconds") {
             auto [val, err] = parse_int("--sample-every-seconds", i, argc, argv);
             if (err != 0) return err;
-            sample_every_seconds = val;
+            sample_csv_data_every_seconds = val;
+            i++;
         } else {
             std::cerr << std::format("Error: Unexpected argument {}.\n", arg);
             return 1;
@@ -140,8 +142,13 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
         return 1;
     }
 
-    if (sample_every_seconds.has_value() && *sample_every_seconds % time_step != 0) {
-        std::cerr << std::format("--sample_every_seconds ({}) must be a multiple of --dt ({}).\n", *sample_every_seconds, time_step);
+    if (csv_path.has_value() != sample_csv_data_every_seconds.has_value()) {
+        std::cerr << std::format("--csv requires --sample-every-seconds (and vice-versa).\n");
+        return 1;
+    }
+
+    if (sample_csv_data_every_seconds.has_value() && *sample_csv_data_every_seconds % time_step != 0) {
+        std::cerr << std::format("--sample_every_seconds ({}) must be a multiple of --dt ({}).\n", *sample_csv_data_every_seconds, time_step);
         return 1;
     }
 

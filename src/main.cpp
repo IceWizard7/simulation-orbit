@@ -24,6 +24,7 @@ int main(const int argc, char* argv[]) {
         }
 
         config::timer.pause();
+        simulation::write_csv_data();
         simulation::print_final_state();
         return 0;
     }
@@ -71,6 +72,7 @@ int main(const int argc, char* argv[]) {
     CloseWindow();
     printf("\n");
 
+    simulation::write_csv_data();
     simulation::print_final_state();
 
     return 0;
