@@ -65,8 +65,38 @@ planet_to_horizon_id: dict[str, int] = {
     "Charon": 901,
     "Nix": 902,
     "Hydra": 903,
-    "Kerberos": 904,
-    # "Styx": 905  # Doesn't have data
+    "Kerberos": 904
+}
+
+moon_to_parent: dict[str, str] = {
+    "Moon": "Earth",
+    "Phobos": "Mars",
+    "Deimos": "Mars",
+    "Io": "Jupiter",
+    "Europa": "Jupiter",
+    "Ganymede": "Jupiter",
+    "Callisto": "Jupiter",
+    "Mimas": "Saturn",
+    "Enceladus": "Saturn",
+    "Tethys": "Saturn",
+    "Dione": "Saturn",
+    "Rhea": "Saturn",
+    "Titan": "Saturn",
+    "Hyperion": "Saturn",
+    "Iapetus": "Saturn",
+    "Phoebe": "Saturn",
+    "Ariel": "Uranus",
+    "Umbriel": "Uranus",
+    "Titania": "Uranus",
+    "Oberon": "Uranus",
+    "Miranda": "Uranus",
+    "Triton": "Neptune",
+    "Nereid": "Neptune",
+    "Proteus": "Neptune",
+    "Charon": "Pluto",
+    "Nix": "Pluto",
+    "Hydra": "Pluto",
+    "Kerberos": "Pluto"
 }
 
 # GM in m^3/s^2
@@ -127,6 +157,13 @@ class ProgramRun:
     steps: int
     dt: float
     vectors: list[Vec3]
+
+@dataclasses.dataclass(frozen=True)
+class ErrorMetrics:
+    distance_m: float
+    relative_percent: float
+    angular_degrees: float
+    radial_m: float
 
 def parse_program_output(text: str) -> ProgramRun:
     computation_seconds_match = re.search(r"Computation time:\s*([0-9.]+)", text)
@@ -356,36 +393,60 @@ def print_code() -> None:
         print(f"    {val}")
     print("};")
 
-def print_error_metric(expected_vectors: list[Vec3], candidate_vectors: list[Vec3], names: list[str]) -> None:
-    expected_sun: Vec3 = expected_vectors[names.index("Sun")]
-    given_sun: Vec3 = candidate_vectors[names.index("Sun")]
+def calculate_error_metrics(expected_pos: Vec3, candidate_pos: Vec3) -> ErrorMetrics:
+    delta = candidate_pos - expected_pos
+    distance_m = delta.length()
 
-    for name, expected_pos, given_pos in zip(names, expected_vectors, candidate_vectors):
+    return ErrorMetrics(
+        distance_m=distance_m,
+        relative_percent=distance_m / max(expected_pos.length(), EPS) * 100,
+        angular_degrees=expected_pos.angle_degrees(candidate_pos),
+        radial_m=candidate_pos.length() - expected_pos.length(),
+    )
+
+def print_one_error_metric(metrics: ErrorMetrics) -> None:
+    print(
+        f" distance = {metrics.distance_m / 1_000:.3f} km ({metrics.distance_m / AU:.6f} AU)\n"
+        f" relative = {metrics.relative_percent:.3f}%\n"
+        f" angle    = {metrics.angular_degrees:.3f} deg\n"
+        f" radial   = {metrics.radial_m / 1_000:.3f} km ({metrics.radial_m / AU:.6f} AU)\n"
+    )
+
+def print_error_metric(expected_vectors: list[Vec3], candidate_vectors: list[Vec3], names: list[str]) -> None:
+    if len(expected_vectors) != len(candidate_vectors) or len(expected_vectors) != len(names):
+        raise ValueError(
+            "Expected vectors, candidate vectors, and body names must have equal lengths "
+            f"({len(expected_vectors)}, {len(candidate_vectors)}, and {len(names)})"
+        )
+
+    indices = {name: index for index, name in enumerate(names)}
+    expected_sun = expected_vectors[indices["Sun"]]
+    candidate_sun = candidate_vectors[indices["Sun"]]
+
+    print("Sun-relative errors (the Sun itself is measured in barycentric coordinates):\n")
+
+    for name, expected_pos, candidate_pos in zip(names, expected_vectors, candidate_vectors):
         if name == "Sun":
-            expected_rel: Vec3 = expected_pos
-            given_rel: Vec3 = given_pos
+            expected_rel = expected_pos
+            candidate_rel = candidate_pos
         else:
             expected_rel = expected_pos - expected_sun
-            given_rel = given_pos - given_sun
+            candidate_rel = candidate_pos - candidate_sun
 
-        delta: Vec3 = given_rel - expected_rel
+        print(f"{name} error:\n")
+        print_one_error_metric(calculate_error_metrics(expected_rel, candidate_rel))
 
-        length: float = delta.length()
-        abs_error_m = length
-        abs_error_km = length / 1_000
-        abs_error_au = length / AU
+    print("Parent-relative moon errors:\n")
 
-        rel_error = abs_error_m / max(expected_rel.length(), EPS) * 100
-        angular_error = expected_rel.angle_degrees(given_rel)
-        radial_error_au = (given_rel.length() - expected_rel.length()) / AU
+    for name, parent in moon_to_parent.items():
+        moon_index = indices[name]
+        parent_index = indices[parent]
 
-        print(
-            f"{name} error:\n"
-            f" distance = {abs_error_km:.0f} km ({abs_error_au:.6f} AU)\n"
-            f" relative = {rel_error:.3f}%\n"
-            f" angle    = {angular_error:.3f} deg\n"
-            f" radial   = {radial_error_au:.6f} AU\n"
-        )
+        expected_rel = expected_vectors[moon_index] - expected_vectors[parent_index]
+        candidate_rel = candidate_vectors[moon_index] - candidate_vectors[parent_index]
+
+        print(f"{name} error relative to {parent}:\n")
+        print_one_error_metric(calculate_error_metrics(expected_rel, candidate_rel))
 
 def analyze_error() -> None:
     p_run = parse_program_output(read_program_output(2))
@@ -413,9 +474,15 @@ def compare() -> None:
     print(f"Reference simulation time: {reference_run.years} years (@ 365 days)")
     print(f"Candidate simulation time: {candidate_run.years} years (@ 365 days)\n")
 
-    assert reference_run.years == candidate_run.years
-    assert reference_run.steps * reference_run.dt == candidate_run.steps * candidate_run.dt
-    assert len(reference_run.vectors) == len(candidate_run.vectors) == len(names)
+    if reference_run.years != candidate_run.years:
+        print("Simulation times do not match (years)")
+        sys.exit(1)
+    if reference_run.steps * reference_run.dt != candidate_run.steps * candidate_run.dt:
+        print("Simulation times do not match (steps * dt)")
+        sys.exit(1)
+    if not len(reference_run.vectors) == len(candidate_run.vectors) == len(names):
+        print("Length of vectors & names do not match")
+        sys.exit(1)
 
     print(f"Reference positions: {reference_run.vectors}\n")
     print(f"Candidate positions: {candidate_run.vectors}\n")
@@ -424,17 +491,23 @@ def compare() -> None:
 
     print(f"Reference computation time: {reference_run.computation_seconds} seconds")
     print(f"Candidate computation time: {candidate_run.computation_seconds} seconds\n")
+    print(f"Speedup: {reference_run.computation_seconds / candidate_run.computation_seconds}x")
 
 def print_usage() -> None:
     print("Commands:")
-    print(f"  {sys.argv[0]} code          Formatted celestial body JPL data")
-    print(f"  {sys.argv[0]} analyze       Analyze program output & compare to JPL data")
-    print(f"  {sys.argv[0]} compare")
+    print(f"  {sys.argv[0]} code                            Formatted celestial body JPL data")
+    print(f"  {sys.argv[0]} analyze output                  Analyze program output & compare to JPL data. Reads output from stdin if output is not given")
+    print(f"  {sys.argv[0]} compare reference candidate     Compare 2 program outputs. Reads from candidate from stdin if candidate is not given")
+
+def require_argc(required_argc: int) -> None:
+    if len(sys.argv) < required_argc:
+        print_usage()
+        sys.exit(1)
 
 if __name__ == '__main__':
     if len(sys.argv) < 2: print_usage(); sys.exit(1)
     match sys.argv[1]:
-        case "code": print_code()
-        case "analyze": analyze_error()
-        case "compare": compare()
+        case "code": require_argc(2); print_code()
+        case "analyze": require_argc(2); analyze_error()
+        case "compare": require_argc(3); compare()
         case _: print_usage()
