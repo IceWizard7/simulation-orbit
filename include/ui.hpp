@@ -37,7 +37,7 @@ namespace ui {
     };
 
     inline double simulated_years() {
-        return static_cast<double>(config::steps_simulated.load()) * runtime_config::TIME_STEP / config::SECONDS_PER_YEAR;
+        return static_cast<double>(config::steps_simulated.load()) * runtime_config::time_step / config::SECONDS_PER_YEAR;
     }
 
     inline double measured_simulation_speed() {

@@ -3,21 +3,24 @@
 #include <iostream>
 
 namespace runtime_config {
-    str INVOCATION_COMMAND;
+    str invocation_command;
     bool exit_immediately = false;
     bool headless = false;
-    double TIME_STEP = 900;
-    double half_dt_squared = 0.5 * TIME_STEP * TIME_STEP;
-    double half_dt = 0.5 * TIME_STEP;
-    str TIME_STEP_STRING = "15 mins";
+    int time_step = 900;
+    double half_dt_squared = 0.5 * time_step * time_step;
+    double half_dt = 0.5 * time_step;
+    str time_step_string = "15 mins";
 
-    double TARGET_TOTAL_SIMULATION_TIME = -1;
-    double TARGET_SIMULATION_SPEED = -1;
-    double TARGET_STEPS_PER_SECOND = TARGET_SIMULATION_SPEED * config::SECONDS_PER_YEAR / TIME_STEP;
+    double target_total_simulation_time = -1;
+    double target_simulation_speed = -1;
+    double target_steps_per_second = target_simulation_speed * config::SECONDS_PER_YEAR / time_step;
+
+    std::optional<std::filesystem::path> csv_path = std::nullopt;
+    std::optional<int> sample_every_seconds = std::nullopt;
 }
 
 
-runtime_config::ParseRes runtime_config::parse_double(const str& argument_name, const int i, const int argc, char* argv[]) {
+runtime_config::ParseRes<double> runtime_config::parse_double(const str& argument_name, const int i, const int argc, char* argv[]) {
     if (i + 1 >= argc) {
         std::cerr << std::format("Error: {} requires a number following it.\n", argument_name);
         return {0, 1};
@@ -33,6 +36,33 @@ runtime_config::ParseRes runtime_config::parse_double(const str& argument_name, 
     }
 
     return {val, 0};
+}
+
+runtime_config::ParseRes<int> runtime_config::parse_int(const str& argument_name, const int i, const int argc, char* argv[]) {
+    if (i + 1 >= argc) {
+        std::cerr << std::format("Error: {} requires a number following it.\n", argument_name);
+        return {0, 1};
+    }
+
+    int val = 0;
+
+    try {
+        val = std::stoi(argv[i + 1]);
+    } catch (const std::exception&) {
+        std::cerr << std::format("Error: {} is an invalid value for {}.\n", argv[i + 1], argument_name);
+        return {0, 1};
+    }
+
+    return {val, 0};
+}
+
+runtime_config::ParseRes<str> runtime_config::parse_str(const str& argument_name, const int i, const int argc, char* argv[]) {
+    if (i + 1 >= argc) {
+        std::cerr << std::format("Error: {} requires a string following it.\n", argument_name);
+        return {"", 1};
+    }
+
+    return {argv[i + 1], 0};
 }
 
 void print_logo() {
@@ -51,20 +81,22 @@ void print_logo() {
 int runtime_config::parse_cli_args(const int argc, char* argv[]) {
     for (int i = 0; i < argc; ++i) {
         if (i > 0) {
-            INVOCATION_COMMAND += ' ';
+            invocation_command += ' ';
         }
 
-        INVOCATION_COMMAND += argv[i];
+        invocation_command += argv[i];
     }
 
     if (argc >= 2 && (str(argv[1]) == "--help" || str(argv[1]) == "-h")) {
         print_logo();
         printf("    Options:\n");
-        printf("    -v, --version          Show version\n");
-        printf("    -h, --help             Show help\n");
-        printf("        --headless         Run without Raylib window\n");
-        printf("        --dt <seconds>     Configure time step\n");
-        printf("        --years <years>    Configure total simulation time\n");
+        printf("    -v, --version                           Show version\n");
+        printf("    -h, --help                              Show help\n");
+        printf("        --headless                          Run without raylib window\n");
+        printf("        --dt <seconds>                      Configure time step\n");
+        printf("        --years <years>                     Configure total simulation time\n");
+        printf("        --csv <path>                        Set CSV path for export of positions\n");
+        printf("        --sample-every-seconds <seconds>    Set the physical sampling interval. Must be a multiple of --dt\n");
         exit_immediately = true;
         return 0;
     }
@@ -80,29 +112,42 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
         if (arg == "--headless") {
             headless = true;
         } else if (arg == "--dt") {
-            auto [val, err] = parse_double("--dt", i, argc, argv);
+            auto [val, err] = parse_int("--dt", i, argc, argv);
             if (err != 0) return err;
-            TIME_STEP = val;
+            time_step = val;
             i++;
         } else if  (arg == "--years") {
             auto [val, err] = parse_double("--years", i, argc, argv);
             if (err != 0) return err;
-            TARGET_TOTAL_SIMULATION_TIME = val;
+            target_total_simulation_time = val;
             i++;
+        } else if (arg == "--csv") {
+            auto [val, err] = parse_str("--csv", i, argc, argv);
+            if (err != 0) return err;
+            csv_path = val;
+        } else if (arg == "--sample-every-seconds") {
+            auto [val, err] = parse_int("--sample-every-seconds", i, argc, argv);
+            if (err != 0) return err;
+            sample_every_seconds = val;
         } else {
             std::cerr << std::format("Error: Unexpected argument {}.\n", arg);
             return 1;
         }
     }
 
-    if (headless && TARGET_TOTAL_SIMULATION_TIME <= 0) {
+    if (headless && target_total_simulation_time <= 0) {
         std::cerr << std::format("Error: --headless requires positive --years.\n");
         return 1;
     }
 
+    if (sample_every_seconds.has_value() && *sample_every_seconds % time_step != 0) {
+        std::cerr << std::format("--sample_every_seconds ({}) must be a multiple of --dt ({}).\n", *sample_every_seconds, time_step);
+        return 1;
+    }
+
     set_time_step_string();
-    half_dt_squared = 0.5 * TIME_STEP * TIME_STEP;
-    half_dt = 0.5 * TIME_STEP;
+    half_dt_squared = 0.5 * time_step * time_step;
+    half_dt = 0.5 * time_step;
 
     return 0;
 }
@@ -113,19 +158,19 @@ void runtime_config::set_time_step_string() {
         constexpr double epsilon = 1e-6;
         if (std::abs(val - std::round(val)) < epsilon) {
             // effectively ends in .00
-            TIME_STEP_STRING = std::format("{} {}", static_cast<int>(val), unit);
+            time_step_string = std::format("{} {}", static_cast<int>(val), unit);
         } else {
-            TIME_STEP_STRING = std::format("{:.2f} {}", val, unit);
+            time_step_string = std::format("{:.2f} {}", val, unit);
         }
     };
 
-    if (TIME_STEP < 60) {
-        set_string(TIME_STEP, "secs");
-    } else if (60 <= TIME_STEP && TIME_STEP < 3'600) {
-        set_string(TIME_STEP / 60, "mins");
-    } else if (3'600 <= TIME_STEP && TIME_STEP < 86'400) {
-        set_string(TIME_STEP / 3'600, "hrs");
-    } else if (86'400 <= TIME_STEP) {
-        set_string(TIME_STEP / 86'400, "days");
+    if (time_step < 60) {
+        set_string(time_step, "secs");
+    } else if (60 <= time_step && time_step < 3'600) {
+        set_string(time_step / 60, "mins");
+    } else if (3'600 <= time_step && time_step < 86'400) {
+        set_string(time_step / 3'600, "hrs");
+    } else if (86'400 <= time_step) {
+        set_string(time_step / 86'400, "days");
     }
 }

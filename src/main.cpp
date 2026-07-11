@@ -19,7 +19,7 @@ int main(const int argc, char* argv[]) {
     if (runtime_config::exit_immediately) return 0;
 
     if (runtime_config::headless) {
-        while (ui::simulated_years() < runtime_config::TARGET_TOTAL_SIMULATION_TIME) {
+        while (ui::simulated_years() < runtime_config::target_total_simulation_time) {
             simulation::simulate_step();
         }
 

@@ -49,7 +49,7 @@ std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> simulation::orbit_history;
 
 void simulation::save_orbit_points() {
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (config::steps_simulated % static_cast<int>(config::ORBIT_SAMPLE_EVERY_SECONDS / runtime_config::TIME_STEP) != 0) continue;
+        if (config::steps_simulated % static_cast<int>(config::ORBIT_SAMPLE_EVERY_SECONDS / runtime_config::time_step) != 0) continue;
 
         auto& history = orbit_history[i];
 
@@ -79,7 +79,7 @@ void simulation::simulate_step() {
 
     // Velocity Verlet: keep the orbit phase stable over many short-period inner-planet revolutions
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        celestial_bodies[i].position += celestial_bodies[i].velocity * runtime_config::TIME_STEP
+        celestial_bodies[i].position += celestial_bodies[i].velocity * runtime_config::time_step
             + accelerations[i] * runtime_config::half_dt_squared;
     }
 
@@ -146,7 +146,7 @@ void simulation::publish_snapshot() {
 
     if (planet_info_display_index != -1) {
         const auto& body = celestial_bodies[planet_info_display_index];
-        snap->detailed_body_display = {body.name, body.position, body.velocity, body.get_mass(), body.color};
+        snap->detailed_body_display = {body.name, body.position, body.velocity, body.mass, body.color};
     }
 
     {
@@ -189,15 +189,15 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             continue;
         }
 
-        if (runtime_config::TARGET_TOTAL_SIMULATION_TIME > 0.0) {
-            if (runtime_config::TARGET_TOTAL_SIMULATION_TIME <= ui::simulated_years()) {
+        if (runtime_config::target_total_simulation_time > 0.0) {
+            if (runtime_config::target_total_simulation_time <= ui::simulated_years()) {
                 config::timer.pause();
                 publish_snapshot();
                 last_publish = std::chrono::steady_clock::now();
             }
         }
 
-        if (runtime_config::TARGET_SIMULATION_SPEED <= 0.0) {
+        if (runtime_config::target_simulation_speed <= 0.0) {
             simulate_step();
 
             if (++since_check >= MAX_STEPS_PER_BATCH) {
@@ -214,11 +214,11 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
         double max_budget = std::max(
             1.0,
-            runtime_config::TARGET_STEPS_PER_SECOND * MAX_CATCH_UP_SECONDS
+            runtime_config::target_steps_per_second * MAX_CATCH_UP_SECONDS
         );
 
         step_budget = std::min(
-            step_budget + elapsed * runtime_config::TARGET_STEPS_PER_SECOND,
+            step_budget + elapsed * runtime_config::target_steps_per_second,
             max_budget
         );
 
@@ -228,7 +228,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
         if (steps_to_run == 0) {
             const double seconds_to_next_step =
-                (1.0 - step_budget) / runtime_config::TARGET_STEPS_PER_SECOND;
+                (1.0 - step_budget) / runtime_config::target_steps_per_second;
 
             std::this_thread::sleep_for(std::chrono::duration<double>(
                 std::min(seconds_to_next_step, 1.0 / config::TARGET_FPS)
@@ -252,8 +252,8 @@ void simulation::print_final_state() {
     printf("Computation time: %.2f seconds\n", seconds);
     printf("Simulation time: %.8f years (@ 365 days)\n", ui::simulated_years());
     printf("Steps simulated: %zu\n", config::steps_simulated.load());
-    printf("Time step: %.17g seconds\n", runtime_config::TIME_STEP);
-    printf("Invocation command: %s\n", runtime_config::INVOCATION_COMMAND.c_str());
+    printf("Time step: %d seconds\n", runtime_config::time_step);
+    printf("Invocation command: %s\n", runtime_config::invocation_command.c_str());
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         const auto& celestial_body = celestial_bodies[i];

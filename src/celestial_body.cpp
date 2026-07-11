@@ -1,5 +1,7 @@
 #include "celestial_body.hpp"
 
+#include <utility>
+
 #include "config.hpp"
 
 CelestialBody::CelestialBody(
@@ -36,5 +38,5 @@ max_rendered_orbit_tail(max_rendered_orbit_tail) {
     const Vec3 direction = (source.position - position) / distance;
 
     // (G * M / r^2) * direction
-    return direction * (source.get_gravitational_mass() / (distance * distance));
+    return direction * (source.gravitational_mass / (distance * distance));
 }

@@ -1,6 +1,9 @@
 #pragma once
 
 #include <raylib.h>
+#include <filesystem>
+#include <fstream>
+#include <iostream>
 
 #include "timer.hpp"
 #include "utils.hpp"
@@ -60,24 +63,32 @@ namespace config {
 }
 
 namespace runtime_config {
-    extern str INVOCATION_COMMAND;
+    extern str invocation_command;
     extern bool exit_immediately;
     extern bool headless;
-    extern double TIME_STEP;
+    extern int time_step;
     extern double half_dt_squared;
     extern double half_dt;
-    extern str TIME_STEP_STRING;
+    extern str time_step_string;
 
-    extern double TARGET_TOTAL_SIMULATION_TIME; // years; <= 0 unlimited
-    extern double TARGET_SIMULATION_SPEED; // years per second; <= 0 unlimited
-    extern double TARGET_STEPS_PER_SECOND;
+    extern double target_total_simulation_time; // years; <= 0 unlimited
+    extern double target_simulation_speed; // years per second; <= 0 unlimited
+    extern double target_steps_per_second;
 
+    extern std::optional<std::filesystem::path> csv_path;
+    extern std::optional<int> sample_every_seconds;
+
+    template <typename T>
     struct ParseRes {
-        double val;
+        T val;
         int err;
     };
 
-    ParseRes parse_double(const str& argument_name, int i, int argc, char* argv[]);
+    ParseRes<double> parse_double(const str& argument_name, int i, int argc, char* argv[]);
+
+    ParseRes<int> parse_int(const str& argument_name, int i, int argc, char* argv[]);
+
+    ParseRes<str> parse_str(const str& argument_name, int i, int argc, char* argv[]);
 
     int parse_cli_args(int argc, char* argv[]);
 
