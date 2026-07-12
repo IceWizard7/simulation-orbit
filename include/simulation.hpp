@@ -12,8 +12,9 @@ struct CSVEntry {
 
 namespace simulation {
     extern CelestialBody celestial_bodies[NUM_CELESTIAL_BODIES];
-    extern std::vector<CSVEntry> csv_data;
-    extern std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
+    inline std::vector<CSVEntry> csv_data;
+    inline std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
+    inline std::optional<std::array<Vec3, NUM_CELESTIAL_BODIES>> accelerations_at_current_positions;
 
     void save_orbit_points();
 

@@ -48,8 +48,6 @@ CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES] = {
     {"Hydra", {5.435541905260762e12, -2.498564246715345e12, -1.304315503974369e12}, {2.619335786799016e3, 3.486905755936516e3, -1.240844499188735e3}, 2010000.0, 5, 0.01, (Color){164, 165, 157, 255}, 40'000, 1'000},
     {"Kerberos", {5.435454730070845e12, -2.498637906440255e12, -1.304282146787419e12}, {2.598784079825089e3, 3.601093273190158e3, -1.023177596881631e3}, 60380.0, 5, 0.01, (Color){84, 80, 78, 255}, 40'000, 1'000},
 };
-std::vector<CSVEntry> simulation::csv_data;
-std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> simulation::orbit_history;
 
 std::ofstream simulation::live_csv_file;
 std::optional<std::size_t> simulation::last_csv_sample_step;
@@ -211,7 +209,11 @@ std::array<Vec3, NUM_CELESTIAL_BODIES> simulation::compute_accelerations() {
 }
 
 void simulation::simulate_step() {
-    const std::array<Vec3, NUM_CELESTIAL_BODIES> accelerations = compute_accelerations();
+    if (!accelerations_at_current_positions.has_value()) {
+        accelerations_at_current_positions = compute_accelerations();
+    }
+
+    const std::array<Vec3, NUM_CELESTIAL_BODIES>& accelerations = *accelerations_at_current_positions;
 
     // Velocity Verlet: keep the orbit phase stable over many short-period inner-planet revolutions
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
@@ -224,6 +226,9 @@ void simulation::simulate_step() {
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         celestial_bodies[i].velocity += (accelerations[i] + next_accelerations[i]) * runtime_config::half_dt;
     }
+
+    // accelerations_at_current_positions now correspond to next_accelerations
+    accelerations_at_current_positions = next_accelerations;
 
     ++config::steps_simulated;
     save_orbit_points();
