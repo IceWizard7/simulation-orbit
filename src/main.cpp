@@ -18,15 +18,19 @@ int main(const int argc, char* argv[]) {
     if (err != 0) return err;
     if (runtime_config::exit_immediately) return 0;
 
+    if (!simulation::initialize_csv_output()) return 1;
+
     if (runtime_config::headless) {
-        while (ui::simulated_years() < runtime_config::target_total_simulation_time) {
+        config::timer.resume();
+
+        while (config::steps_simulated.load() < *runtime_config::target_steps) {
             simulation::simulate_step();
         }
 
         config::timer.pause();
-        simulation::write_csv_data();
+        const bool csv_output_succeeded = simulation::finalize_csv_output();
         simulation::print_final_state();
-        return 0;
+        return csv_output_succeeded ? 0 : 1;
     }
 
     SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
@@ -72,8 +76,8 @@ int main(const int argc, char* argv[]) {
     CloseWindow();
     printf("\n");
 
-    simulation::write_csv_data();
+    const bool csv_output_succeeded = simulation::finalize_csv_output();
     simulation::print_final_state();
 
-    return 0;
+    return !csv_output_succeeded;
 }

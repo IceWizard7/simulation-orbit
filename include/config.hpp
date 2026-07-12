@@ -3,7 +3,6 @@
 #include <raylib.h>
 #include <filesystem>
 #include <fstream>
-#include <iostream>
 
 #include "timer.hpp"
 #include "utils.hpp"
@@ -74,9 +73,12 @@ namespace runtime_config {
     extern double target_total_simulation_time; // years; <= 0 unlimited
     extern double target_simulation_speed; // years per second; <= 0 unlimited
     extern double target_steps_per_second;
+    extern std::optional<std::size_t> target_steps;
 
     extern std::optional<std::filesystem::path> csv_path;
     extern std::optional<int> sample_csv_data_every_seconds;
+    extern std::optional<std::size_t> sample_csv_data_every_steps;
+    extern bool csv_live;
 
     template <typename T>
     struct ParseRes {

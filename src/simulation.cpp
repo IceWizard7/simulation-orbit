@@ -1,9 +1,9 @@
 #include "simulation.hpp"
 
 #include <fstream>
+#include <iostream>
 #include <limits>
 #include <thread>
-#include <mach/machine.h>
 
 #include "ui.hpp"
 
@@ -51,8 +51,96 @@ CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES] = {
 std::vector<CSVEntry> simulation::csv_data;
 std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> simulation::orbit_history;
 
+std::ofstream simulation::live_csv_file;
+std::optional<std::size_t> simulation::last_csv_sample_step;
+bool simulation::csv_output_initialized = false;
+bool simulation::live_csv_write_failed = false;
+
+CSVEntry simulation::capture_csv_entry() {
+    CSVEntry entry;
+    entry.step = config::steps_simulated.load();
+
+    for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
+        entry.positions[i] = celestial_bodies[i].position;
+        entry.velocities[i] = celestial_bodies[i].velocity;
+    }
+
+    return entry;
+}
+
+void simulation::write_csv_header(std::ostream& output) {
+    output << "step";
+    for (const auto& celestial_body : celestial_bodies) {
+        output << ',' << celestial_body.name << "_position_x"
+               << ',' << celestial_body.name << "_position_y"
+               << ',' << celestial_body.name << "_position_z"
+               << ',' << celestial_body.name << "_velocity_x"
+               << ',' << celestial_body.name << "_velocity_y"
+               << ',' << celestial_body.name << "_velocity_z";
+    }
+    output << '\n';
+}
+
+void simulation::write_csv_entry(std::ostream& output, const CSVEntry& entry) {
+    output << entry.step;
+
+    for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
+        const auto& position = entry.positions[i];
+        const auto& velocity = entry.velocities[i];
+
+        output << ',' << position.x
+               << ',' << position.y
+               << ',' << position.z
+               << ',' << velocity.x
+               << ',' << velocity.y
+               << ',' << velocity.z;
+    }
+
+    output << '\n';
+}
+
+bool simulation::report_live_csv_write_failure(const std::size_t step) {
+    if (!live_csv_write_failed) {
+        std::cerr << "Error: Failed to write CSV sample at step " << step
+                  << " to " << *runtime_config::csv_path << ".\n";
+        live_csv_write_failed = true;
+    }
+    return false;
+}
+
+bool simulation::record_csv_sample(const bool force) {
+    if (!csv_output_initialized || !runtime_config::csv_path.has_value()) return true;
+    if (live_csv_write_failed) return false;
+
+    const std::size_t step = config::steps_simulated.load();
+    if (last_csv_sample_step.has_value() && *last_csv_sample_step == step) return true;
+
+    if (!force) {
+        if (!runtime_config::sample_csv_data_every_steps.has_value()) return true;
+
+        const std::size_t cadence = *runtime_config::sample_csv_data_every_steps;
+        if (cadence == 0 || step % cadence != 0) return true;
+    }
+
+    const CSVEntry entry = capture_csv_entry();
+    if (runtime_config::csv_live) {
+        write_csv_entry(live_csv_file, entry);
+        live_csv_file.flush();
+        if (!live_csv_file) return report_live_csv_write_failure(step);
+    } else {
+        csv_data.push_back(entry);
+    }
+
+    last_csv_sample_step = step;
+    return true;
+}
+
 void simulation::save_orbit_points() {
-    if (config::steps_simulated % (config::ORBIT_SAMPLE_EVERY_SECONDS / runtime_config::time_step) != 0) return;
+    const std::size_t orbit_sample_every_steps = std::max<std::size_t>(
+        1,
+        config::ORBIT_SAMPLE_EVERY_SECONDS / runtime_config::time_step
+    );
+    if (config::steps_simulated.load() % orbit_sample_every_steps != 0) return;
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         auto& history = orbit_history[i];
@@ -65,20 +153,48 @@ void simulation::save_orbit_points() {
     }
 }
 
-void simulation::update_csv_data() {
-    if (!runtime_config::sample_csv_data_every_seconds.has_value()) return;
-    if (!runtime_config::csv_path.has_value()) return;
-    if (config::steps_simulated % (*runtime_config::sample_csv_data_every_seconds / runtime_config::time_step) != 0) return;
+bool simulation::initialize_csv_output() {
+    csv_data.clear();
+    last_csv_sample_step.reset();
+    live_csv_write_failed = false;
+    csv_output_initialized = false;
 
-    CSVEntry entry;
-    entry.step = config::steps_simulated;
+    const bool has_path = runtime_config::csv_path.has_value();
+    const bool has_cadence = runtime_config::sample_csv_data_every_steps.has_value();
+    if (!has_path && !has_cadence && !runtime_config::csv_live) return true;
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        entry.positions[i] = celestial_bodies[i].position;
-        entry.velocities[i] = celestial_bodies[i].velocity;
+    if (!has_path || !has_cadence || *runtime_config::sample_csv_data_every_steps == 0) {
+        std::cerr << "Error: CSV output requires a path and a positive sampling cadence.\n";
+        return false;
     }
 
-    csv_data.push_back(entry);
+    if (runtime_config::csv_live) {
+        live_csv_file.open(*runtime_config::csv_path, std::ios::out | std::ios::trunc);
+        if (!live_csv_file.is_open()) {
+            std::cerr << "Error: Could not open CSV file " << *runtime_config::csv_path << ".\n";
+            return false;
+        }
+
+        live_csv_file.precision(std::numeric_limits<double>::max_digits10);
+        write_csv_header(live_csv_file);
+        if (!live_csv_file) {
+            std::cerr << "Error: Failed to write CSV header to " << *runtime_config::csv_path << ".\n";
+            live_csv_write_failed = true;
+            live_csv_file.close();
+            return false;
+        }
+    }
+
+    csv_output_initialized = true;
+    if (record_csv_sample(true)) return true;
+
+    if (live_csv_file.is_open()) live_csv_file.close();
+    csv_output_initialized = false;
+    return false;
+}
+
+void simulation::update_csv_data() {
+    record_csv_sample(false);
 }
 
 std::array<Vec3, NUM_CELESTIAL_BODIES> simulation::compute_accelerations() {
@@ -210,12 +326,12 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             continue;
         }
 
-        if (runtime_config::target_total_simulation_time > 0.0) {
-            if (runtime_config::target_total_simulation_time <= ui::simulated_years()) {
-                config::timer.pause();
-                publish_snapshot();
-                last_publish = std::chrono::steady_clock::now();
-            }
+        if (runtime_config::target_steps.has_value()
+            && config::steps_simulated.load() >= *runtime_config::target_steps) {
+            config::timer.pause();
+            publish_snapshot();
+            last_publish = std::chrono::steady_clock::now();
+            continue;
         }
 
         if (runtime_config::target_simulation_speed <= 0.0) {
@@ -266,52 +382,47 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
     }
 }
 
-void simulation::write_csv_data() {
-    if (!runtime_config::csv_path.has_value()) return;
+bool simulation::finalize_csv_output() {
+    if (!csv_output_initialized) return true;
 
-    std::ofstream csv_file(*runtime_config::csv_path);
+    bool write_succeeded = record_csv_sample(true);
 
+    if (runtime_config::csv_live) {
+        if (live_csv_file.is_open()) {
+            live_csv_file.close();
+            if (!live_csv_file && !live_csv_write_failed) {
+                std::cerr << "Error: Failed to finish writing CSV data to "
+                          << *runtime_config::csv_path << ".\n";
+                write_succeeded = false;
+            }
+        }
+
+        csv_output_initialized = false;
+        return write_succeeded && !live_csv_write_failed;
+    }
+
+    std::ofstream csv_file(*runtime_config::csv_path, std::ios::out | std::ios::trunc);
     if (!csv_file.is_open()) {
         std::cerr << "Error: Could not open CSV file " << *runtime_config::csv_path << ".\n";
-        return;
+        csv_output_initialized = false;
+        return false;
     }
 
     // Preserve enough digits to reconstruct the original double values.
     csv_file.precision(std::numeric_limits<double>::max_digits10);
-
-    csv_file << "step";
-    for (const auto& celestial_body : celestial_bodies) {
-        csv_file << ',' << celestial_body.name << "_position_x"
-                 << ',' << celestial_body.name << "_position_y"
-                 << ',' << celestial_body.name << "_position_z"
-                 << ',' << celestial_body.name << "_velocity_x"
-                 << ',' << celestial_body.name << "_velocity_y"
-                 << ',' << celestial_body.name << "_velocity_z";
-    }
-    csv_file << '\n';
-
-    for (const auto&[step, positions, velocities] : csv_data) {
-        csv_file << step;
-
-        for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
-            const auto& position = positions[i];
-            const auto& velocity = velocities[i];
-
-            csv_file << ',' << position.x
-                     << ',' << position.y
-                     << ',' << position.z
-                     << ',' << velocity.x
-                     << ',' << velocity.y
-                     << ',' << velocity.z;
-        }
-
-        csv_file << '\n';
+    write_csv_header(csv_file);
+    for (const auto& entry : csv_data) {
+        write_csv_entry(csv_file, entry);
     }
 
     csv_file.close();
     if (!csv_file) {
         std::cerr << "Error: Failed to write CSV data to " << *runtime_config::csv_path << ".\n";
+        write_succeeded = false;
     }
+
+    csv_output_initialized = false;
+    return write_succeeded;
 }
 
 void simulation::print_final_state() {
