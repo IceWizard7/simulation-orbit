@@ -50,8 +50,18 @@ pole_axis(pole_axis) {
     // Ex. an oblate planet acting on its moons
     // The term falls off as 1/r^4, so it is only meaningful for close satellites and is automatically negligible for distant bodies
     // Vector form with spin axis k and r_hat from source to this:
-    // a_J2 = -1.5 * J2 * GM * R_eq^2 / r^4 * [ (1 - 5*u^2) r_hat + 2*u*k ],  u = r_hat * k
-    // TODO: Find sources for this
+    // a_J2 = -1.5 * J2 * GM * R_eq^2 / r^4 * [ (1 - 5*u^2) r_hat + 2*u*k ],  u = r_hat . k
+    // Derivation: a = -grad(U) of the quadrupole-truncated external potential
+    // U(r) = -GM/r * [ 1 - J2 (R_eq/r)^2 * P2(u) ],  P2(u) = (3*u^2 - 1)/2,
+    // where u = cos(colatitude) = r_hat . k.
+
+    // Sources:
+    // Murray & Dermott, "Solar System Dynamics" (1999) sec. 6.11 (planetary oblateness / J2)
+    // Montenbruck & Gill, "Satellite Orbits" (2000) sec. 3.2
+    // Vallado, "Fundamentals of Astrodynamics and Applications" (4th ed.) sec. 8.6.4.
+
+    // Sanity check, equatorial plane (u=0): a_J2 = -1.5*J2*GM*R_eq^2/r^4 * r_hat,
+    // i.e. extra inward pull -> prograde apsidal precession, as expected.
     if (runtime_config::use_j2 && source.j2 != 0.0) {
         const Vec3 r_hat = direction * -1.0; // unit vector from source (planet) to this body
         const double u = r_hat.dot(source.pole_axis); // cos(colatitude) relative to the spin axis
