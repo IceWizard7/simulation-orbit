@@ -80,6 +80,8 @@ namespace runtime_config {
     extern std::optional<std::size_t> sample_csv_data_every_steps;
     extern bool csv_live;
 
+    extern bool use_j2; // enable planetary oblateness (J2) perturbation on satellites
+
     template <typename T>
     struct ParseRes {
         T val;

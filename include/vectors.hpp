@@ -58,6 +58,10 @@ public:
         return sqrt(x * x + y * y + z * z);
     }
 
+    [[nodiscard]] double dot(const Vec3 &v) const {
+        return x * v.x + y * v.y + z * v.z;
+    }
+
     [[nodiscard]] str to_string() const {
         return std::format("[{:.2e}, {:.2e}, {:.2e}]", x, y, z);
     }

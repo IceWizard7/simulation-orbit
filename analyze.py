@@ -383,7 +383,7 @@ def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
             print(f"Exception {e} occurred with planet {planet_name} ({horizon_id=})")
             raise
         finally:
-            print(f"Fetched vectors of planet {planet_name} ({horizon_id=}) ({i}/{len(planet_to_horizon_id.keys())})")
+            print(f"Fetched vectors of planet {planet_name} ({horizon_id=}) ({i + 1}/{len(planet_to_horizon_id.keys())})")
     
     for planet_name, code_line in planet_to_code.items():
         res.append(code_line)

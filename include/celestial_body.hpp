@@ -21,6 +21,12 @@ public:
     const int max_rendered_orbit_tail;
     PlanetVisual planet_visual;
 
+    // Oblateness (zonal J2) parameters. 0 -> spherical point masses (ex. sun, moons, Pluto)
+    // set for oblate planets so their satellites feel the equatorial-bulge perturbation.
+    const double j2; // dimensionless second zonal harmonic
+    const double equatorial_radius; // meters, reference radius for the J2 term
+    const Vec3 pole_axis; // unit spin axis in the simulation's J2000 ecliptic frame
+
     CelestialBody(
         str name,
         const Vec3 &position,
@@ -31,7 +37,10 @@ public:
         const std::optional<Color>& color,
         int max_rendered_orbit_segments_per_body,
         int max_rendered_orbit_tail,
-        const std::optional<str>& texture_path = std::nullopt
+        const std::optional<str>& texture_path = std::nullopt,
+        double j2 = 0.0,
+        double equatorial_radius = 0.0,
+        const Vec3& pole_axis = {}
     );
 
     [[nodiscard]] double distance_to(const CelestialBody &body) const;

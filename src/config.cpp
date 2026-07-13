@@ -24,6 +24,8 @@ namespace runtime_config {
     std::optional<int> sample_csv_data_every_seconds = std::nullopt;
     std::optional<std::size_t> sample_csv_data_every_steps = std::nullopt;
     bool csv_live = false;
+
+    bool use_j2 = false;
 }
 
 
@@ -113,6 +115,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
         printf("        --csv <path>                        Set CSV path for export of positions\n");
         printf("        --sample-every-seconds <seconds>    Set the physical sampling interval. Must be a multiple of --dt\n");
         printf("        --csv-live                          Stream CSV rows during simulation instead of writing at the end\n");
+        printf("        --j2                                Enable planetary oblateness (J2) perturbation on satellites\n");
         exit_immediately = true;
         return 0;
     }
@@ -152,6 +155,8 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
             i++;
         } else if (arg == "--csv-live") {
             csv_live = true;
+        } else if (arg == "--j2") {
+            use_j2 = true;
         } else {
             std::cerr << std::format("Error: Unexpected argument {}.\n", arg);
             return 1;
