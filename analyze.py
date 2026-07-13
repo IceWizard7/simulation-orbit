@@ -6,6 +6,7 @@ import re
 import datetime
 import math
 import pathlib
+import shlex
 import typing
 
 planet_to_horizon_id: dict[str, int] = {
@@ -194,7 +195,7 @@ def parse_program_output(text: str) -> ProgramRun:
     simulated_years_match = re.search(r"Simulation time:\s*([0-9.]+)", text)
     steps_match = re.search(r"Steps simulated:\s*(\d+)", text)
     dt_match = re.search(r"Time step:\s*([0-9.eE+-]+)", text)
-    invocation_match = re.search(r"Invocation command:\s*([A-Za-z\s]+)", text)
+    invocation_match = re.search(r"Invocation command:\s*(.+)", text)
 
     if not computation_seconds_match:
         raise RuntimeError(f"No computation_seconds_match found in {text}")
@@ -215,7 +216,7 @@ def parse_program_output(text: str) -> ProgramRun:
     simulated_years: float = float(simulated_years_match.group(1))
     steps: int = int(steps_match.group(1))
     dt: float = float(dt_match.group(1))
-    invocation_command: str = invocation_match.group(1)
+    invocation_command: str = invocation_match.group(1).strip()
 
     positions_line = next(line for line in text.splitlines() if "|" in line and line.startswith("["))
     vectors = []
@@ -240,6 +241,9 @@ def read_program_output(path_index: int) -> str:
         "or:\n"
         f"  ./cmake-build-release/simulation-orbit | python3 {sys.argv[0]} analyze"
     )
+
+def analysis_invocation_command() -> str:
+    return "python3 " + shlex.join(sys.argv)
 
 def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
     res: list[str] = []
@@ -518,7 +522,9 @@ def analyze_error() -> None:
     names: list[str] = list(planet_to_horizon_id.keys())
 
     print("\n")
-    print(f"Invocation command: {p_run.invocation_command}\n")
+    print("Reproduce this report:")
+    print(f"  Program invocation:  {p_run.invocation_command}")
+    print(f"  Analysis invocation: {analysis_invocation_command()}\n")
     print(f"JPL simulation time: {(target_epoch - START).days / 365} years (@ 365 days)")
     print(f"Program simulation time: {p_run.years} years (@ 365 days)\n")
 
@@ -534,8 +540,10 @@ def compare() -> None:
     names: list[str] = list(planet_to_horizon_id.keys())
 
     print("\n")
-    print(f"Reference invocation command: {reference_run.invocation_command}\n")
-    print(f"Candidate invocation command: {candidate_run.invocation_command}\n")
+    print("Reproduce this report:")
+    print(f"  Reference invocation: {reference_run.invocation_command}")
+    print(f"  Candidate invocation: {candidate_run.invocation_command}")
+    print(f"  Analysis invocation:  {analysis_invocation_command()}\n")
     print(f"Reference simulation time: {reference_run.years} years (@ 365 days)")
     print(f"Candidate simulation time: {candidate_run.years} years (@ 365 days)\n")
 
