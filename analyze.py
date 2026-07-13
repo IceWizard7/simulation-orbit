@@ -109,6 +109,29 @@ hardcoded_gm: dict[int, float] = {
     802: 2.07e9,                      # Nereid ≈ 3.1e19 kg * G
 }
 
+OBLIQUITY_J2000_DEG: float = 23.4392911  # IAU 2006 mean obliquity of the ecliptic at Year 2000
+
+@dataclasses.dataclass(frozen=True)
+class Oblateness:
+    j2: float
+    equatorial_radius_m: float  # https://ssd.jpl.nasa.gov/planets/phys_par.html
+    pole_ra_deg: float
+    pole_dec_deg: float
+
+# At the time of writing this, https://www.nasa.gov/nssdc/ returns: "The NASA Space Science Data Coordinated Archive website is temporarily offline for maintenance."
+# That's why the sources here are wayback snapshots
+# R_eq: https://ssd.jpl.nasa.gov/planets/phys_par.html
+planet_oblateness: dict[str, Oblateness] = {
+    # j2, R_eq (m), pole RA, pole Dec
+    # TODO: j2, pole RA, pole Dec
+    "Earth":   Oblateness(1082.63e-6, 6378.1366e3, 0.0, 90.0),  # http://web.archive.org/web/20250821225047/https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html
+    "Mars":    Oblateness(1960.45e-6, 3396.19e3, 317.681, 52.887),  # https://web.archive.org/web/20250820142225/https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html
+    "Jupiter": Oblateness(14736e-6, 71492e3, 268.057, 64.495),  # https://web.archive.org/web/20250813051413/https://nssdc.gsfc.nasa.gov/planetary/factsheet/jupiterfact.html
+    "Saturn":  Oblateness(16298e-6, 60268e3, 40.589, 83.537),  # https://web.archive.org/web/20250821165423/https://nssdc.gsfc.nasa.gov/planetary/factsheet/saturnfact.html
+    "Uranus":  Oblateness(3343.43e-6, 25559e3, 257.311, -15.175),  # https://web.archive.org/web/20250723171354/https://nssdc.gsfc.nasa.gov/planetary/factsheet/uranusfact.html
+    "Neptune": Oblateness(3411e-6, 24764e3, 299.36, 43.46),  # https://web.archive.org/web/20250723171356/https://nssdc.gsfc.nasa.gov/planetary/factsheet/neptunefact.html
+}
+
 AU: float = 149_597_870_700  # astronomical unit (meters)
 EPS: float = 1e-12  # epsilon
 START = datetime.datetime(1800, 1, 3)
@@ -377,7 +400,8 @@ def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
             ))
 
             planet_to_code[planet_name] = (
-                f"{{\"{planet_name}\", {{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {gm}, {fix_code[planet_name]}}},"
+                f"{{\"{planet_name}\", {{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {gm}, "
+                f"{fix_code[planet_name]}{oblateness_code(planet_name)}}},"
             )
         except Exception as e:
             print(f"Exception {e} occurred with planet {planet_name} ({horizon_id=})")
@@ -453,6 +477,38 @@ def print_error_metric(expected_vectors: list[Vec3], candidate_vectors: list[Vec
 
         print(f"{name} error relative to {parent}:\n")
         print_one_error_metric(calculate_error_metrics(expected_rel, candidate_rel))
+
+def ecliptic_pole_unit_vector(pole_ra_deg: float, pole_dec_deg: float) -> Vec3:
+    """IAU J2000 equatorial pole (alpha0, delta0) -> unit spin axis in the J2000
+    ECLIPTIC frame the simulation integrates in. Reproduces the pole_axis
+    literals:
+    Build the equatorial unit vector, then rotate equatorial -> ecliptic about the x-axis by the mean obliquity."""
+    eps = math.radians(OBLIQUITY_J2000_DEG)
+    a = math.radians(pole_ra_deg)
+    d = math.radians(pole_dec_deg)
+
+    xe = math.cos(d) * math.cos(a)
+    ye = math.cos(d) * math.sin(a)
+    ze = math.sin(d)
+
+    return Vec3(
+        xe,
+        ye * math.cos(eps) + ze * math.sin(eps),
+        -ye * math.sin(eps) + ze * math.cos(eps),
+    )
+
+def oblateness_code(planet_name: str) -> str:
+    """C++ initializer suffix: ", j2, equatorial_radius, {pole_axis}" for the oblate planets in planet_oblateness
+    Empty for every other body."""
+    ob = planet_oblateness.get(planet_name)
+    if ob is None:
+        return ""
+
+    k = ecliptic_pole_unit_vector(ob.pole_ra_deg, ob.pole_dec_deg)
+    return (
+        f", {ob.j2}, {ob.equatorial_radius_m}, "
+        f"{{{k.x:.8f}, {k.y:.8f}, {k.z:.8f}}}"
+    )
 
 def analyze_error() -> None:
     p_run = parse_program_output(read_program_output(2))
