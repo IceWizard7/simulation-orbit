@@ -10,3 +10,4 @@ llm-chats
 solar_system_textures
 plan
 AGENTS.md
+__pycache__
