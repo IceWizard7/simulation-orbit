@@ -95,13 +95,41 @@ void print_logo() {
     printf("\n");
 }
 
+// POSIX-shell-quote -> fully copy-paste reproducible
+static str shell_quote(const str& argument) {
+    if (argument.empty()) {
+        return "''";
+    }
+
+    const bool needs_quoting = std::ranges::any_of(argument, [](const char c) {
+        const auto uc = static_cast<unsigned char>(c);
+        return !(std::isalnum(uc) || Vector_Utils::contains(c, {'_', '-', '.', '/', '=', ':', '+', ',', '@', '%'}));
+    });
+
+    if (!needs_quoting) {
+        return argument;
+    }
+
+    // Wrap in single quotes; turn any ' character into '\''
+    str quoted = "'";
+    for (const char c : argument) {
+        if (c == '\'') {
+            quoted += "'\\''";
+        } else {
+            quoted += c;
+        }
+    }
+    quoted += "'";
+    return quoted;
+}
+
 int runtime_config::parse_cli_args(const int argc, char* argv[]) {
     for (int i = 0; i < argc; ++i) {
         if (i > 0) {
             invocation_command += ' ';
         }
 
-        invocation_command += argv[i];
+        invocation_command += shell_quote(argv[i]);
     }
 
     if (argc >= 2 && (str(argv[1]) == "--help" || str(argv[1]) == "-h")) {
