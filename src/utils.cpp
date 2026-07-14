@@ -54,11 +54,3 @@ str get_numerical_suffix(const int x) {
         default: return "th";
     }
 }
-
-template <typename T>
-bool Vector_Utils::contains(T val, const std::vector<T> &vec) {
-    for (const auto &v : vec) {
-        if (v == val) return true;
-    }
-    return false;
-}

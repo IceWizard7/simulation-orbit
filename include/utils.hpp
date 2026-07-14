@@ -13,5 +13,10 @@ str get_numerical_suffix(int x);
 
 namespace Vector_Utils {
     template <typename T>
-    bool contains(T val, const std::vector<T> &vec);
+    bool contains(T val, const std::vector<T> &vec) {
+        for (const auto &v : vec) {
+            if (v == val) return true;
+        }
+        return false;
+    }
 }
