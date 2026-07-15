@@ -1,9 +1,10 @@
 #pragma once
 
-#include <raylib.h>
 #include <filesystem>
 #include <fstream>
+#include <raylib.h>
 
+#include "celestial_body.hpp"
 #include "timer.hpp"
 #include "utils.hpp"
 
@@ -80,7 +81,9 @@ namespace runtime_config {
     extern std::optional<std::size_t> sample_csv_data_every_steps;
     extern bool csv_live;
 
-    extern bool use_j2; // enable planetary oblateness (J2) perturbation on satellites
+    extern bool use_j2;
+
+    extern int enabled_celestial_bodies;
 
     template <typename T>
     struct ParseRes {
@@ -94,7 +97,7 @@ namespace runtime_config {
 
     ParseRes<str> parse_str(const str& argument_name, int i, int argc, char* argv[]);
 
-    int parse_cli_args(int argc, char* argv[]);
+    int parse_cli_args(int argc, char* argv[], CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]);
 
     void set_time_step_string();
 };

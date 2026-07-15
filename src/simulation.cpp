@@ -58,6 +58,7 @@ CSVEntry simulation::capture_csv_entry() {
     entry.step = config::steps_simulated.load();
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
+        if (!celestial_bodies[i].enabled) continue;
         entry.positions[i] = celestial_bodies[i].position;
         entry.velocities[i] = celestial_bodies[i].velocity;
     }
@@ -68,6 +69,7 @@ CSVEntry simulation::capture_csv_entry() {
 void simulation::write_csv_header(std::ostream& output) {
     output << "step";
     for (const auto& celestial_body : celestial_bodies) {
+        if (!celestial_body.enabled) continue;
         output << ',' << celestial_body.name << "_position_x"
                << ',' << celestial_body.name << "_position_y"
                << ',' << celestial_body.name << "_position_z"
@@ -85,12 +87,15 @@ void simulation::write_csv_entry(std::ostream& output, const CSVEntry& entry) {
         const auto& position = entry.positions[i];
         const auto& velocity = entry.velocities[i];
 
-        output << ',' << position.x
-               << ',' << position.y
-               << ',' << position.z
-               << ',' << velocity.x
-               << ',' << velocity.y
-               << ',' << velocity.z;
+        if (!position.has_value()) continue;
+        if (!velocity.has_value()) continue;
+
+        output << ',' << position->x
+               << ',' << position->y
+               << ',' << position->z
+               << ',' << velocity->x
+               << ',' << velocity->y
+               << ',' << velocity->z;
     }
 
     output << '\n';
@@ -140,6 +145,8 @@ void simulation::save_orbit_points() {
     if (config::steps_simulated.load() % orbit_sample_every_steps != 0) return;
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies[i].enabled) continue;
+
         auto& history = orbit_history[i];
 
         history.push_back(celestial_bodies[i].position);
@@ -198,7 +205,9 @@ std::array<Vec3, NUM_CELESTIAL_BODIES> simulation::compute_accelerations() {
     std::array<Vec3, NUM_CELESTIAL_BODIES> accelerations = {};
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies[i].enabled) continue;
         for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+            if (!celestial_bodies[j].enabled) continue;
             if (i == j) continue; // do not apply gravity from this object to this
             accelerations[i] += celestial_bodies[i].acceleration_due_to(celestial_bodies[j]);
         }
@@ -216,6 +225,7 @@ void simulation::simulate_step() {
 
     // Velocity Verlet: keep the orbit phase stable over many short-period inner-planet revolutions
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies[i].enabled) continue;
         celestial_bodies[i].position += celestial_bodies[i].velocity * runtime_config::time_step
             + accelerations[i] * runtime_config::half_dt_squared;
     }
@@ -223,6 +233,7 @@ void simulation::simulate_step() {
     const std::array<Vec3, NUM_CELESTIAL_BODIES> next_accelerations = compute_accelerations();
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies[i].enabled) continue;
         celestial_bodies[i].velocity += (accelerations[i] + next_accelerations[i]) * runtime_config::half_dt;
     }
 
@@ -245,13 +256,14 @@ void simulation::publish_snapshot() {
     std::size_t max_used = 0;
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies[i].enabled) continue;
         const auto& body = celestial_bodies[i];
 
         Vec3 pos = body.position;
         if (config::RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
             pos -= center;
         }
-        snap->bodies[i] = {body.name, pos, body.draw_radius_2d, body.draw_radius_3d, body.color, &body.planet_visual};
+        snap->bodies[i] = {body.name, pos, body.draw_radius_2d, body.draw_radius_3d, body.color, &body.planet_visual, body.enabled};
 
         const auto& history = orbit_history[i];
         max_used = std::max(max_used, history.size());
@@ -440,6 +452,7 @@ void simulation::print_final_state() {
     printf("Invocation command: %s\n", runtime_config::invocation_command.c_str());
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies[i].enabled) continue;
         const auto& celestial_body = celestial_bodies[i];
         printf("%s", celestial_body.position.to_exact_string().c_str());
         if (i != NUM_CELESTIAL_BODIES - 1) {

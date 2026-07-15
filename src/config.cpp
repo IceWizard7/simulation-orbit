@@ -26,6 +26,8 @@ namespace runtime_config {
     bool csv_live = false;
 
     bool use_j2 = false;
+
+    int enabled_celestial_bodies;
 }
 
 
@@ -123,7 +125,7 @@ static str shell_quote(const str& argument) {
     return quoted;
 }
 
-int runtime_config::parse_cli_args(const int argc, char* argv[]) {
+int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]) {
     for (int i = 0; i < argc; ++i) {
         if (i > 0) {
             invocation_command += ' ';
@@ -144,6 +146,8 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
         printf("        --sample-every-seconds <seconds>    Set the physical sampling interval. Must be a multiple of --dt\n");
         printf("        --csv-live                          Stream CSV rows during simulation instead of writing at the end\n");
         printf("        --j2                                Enable planetary oblateness (J2) perturbation on satellites\n");
+        printf("        --body-set <all|planets|dwarf>      Enable only a subset of the available celestial bodies\n");
+        printf("        --disable-body <name>         Disable a certain body; must come after --body-set\n");
         exit_immediately = true;
         return 0;
     }
@@ -185,6 +189,50 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
             csv_live = true;
         } else if (arg == "--j2") {
             use_j2 = true;
+        } else if (arg == "--body-set") {
+            auto [val, err] = parse_str("--body-set", i, argc, argv);
+            if (err != 0) return err;
+            if (val == "all") {
+                for (auto & celestial_body : celestial_bodies) {
+                    celestial_body.enabled = true;
+                }
+            } else if (val == "planets") {
+                for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+                    if (j < 9) celestial_bodies[j].enabled = true;
+                    else celestial_bodies[j].enabled = false;
+                }
+            } else if (val == "dwarf") {
+                for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+                    if (j < 10) celestial_bodies[j].enabled = true;
+                    else celestial_bodies[j].enabled = false;
+                }
+            } else {
+                std::cerr << std::format("Error: {} is an invalid value for --body-set. Pass \"all\", \"planets\" or \"dwarf\" instead.\n", val);
+                return 1;
+            }
+            i++;
+        } else if (arg == "--disable-body") {
+            auto [val, err] = parse_str("--disable-body", i, argc, argv);
+            if (err != 0) return err;
+
+            std::optional<int> celestial_body_index;
+
+            for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+                const auto& celestial_body = celestial_bodies[j];
+                if (celestial_body.name == val) {
+                    celestial_body_index = j;
+                    break;
+                }
+            }
+
+            if (!celestial_body_index.has_value()) {
+                std::cerr << std::format("Error: {} is an invalid value for --disable-body. Pass a valid name instead.\n", val);
+                return 1;
+            }
+
+            celestial_bodies[*celestial_body_index].enabled = false;
+
+            i++;
         } else {
             std::cerr << std::format("Error: Unexpected argument {}.\n", arg);
             return 1;
@@ -258,6 +306,11 @@ int runtime_config::parse_cli_args(const int argc, char* argv[]) {
     half_dt_squared = 0.5 * time_step * time_step;
     half_dt = 0.5 * time_step;
     target_steps_per_second = target_simulation_speed * config::SECONDS_PER_YEAR / time_step;
+
+    enabled_celestial_bodies = 0;
+    for (const auto& celestial_body : celestial_bodies) {
+        if (celestial_body.enabled) enabled_celestial_bodies++;
+    }
 
     return 0;
 }

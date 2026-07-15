@@ -14,11 +14,14 @@
 // TODO: Internal planet rotation
 
 int main(const int argc, char* argv[]) {
-    const int err = runtime_config::parse_cli_args(argc, argv);
+    const int err = runtime_config::parse_cli_args(argc, argv, simulation::celestial_bodies);
     if (err != 0) return err;
     if (runtime_config::exit_immediately) return 0;
 
     if (!simulation::initialize_csv_output()) return 1;
+
+
+    config::center_celestial_body_index = 0;
 
     if (runtime_config::headless) {
         config::timer.resume();
@@ -38,7 +41,7 @@ int main(const int argc, char* argv[]) {
     SetTargetFPS(config::TARGET_FPS);
 
     for (auto& celestial_body : simulation::celestial_bodies) {
-        celestial_body.planet_visual.load_planet_visual();
+        if (celestial_body.enabled) celestial_body.planet_visual.load_planet_visual();
     }
 
     config::uiFont = LoadFontEx(
@@ -69,7 +72,7 @@ int main(const int argc, char* argv[]) {
     cpu_thread.join();
 
     for (auto& celestial_body : simulation::celestial_bodies) {
-        celestial_body.planet_visual.unload_planet_visual();
+        if (celestial_body.enabled) celestial_body.planet_visual.unload_planet_visual();
     }
 
     UnloadFont(config::uiFont);

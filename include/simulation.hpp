@@ -6,8 +6,8 @@
 
 struct CSVEntry {
     size_t step{};
-    std::array<Vec3, NUM_CELESTIAL_BODIES> positions{};
-    std::array<Vec3, NUM_CELESTIAL_BODIES> velocities{};
+    std::array<std::optional<Vec3>, NUM_CELESTIAL_BODIES> positions{};
+    std::array<std::optional<Vec3>, NUM_CELESTIAL_BODIES> velocities{};
 };
 
 namespace simulation {

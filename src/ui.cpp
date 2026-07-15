@@ -4,6 +4,7 @@
 
 #include "celestial_body.hpp"
 #include "screen_utils.hpp"
+#include "simulation.hpp"
 
 float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0
 float cam_elevation = config::DEFAULT_CAM_ELEVATION; // 35° shows 3D immediately
@@ -133,14 +134,17 @@ void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
     constexpr double font_size = 16;
     constexpr double spacing = font_size + 2;
     const Vec2 start = {config::WINDOW_WIDTH - config::WINDOW_MARGIN * 1.25 - config::GRID_SPACING, config::WINDOW_MARGIN};
-    const Vec2 end = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * NUM_CELESTIAL_BODIES};
+    const Vec2 end = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * runtime_config::enabled_celestial_bodies};
 
     DrawRectangle(start, end, WHITE);
 
+    int completed_iterations = 0;
+
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (const auto& body = snap->bodies[i]; body.color.has_value()) {
-            DrawCircle({start.x + 10, start.y + spacing * i + (font_size / 2)}, 5, *body.color);
-            DrawText(config::uiFont, body.name.c_str(), Vec2(start.x + 25, start.y + spacing * i), font_size, 1, BLACK);
+            DrawCircle({start.x + 10, start.y + spacing * completed_iterations + (font_size / 2)}, 5, *body.color);
+            DrawText(config::uiFont, body.name.c_str(), Vec2(start.x + 25, start.y + spacing * completed_iterations), font_size, 1, BLACK);
+            completed_iterations++;
         }
     }
 
@@ -205,7 +209,7 @@ void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
     const bool timer_running = config::timer.is_running();
 
     // snap->bodies positions are already relative to the center body (see publish_snapshot)
-    for (const auto& [name, position, radius_2d, _radius_3d, color, _planet_visual] : snap->bodies) {
+    for (const auto& [name, position, radius_2d, _radius_3d, color, _planet_visual, _enabled] : snap->bodies) {
         if (color.has_value() && inside_screen(position)) {
             const Vector2 pos = to_raylib(position);
             DrawCircleV(pos, radius_2d, *color);
@@ -232,7 +236,8 @@ void ui::draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
             const Vec3 start = points[j - 1];
             const Vec3 end = points[j];
 
-            if (inside_screen(start) && inside_screen(end)) {
+            // For smoother edges, it's now enough if only 1 point is inside (aggressive DrawRectangle deals with the rest)
+            if (inside_screen(start) || inside_screen(end)) {
                 DrawLineEx(
                     to_raylib(start),
                     to_raylib(end),
@@ -267,7 +272,7 @@ void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const
 }
 
 void ui::draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
-    for (const auto& [name, pos, _radius_2d, radius_3d, color, planet_visual] : snap->bodies) {
+    for (const auto& [name, pos, _radius_2d, radius_3d, color, planet_visual, _enabled] : snap->bodies) {
         if (planet_visual != nullptr && planet_visual->loaded) {
             DrawModel(
                 planet_visual->model,
@@ -472,7 +477,7 @@ void ui::draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap
 
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
-    const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual] = snap->bodies[hovered_body_i];
+    const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual, _enabled] = snap->bodies[hovered_body_i];
     if (!color.has_value()) return;
 
     const Vector3 world = to_world(pos);
@@ -527,6 +532,10 @@ void ui::draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     if (snap) {
         draw_orbits(snap);
         draw_planets(snap);
+        DrawRectangle(0, 0, config::WINDOW_MARGIN, config::WINDOW_HEIGHT, WHITE);
+        DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_MARGIN, WHITE);
+        DrawRectangle(0, config::WINDOW_HEIGHT - config::WINDOW_MARGIN, config::WINDOW_WIDTH, config::WINDOW_MARGIN, WHITE);
+        DrawRectangle(config::WINDOW_WIDTH - config::WINDOW_MARGIN, 0, config::WINDOW_MARGIN, config::WINDOW_HEIGHT, WHITE);
         draw_stats(BLACK, WHITE, snap);
         draw_ui();
         if (view_legend) draw_legend(snap);
@@ -630,8 +639,10 @@ void ui::UpdateDrawFrame() {
         config::republish_needed = true;
         config::planet_info_display_index = -1; // optional: reset config::planet_info_display_index
     } else if (new_center_i != -1 && new_center_i != config::center_celestial_body_index) {
-        config::center_celestial_body_index = new_center_i;
-        config::republish_needed = true;
+        if (snap->bodies[new_center_i].enabled) {
+            config::center_celestial_body_index = new_center_i;
+            config::republish_needed = true;
+        }
     }
 
     if (copied_button_pressed) {

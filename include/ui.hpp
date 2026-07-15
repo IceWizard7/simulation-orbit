@@ -18,6 +18,7 @@ namespace ui {
             float radius_3d = 0;
             std::optional<Color> color;
             const PlanetVisual* planet_visual = nullptr;
+            bool enabled;
         };
         struct DetailedBody {
             str name;
@@ -31,7 +32,7 @@ namespace ui {
             std::optional<Color> color;
         };
         std::array<Body,  NUM_CELESTIAL_BODIES> bodies;
-        std::array<Orbit, NUM_CELESTIAL_BODIES> orbits; // already decimated to max_rendered_orbit_segments_per_body
+        std::array<Orbit, NUM_CELESTIAL_BODIES> orbits;
         std::size_t max_orbit_points_used = 0;
         std::optional<DetailedBody> detailed_body_display;
     };

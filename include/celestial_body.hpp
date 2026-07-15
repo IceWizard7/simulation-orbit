@@ -20,6 +20,7 @@ public:
     const int max_rendered_orbit_segments_per_body;
     const int max_rendered_orbit_tail;
     PlanetVisual planet_visual;
+    bool enabled = true;
 
     // Oblateness (zonal J2) parameters. 0 -> spherical point masses (ex. sun, moons, Pluto)
     // set for oblate planets so their satellites feel the equatorial-bulge perturbation.
