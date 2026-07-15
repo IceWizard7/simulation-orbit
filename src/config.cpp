@@ -312,6 +312,11 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
         if (celestial_body.enabled) enabled_celestial_bodies++;
     }
 
+    if (enabled_celestial_bodies == 0) {
+        std::cerr << "Error: At least one celestial body must remain enabled.\n";
+        return 1;
+    }
+
     return 0;
 }
 

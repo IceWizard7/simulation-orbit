@@ -451,8 +451,17 @@ void simulation::print_final_state() {
     printf("Time step: %d seconds\n", runtime_config::time_step);
     printf("Invocation command: %s\n", runtime_config::invocation_command.c_str());
 
+    printf("Enabled body indices: ");
+    bool first_enabled_body = true;
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies[i].enabled) continue;
+        if (!first_enabled_body) printf(",");
+        printf("%d", i);
+        first_enabled_body = false;
+    }
+    printf("\n");
+
+    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         const auto& celestial_body = celestial_bodies[i];
         printf("%s", celestial_body.position.to_exact_string().c_str());
         if (i != NUM_CELESTIAL_BODIES - 1) {

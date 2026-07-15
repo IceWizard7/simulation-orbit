@@ -181,6 +181,7 @@ class ProgramRun:
     steps: int
     dt: float
     vectors: list[Vec3]
+    enabled_body_indices: frozenset[int]
     invocation_command: str
 
 @dataclasses.dataclass(frozen=True)
@@ -196,6 +197,7 @@ def parse_program_output(text: str) -> ProgramRun:
     steps_match = re.search(r"Steps simulated:\s*(\d+)", text)
     dt_match = re.search(r"Time step:\s*([0-9.eE+-]+)", text)
     invocation_match = re.search(r"Invocation command:\s*(.+)", text)
+    enabled_body_indices_match = re.search(r"^Enabled body indices:\s*(.*)$", text, re.MULTILINE)
 
     if not computation_seconds_match:
         raise RuntimeError(f"No computation_seconds_match found in {text}")
@@ -224,7 +226,39 @@ def parse_program_output(text: str) -> ProgramRun:
         x, y, z = (float(part.strip()) for part in raw.split(","))
         vectors.append(Vec3(x, y, z))
 
-    return ProgramRun(computation_seconds, simulated_years, steps, dt, vectors, invocation_command)
+    expected_body_count = len(planet_to_horizon_id)
+    if len(vectors) != expected_body_count:
+        raise RuntimeError(f"Expected {expected_body_count} final position vectors, found {len(vectors)}")
+
+    if enabled_body_indices_match:
+        raw_indices = enabled_body_indices_match.group(1).strip()
+        try:
+            enabled_body_indices = frozenset(
+                int(raw_index.strip())
+                for raw_index in raw_indices.split(",")
+                if raw_index.strip()
+            )
+        except ValueError as error:
+            raise RuntimeError(f"Invalid enabled body indices: {raw_indices}") from error
+
+        invalid_indices = sorted(
+            index for index in enabled_body_indices
+            if index < 0 or index >= expected_body_count
+        )
+        if invalid_indices:
+            raise RuntimeError(f"Enabled body indices out of range: {invalid_indices}")
+    else:
+        raise RuntimeError(f"No enabled_body_indices_match found in {text}")
+
+    return ProgramRun(
+        computation_seconds,
+        simulated_years,
+        steps,
+        dt,
+        vectors,
+        enabled_body_indices,
+        invocation_command,
+    )
 
 def read_program_output(path_index: int) -> str:
     if len(sys.argv) > path_index:
@@ -446,21 +480,37 @@ def print_one_error_metric(metrics: ErrorMetrics) -> None:
         f" radial   = {metrics.radial_m / 1_000:.3f} km ({metrics.radial_m / AU:.6f} AU)\n"
     )
 
-def print_error_metric(expected_vectors: list[Vec3], candidate_vectors: list[Vec3], names: list[str]) -> None:
+def print_error_metric(
+    expected_vectors: list[Vec3],
+    candidate_vectors: list[Vec3],
+    names: list[str],
+    enabled_body_indices: frozenset[int],
+) -> None:
     if len(expected_vectors) != len(candidate_vectors) or len(expected_vectors) != len(names):
         raise ValueError(
             "Expected vectors, candidate vectors, and body names must have equal lengths "
             f"({len(expected_vectors)}, {len(candidate_vectors)}, and {len(names)})"
         )
 
+    if not enabled_body_indices:
+        raise ValueError("At least one body must be enabled for error analysis")
+
     indices = {name: index for index, name in enumerate(names)}
-    expected_sun = expected_vectors[indices["Sun"]]
-    candidate_sun = candidate_vectors[indices["Sun"]]
+    sun_index = indices["Sun"]
+    sun_enabled = sun_index in enabled_body_indices
+    expected_sun = expected_vectors[sun_index]
+    candidate_sun = candidate_vectors[sun_index]
 
-    print("Sun-relative errors (the Sun itself is measured in barycentric coordinates):\n")
+    if sun_enabled:
+        print("Sun-relative errors (the Sun itself is measured in barycentric coordinates):\n")
+    else:
+        print("Barycentric errors (the Sun is disabled):\n")
 
-    for name, expected_pos, candidate_pos in zip(names, expected_vectors, candidate_vectors):
-        if name == "Sun":
+    for index, (name, expected_pos, candidate_pos) in enumerate(zip(names, expected_vectors, candidate_vectors)):
+        if index not in enabled_body_indices:
+            continue
+
+        if name == "Sun" or not sun_enabled:
             expected_rel = expected_pos
             candidate_rel = candidate_pos
         else:
@@ -475,6 +525,9 @@ def print_error_metric(expected_vectors: list[Vec3], candidate_vectors: list[Vec
     for name, parent in moon_to_parent.items():
         moon_index = indices[name]
         parent_index = indices[parent]
+
+        if moon_index not in enabled_body_indices or parent_index not in enabled_body_indices:
+            continue
 
         expected_rel = expected_vectors[moon_index] - expected_vectors[parent_index]
         candidate_rel = candidate_vectors[moon_index] - candidate_vectors[parent_index]
@@ -528,10 +581,13 @@ def analyze_error() -> None:
     print(f"JPL simulation time: {(target_epoch - START).days / 365} years (@ 365 days)")
     print(f"Program simulation time: {p_run.years} years (@ 365 days)\n")
 
+    enabled_names = [names[index] for index in sorted(p_run.enabled_body_indices)]
+    print(f"Enabled bodies: {', '.join(enabled_names)}\n")
+
     print(f"JPL positions: {expected_positions}")
     print(f"Program positions: {p_run.vectors}\n")
 
-    print_error_metric(expected_positions, p_run.vectors, names)
+    print_error_metric(expected_positions, p_run.vectors, names, p_run.enabled_body_indices)
 
 def compare() -> None:
     reference_run = parse_program_output(pathlib.Path(sys.argv[2]).read_text())
@@ -557,10 +613,26 @@ def compare() -> None:
         print("Length of vectors & names do not match")
         sys.exit(1)
 
+    missing_reference_indices = candidate_run.enabled_body_indices - reference_run.enabled_body_indices
+    if missing_reference_indices:
+        missing_names = [names[index] for index in sorted(missing_reference_indices)]
+        print(f"Reference run does not enable candidate bodies: {', '.join(missing_names)}")
+        sys.exit(1)
+
+    reference_enabled_names = [names[index] for index in sorted(reference_run.enabled_body_indices)]
+    candidate_enabled_names = [names[index] for index in sorted(candidate_run.enabled_body_indices)]
+    print(f"Reference enabled bodies: {', '.join(reference_enabled_names)}")
+    print(f"Candidate enabled bodies: {', '.join(candidate_enabled_names)}\n")
+
     print(f"Reference positions: {reference_run.vectors}\n")
     print(f"Candidate positions: {candidate_run.vectors}\n")
 
-    print_error_metric(reference_run.vectors, candidate_run.vectors, names)
+    print_error_metric(
+        reference_run.vectors,
+        candidate_run.vectors,
+        names,
+        candidate_run.enabled_body_indices,
+    )
 
     print(f"Reference computation time: {reference_run.computation_seconds} seconds")
     print(f"Candidate computation time: {candidate_run.computation_seconds} seconds\n")

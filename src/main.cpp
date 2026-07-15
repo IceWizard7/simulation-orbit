@@ -20,8 +20,12 @@ int main(const int argc, char* argv[]) {
 
     if (!simulation::initialize_csv_output()) return 1;
 
-
-    config::center_celestial_body_index = 0;
+    for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
+        if (simulation::celestial_bodies[i].enabled) {
+            config::center_celestial_body_index = i;
+            break;
+        }
+    }
 
     if (runtime_config::headless) {
         config::timer.resume();
