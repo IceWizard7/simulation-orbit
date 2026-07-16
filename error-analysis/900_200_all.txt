@@ -1,0 +1,518 @@
+Fetched vectors of planet Sun (horizon_id=10) (1/38)
+Fetched vectors of planet Mercury (horizon_id=199) (2/38)
+Fetched vectors of planet Venus (horizon_id=299) (3/38)
+Fetched vectors of planet Earth (horizon_id=399) (4/38)
+Fetched vectors of planet Mars (horizon_id=499) (5/38)
+Fetched vectors of planet Jupiter (horizon_id=599) (6/38)
+Fetched vectors of planet Saturn (horizon_id=699) (7/38)
+Fetched vectors of planet Uranus (horizon_id=799) (8/38)
+Fetched vectors of planet Neptune (horizon_id=899) (9/38)
+Fetched vectors of planet Pluto (horizon_id=999) (10/38)
+Fetched vectors of planet Moon (horizon_id=301) (11/38)
+Fetched vectors of planet Phobos (horizon_id=401) (12/38)
+Fetched vectors of planet Deimos (horizon_id=402) (13/38)
+Fetched vectors of planet Io (horizon_id=501) (14/38)
+Fetched vectors of planet Europa (horizon_id=502) (15/38)
+Fetched vectors of planet Ganymede (horizon_id=503) (16/38)
+Fetched vectors of planet Callisto (horizon_id=504) (17/38)
+Fetched vectors of planet Mimas (horizon_id=601) (18/38)
+Fetched vectors of planet Enceladus (horizon_id=602) (19/38)
+Fetched vectors of planet Tethys (horizon_id=603) (20/38)
+Fetched vectors of planet Dione (horizon_id=604) (21/38)
+Fetched vectors of planet Rhea (horizon_id=605) (22/38)
+Fetched vectors of planet Titan (horizon_id=606) (23/38)
+Fetched vectors of planet Hyperion (horizon_id=607) (24/38)
+Fetched vectors of planet Iapetus (horizon_id=608) (25/38)
+Fetched vectors of planet Phoebe (horizon_id=609) (26/38)
+Fetched vectors of planet Ariel (horizon_id=701) (27/38)
+Fetched vectors of planet Umbriel (horizon_id=702) (28/38)
+Fetched vectors of planet Titania (horizon_id=703) (29/38)
+Fetched vectors of planet Oberon (horizon_id=704) (30/38)
+Fetched vectors of planet Miranda (horizon_id=705) (31/38)
+Fetched vectors of planet Triton (horizon_id=801) (32/38)
+Fetched vectors of planet Nereid (horizon_id=802) (33/38)
+Fetched vectors of planet Proteus (horizon_id=808) (34/38)
+Fetched vectors of planet Charon (horizon_id=901) (35/38)
+Fetched vectors of planet Nix (horizon_id=902) (36/38)
+Fetched vectors of planet Hydra (horizon_id=903) (37/38)
+Fetched vectors of planet Kerberos (horizon_id=904) (38/38)
+
+
+Reproduce this report:
+  Program invocation:  ./cmake-build-release/simulation-orbit --headless --dt 900 --years 200 --body-set all
+  Analysis invocation: python3 analyze.py analyze
+
+JPL simulation time: 200.0 years (@ 365 days)
+Program simulation time: 200.0 years (@ 365 days)
+
+Enabled bodies: Sun, Mercury, Venus, Earth, Mars, Jupiter, Saturn, Uranus, Neptune, Pluto, Moon, Phobos, Deimos, Io, Europa, Ganymede, Callisto, Mimas, Enceladus, Tethys, Dione, Rhea, Titan, Hyperion, Iapetus, Phoebe, Ariel, Umbriel, Titania, Oberon, Miranda, Triton, Nereid, Proteus, Charon, Nix, Hydra, Kerberos
+
+JPL positions: [[-1103690593.420557, -365363725.6304977, 31487617.76006968], [26584600306.00275, 37210673451.75415, 559684511.5184113], [-32735005879.40538, 102369646557.25488, 3261371410.727903], [87558346434.19115, 118086812724.7109, 31282140.89941233], [177939936047.8309, -103579815336.445, -6532035985.476047], [627648392148.6501, 393307067429.3755, -15680862079.43115], [986738410486.735, 955023704575.1023, -55874635857.65296], [2139152768079.839, -2073500866534.235, -35420255100.54374], [2495969761633.813, -3751398111074.501, 19730684908.99634], [-1499489949952.5361, -4172198226754.369, 880191163158.237], [87855549709.74614, 117827217101.44798, 23916570.14465332], [177946735309.9587, -103585184802.6637, -6535568380.079269], [177960759990.1159, -103579258330.8625, -6542812665.168151], [627691374491.7346, 392886064716.34717, -15695196580.65563], [626978775604.2396, 393334025510.5495, -15689888064.78937], [628463847734.0275, 394000099407.9949, -15646109802.153929], [625911111916.7423, 394066441925.3731, -15679022414.95883], [986562870871.6982, 954986824619.9861, -55840718747.18899], [986955202681.4358, 954931227270.5085, -55847210485.4514], [986736953842.3567, 955286740659.7203, -56007404449.70864], [986985389289.0504, 954762639533.3451, -55761957637.49558], [986852041644.9863, 955474146763.6361, -56123840561.98841], [985515867659.6658, 955310063163.0189, -55902534176.52249], [988027778993.0686, 955012869078.9235, -56003583941.04224], [990104328502.3308, 955312037601.3761, -56618585579.59217], [979658874516.4564, 946411028221.9099, -55163036270.679184], [2139005846513.954, -2073453182508.124, -35308531435.73797], [2139408228330.58, -2073548485109.3057, -35359499855.15785], [2139539394449.227, -2073558567026.6929, -35226929633.682365], [2139719764813.8428, -2073629963507.1252, -35462983698.64953], [2139024105843.4238, -2073482909806.498, -35420153136.24799], [2495920828939.298, -3751161807867.199, 19990664195.16397], [2498563630770.8, -3742159339836.654, 20502945583.00996], [2495886562444.19, -3751337342063.289, 19787508800.61698], [-1499476213418.703, -4172190590271.7075, 880179462589.1564], [-1499464271679.9001, -4172159556521.681, 880208367782.0662], [-1499448052874.162, -4172147558204.375, 880198891360.813], [-1499480041679.6501, -4172160736977.439, 880233426609.9971]]
+Program positions: [[-1103889541.1163893, -365356318.7667405, 31651624.105602715], [26565345083.003002, 37217940675.670525, 562186164.4025126], [-32747012883.491474, 102365921591.82063, 3262166466.9110866], [87550139586.83835, 118092782693.4256, 31427870.225901764], [177942720316.51755, -103574463965.49419, -6531836961.686088], [627647338470.8328, 393308147142.00574, -15680691066.526762], [986737297198.5892, 955024279888.1935, -55874516822.8103], [2139160983823.774, -2073492309175.5022, -35419577058.04997], [2495972534627.651, -3751395761631.512, 19730806548.49771], [-1499490362263.1514, -4172194749554.442, 880189094182.8583], [87837119587.52486, 117821237452.43724, 25608134.779034544], [177950833968.1356, -103576901791.37466, -6536159246.210017], [177933293283.33582, -103595167308.64113, -6537595146.466714], [627832359222.6475, 393682948478.75226, -15667498867.815403], [627344732781.2836, 392718683418.0746, -15697219390.002628], [628188956456.7406, 394232085089.2292, -15642815470.121117], [628878422314.6931, 394733603859.5089, -15624567790.4342], [986558643995.5497, 955074423062.9243, -55882680408.79549], [986515586814.8171, 954961802986.4344, -55814989242.25995], [986443436830.526, 955030284564.8909, -55848179788.34069], [986364098151.7395, 955005597153.3718, -55822386246.90585], [986643020061.789, 954557116751.1952, -55621749329.47996], [987775648285.3286, 954403641861.1237, -55673275880.916405], [985217944676.2562, 955021242962.3896, -55688880896.62357], [990121488922.8765, 955047794281.3412, -56595166432.9368], [979663142569.3258, 946407704937.7186, -55165627674.08475], [2139046737015.3105, -2073447663104.811, -35273243510.97433], [2139188557424.085, -2073462163042.0972, -35157175306.77633], [2138762557108.8171, -2073428245740.279, -35585860859.03064], [2139493230665.552, -2073497275191.889, -34940290455.08525], [2139285269791.049, -2073526583939.9124, -35404660931.77738], [2495926834330.5234, -3751066101445.179, 19853702595.995575], [2498553591975.4463, -3742153981961.8276, 20512159239.84893], [2496006023573.0576, -3751310412666.184, 19804911667.76826], [-1499501068828.3167, -4172196195383.5615, 880205438954.2219], [-1499471978130.2532, -4172158112426.3696, 880215758889.6339], [-1499454086334.4673, -4172144313454.934, 880206321523.7136], [-1499480546027.636, -4172156703185.582, 880232477381.1669]]
+
+Sun-relative errors (the Sun itself is measured in barycentric coordinates):
+
+Sun error:
+
+ distance = 257.940 km (0.000002 AU)
+ relative = 0.022%
+ angle    = 0.009 deg
+ radial   = 190.925 km (0.000001 AU)
+
+Mercury error:
+
+ distance = 20525.866 km (0.000137 AU)
+ relative = 0.044%
+ angle    = 0.024 deg
+ radial   = -5428.839 km (-0.000036 AU)
+
+Venus error:
+
+ distance = 12399.961 km (0.000083 AU)
+ relative = 0.012%
+ angle    = 0.007 deg
+ radial   = -72.770 km (-0.000000 AU)
+
+Earth error:
+
+ distance = 9983.934 km (0.000067 AU)
+ relative = 0.007%
+ angle    = 0.004 deg
+ radial   = -24.794 km (-0.000000 AU)
+
+Mars error:
+
+ distance = 6120.356 km (0.000041 AU)
+ relative = 0.003%
+ angle    = 0.002 deg
+ radial   = -85.408 km (-0.000001 AU)
+
+Jupiter error:
+
+ distance = 1371.296 km (0.000009 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = -155.507 km (-0.000001 AU)
+
+Saturn error:
+
+ distance = 1077.292 km (0.000007 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = -260.388 km (-0.000002 AU)
+
+Uranus error:
+
+ distance = 12007.204 km (0.000080 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = 89.344 km (0.000001 AU)
+
+Neptune error:
+
+ distance = 3784.094 km (0.000025 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = -302.854 km (-0.000002 AU)
+
+Pluto error:
+
+ distance = 4131.730 km (0.000028 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = -3567.165 km (-0.000024 AU)
+
+Moon error:
+
+ distance = 19249.779 km (0.000129 AU)
+ relative = 0.013%
+ angle    = 0.004 deg
+ radial   = -15746.705 km (-0.000105 AU)
+
+Phobos error:
+
+ distance = 9355.473 km (0.000063 AU)
+ relative = 0.005%
+ angle    = 0.003 deg
+ radial   = -385.524 km (-0.000003 AU)
+
+Deimos error:
+
+ distance = 31974.990 km (0.000214 AU)
+ relative = 0.015%
+ angle    = 0.008 deg
+ radial   = -15826.667 km (-0.000106 AU)
+
+Io error:
+
+ distance = 809754.816 km (0.005413 AU)
+ relative = 0.109%
+ angle    = 0.046 deg
+ radial   = 541780.514 km (0.003622 AU)
+
+Europa error:
+
+ distance = 716087.630 km (0.004787 AU)
+ relative = 0.097%
+ angle    = 0.055 deg
+ radial   = -16066.538 km (-0.000107 AU)
+
+Ganymede error:
+
+ distance = 359554.717 km (0.002403 AU)
+ relative = 0.048%
+ angle    = 0.026 deg
+ radial   = -109606.968 km (-0.000733 AU)
+
+Callisto error:
+
+ distance = 3042064.160 km (0.020335 AU)
+ relative = 0.411%
+ angle    = 0.079 deg
+ radial   = 2865991.232 km (0.019158 AU)
+
+Mimas error:
+
+ distance = 97277.879 km (0.000650 AU)
+ relative = 0.007%
+ angle    = 0.003 deg
+ radial   = 59668.288 km (0.000399 AU)
+
+Enceladus error:
+
+ distance = 441643.880 km (0.002952 AU)
+ relative = 0.032%
+ angle    = 0.014 deg
+ radial   = -295680.319 km (-0.001977 AU)
+
+Tethys error:
+
+ distance = 420843.565 km (0.002813 AU)
+ relative = 0.031%
+ angle    = 0.006 deg
+ radial   = -395281.739 km (-0.002642 AU)
+
+Dione error:
+
+ distance = 669665.423 km (0.004476 AU)
+ relative = 0.049%
+ angle    = 0.025 deg
+ radial   = -274888.042 km (-0.001838 AU)
+
+Rhea error:
+
+ distance = 1066065.412 km (0.007126 AU)
+ relative = 0.077%
+ angle    = 0.029 deg
+ radial   = -807375.876 km (-0.005397 AU)
+
+Titan error:
+
+ distance = 2445731.970 km (0.016349 AU)
+ relative = 0.178%
+ angle    = 0.093 deg
+ radial   = 984329.906 km (0.006580 AU)
+
+Hyperion error:
+
+ distance = 2827199.270 km (0.018899 AU)
+ relative = 0.205%
+ angle    = 0.082 deg
+ radial   = -2024802.023 km (-0.013535 AU)
+
+Iapetus error:
+
+ distance = 265839.417 km (0.001777 AU)
+ relative = 0.019%
+ angle    = 0.008 deg
+ radial   = -171712.573 km (-0.001148 AU)
+
+Phoebe error:
+
+ distance = 6216.098 km (0.000042 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = 1011.321 km (0.000007 AU)
+
+Ariel error:
+
+ distance = 54336.126 km (0.000363 AU)
+ relative = 0.002%
+ angle    = 0.001 deg
+ radial   = 25260.011 km (0.000169 AU)
+
+Umbriel error:
+
+ distance = 310623.641 km (0.002076 AU)
+ relative = 0.010%
+ angle    = 0.004 deg
+ radial   = -220077.867 km (-0.001471 AU)
+
+Titania error:
+
+ distance = 865504.642 km (0.005786 AU)
+ relative = 0.029%
+ angle    = 0.011 deg
+ radial   = -644194.614 km (-0.004306 AU)
+
+Oberon error:
+
+ distance = 584695.348 km (0.003908 AU)
+ relative = 0.020%
+ angle    = 0.010 deg
+ radial   = -261050.597 km (-0.001745 AU)
+
+Miranda error:
+
+ distance = 265430.958 km (0.001774 AU)
+ relative = 0.009%
+ angle    = 0.003 deg
+ radial   = 217925.563 km (0.001457 AU)
+
+Triton error:
+
+ distance = 167332.684 km (0.001119 AU)
+ relative = 0.004%
+ angle    = 0.002 deg
+ radial   = -76826.738 km (-0.000514 AU)
+
+Nereid error:
+
+ distance = 14399.524 km (0.000096 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = -9873.694 km (-0.000066 AU)
+
+Proteus error:
+
+ distance = 123856.796 km (0.000828 AU)
+ relative = 0.003%
+ angle    = 0.001 deg
+ radial   = 43974.322 km (0.000294 AU)
+
+Charon error:
+
+ distance = 36134.739 km (0.000242 AU)
+ relative = 0.001%
+ angle    = 0.000 deg
+ radial   = 18383.053 km (0.000123 AU)
+
+Nix error:
+
+ distance = 10519.395 km (0.000070 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = 2570.459 km (0.000017 AU)
+
+Hydra error:
+
+ distance = 9865.037 km (0.000066 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = 361.146 km (0.000002 AU)
+
+Kerberos error:
+
+ distance = 4188.596 km (0.000028 AU)
+ relative = 0.000%
+ angle    = 0.000 deg
+ radial   = -3832.375 km (-0.000026 AU)
+
+Parent-relative moon errors:
+
+Moon error relative to Earth:
+
+ distance = 15801.845 km (0.000106 AU)
+ relative = 4.004%
+ angle    = 2.292 deg
+ radial   = 448.564 km (0.000003 AU)
+
+Phobos error relative to Mars:
+
+ distance = 3308.483 km (0.000022 AU)
+ relative = 35.361%
+ angle    = 20.177 deg
+ radial   = 154.636 km (0.000001 AU)
+
+Deimos error relative to Mars:
+
+ distance = 37313.660 km (0.000249 AU)
+ relative = 159.094%
+ angle    = 105.360 deg
+ radial   = 12.157 km (0.000000 AU)
+
+Io error relative to Jupiter:
+
+ distance = 808849.006 km (0.005407 AU)
+ relative = 191.021%
+ angle    = 147.915 deg
+ radial   = -5244.017 km (-0.000035 AU)
+
+Europa error relative to Jupiter:
+
+ distance = 717446.231 km (0.004796 AU)
+ relative = 107.046%
+ angle    = 65.121 deg
+ radial   = -7414.454 km (-0.000050 AU)
+
+Ganymede error relative to Jupiter:
+
+ distance = 358209.928 km (0.002394 AU)
+ relative = 33.455%
+ angle    = 19.250 deg
+ radial   = 922.838 km (0.000006 AU)
+
+Callisto error relative to Jupiter:
+
+ distance = 3042662.900 km (0.020339 AU)
+ relative = 160.478%
+ angle    = 107.195 deg
+ radial   = -11679.335 km (-0.000078 AU)
+
+Mimas error relative to Saturn:
+
+ distance = 96713.518 km (0.000646 AU)
+ relative = 52.979%
+ angle    = 30.433 deg
+ radial   = 3185.810 km (0.000021 AU)
+
+Enceladus error relative to Saturn:
+
+ distance = 440698.409 km (0.002946 AU)
+ relative = 185.727%
+ angle    = 136.068 deg
+ radial   = 629.913 km (0.000004 AU)
+
+Tethys error relative to Saturn:
+
+ distance = 420570.663 km (0.002811 AU)
+ relative = 142.737%
+ angle    = 90.981 deg
+ radial   = 451.055 km (0.000003 AU)
+
+Dione error relative to Saturn:
+
+ distance = 668607.332 km (0.004469 AU)
+ relative = 177.524%
+ angle    = 124.959 deg
+ radial   = 655.650 km (0.000004 AU)
+
+Rhea error relative to Saturn:
+
+ distance = 1066396.493 km (0.007128 AU)
+ relative = 202.285%
+ angle    = 177.560 deg
+ radial   = 12288.880 km (0.000082 AU)
+
+Titan error relative to Saturn:
+
+ distance = 2446791.562 km (0.016356 AU)
+ relative = 194.817%
+ angle    = 160.603 deg
+ radial   = -29621.386 km (-0.000198 AU)
+
+Hyperion error relative to Saturn:
+
+ distance = 2826293.993 km (0.018893 AU)
+ relative = 218.104%
+ angle    = 178.612 deg
+ radial   = 234808.379 km (0.001570 AU)
+
+Iapetus error relative to Saturn:
+
+ distance = 266469.008 km (0.001781 AU)
+ relative = 7.703%
+ angle    = 4.414 deg
+ radial   = 959.803 km (0.000006 AU)
+
+Phoebe error relative to Saturn:
+
+ distance = 7176.654 km (0.000048 AU)
+ relative = 0.064%
+ angle    = 0.037 deg
+ radial   = -574.959 km (-0.000004 AU)
+
+Ariel error relative to Uranus:
+
+ distance = 47693.950 km (0.000319 AU)
+ relative = 25.018%
+ angle    = 14.360 deg
+ radial   = 307.202 km (0.000002 AU)
+
+Umbriel error relative to Uranus:
+
+ distance = 314071.630 km (0.002099 AU)
+ relative = 117.688%
+ angle    = 72.297 deg
+ radial   = -1305.138 km (-0.000009 AU)
+
+Titania error relative to Uranus:
+
+ distance = 872039.922 km (0.005829 AU)
+ relative = 199.963%
+ angle    = 176.036 deg
+ radial   = 360.136 km (0.000002 AU)
+
+Oberon error relative to Uranus:
+
+ distance = 585675.573 km (0.003915 AU)
+ relative = 100.446%
+ angle    = 60.288 deg
+ radial   = 129.656 km (0.000001 AU)
+
+Miranda error relative to Uranus:
+
+ distance = 258709.068 km (0.001729 AU)
+ relative = 199.146%
+ angle    = 170.013 deg
+ radial   = -123.890 km (-0.000001 AU)
+
+Triton error relative to Neptune:
+
+ distance = 165884.864 km (0.001109 AU)
+ relative = 46.766%
+ angle    = 27.043 deg
+ radial   = 63.356 km (0.000000 AU)
+
+Nereid error relative to Neptune:
+
+ distance = 15995.543 km (0.000107 AU)
+ relative = 0.166%
+ angle    = 0.095 deg
+ radial   = 177.774 km (0.000001 AU)
+
+Proteus error relative to Neptune:
+
+ distance = 120494.547 km (0.000805 AU)
+ relative = 102.409%
+ angle    = 61.534 deg
+ radial   = 227.518 km (0.000002 AU)
+
+Charon error relative to Pluto:
+
+ distance = 38294.838 km (0.000256 AU)
+ relative = 195.445%
+ angle    = 155.510 deg
+ radial   = -0.996 km (-0.000000 AU)
+
+Nix error relative to Pluto:
+
+ distance = 12117.391 km (0.000081 AU)
+ relative = 24.477%
+ angle    = 14.129 deg
+ radial   = -604.615 km (-0.000004 AU)
+
+Hydra error relative to Pluto:
+
+ distance = 11040.153 km (0.000074 AU)
+ relative = 16.677%
+ angle    = 9.574 deg
+ radial   = -1728.526 km (-0.000012 AU)
+
+Kerberos error relative to Pluto:
+
+ distance = 1253.833 km (0.000008 AU)
+ relative = 2.186%
+ angle    = 0.434 deg
+ radial   = 1174.656 km (0.000008 AU)
+
