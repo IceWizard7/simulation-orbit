@@ -319,7 +319,7 @@ void ui::draw_grid_3d(const Camera3D& cam) {
         DrawLineEx(
             GetWorldToScreen(a, cam),
             GetWorldToScreen(b, cam),
-            1.0f,
+            0.5f,
             Fade(WHITE, 0.5f)
         );
     };
