@@ -9,6 +9,8 @@
 #include "utils.hpp"
 
 #define NUM_CELESTIAL_BODIES 38
+#define NUM_PLANETS 9 // excluding dwarf planets & sun; always located at the first indices
+#define NUM_DWARF_PLANETS 1 // only dwarf planets
 
 namespace ui {
     struct RenderSnapshot;
@@ -19,8 +21,8 @@ namespace config {
     constexpr double ORIGINAL_AXIS_SCALING = 8;
 
     constexpr double ZOOM_FACTOR = 1.0717734625362931; // n-th root of 10 works, because then ZOOM_FACTOR**n = 10 => near perfect zoom cycle
-    constexpr int MAX_ORBIT_POINTS = 100'000; // => ~22.9 MiB RAM for orbit_history
-    constexpr int ORBIT_SAMPLE_EVERY_SECONDS = 259'200;
+    constexpr int MAX_ORBIT_POINTS = 1'200'000; // => ~274.8 MiB RAM for orbit_history
+    constexpr int ORBIT_SAMPLE_EVERY_SECONDS = 21'600;
     constexpr bool RENDERING_COORDINATES_RELATIVE_TO_OBJECT = true;
 
     constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2)

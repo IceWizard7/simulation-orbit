@@ -6,13 +6,18 @@
 #include "screen_utils.hpp"
 #include "simulation.hpp"
 
-float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0
-float cam_elevation = config::DEFAULT_CAM_ELEVATION; // 35° shows 3D immediately
-float cam_distance = config::DEFAULT_CAM_DISTANCE; // radius in world units
-bool view_3d = false; // toggle with keybind
-bool view_legend = true; // toggle with keybind
-auto last_copied = std::chrono::steady_clock::now();
-bool copied = false;
+namespace ui_config {
+    float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0
+    
+    float cam_elevation = config::DEFAULT_CAM_ELEVATION; // 35° shows 3D immediately
+    float cam_distance = config::DEFAULT_CAM_DISTANCE; // radius in world units
+    bool view_3d = false; // toggle with keybind
+    bool view_legend = true; // toggle with keybind
+    auto last_copied = std::chrono::steady_clock::now();
+    bool copied = false;
+    bool draw_moon_orbits = false;
+}
+
 
 void ui::DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, const float angle, const float fontSize, const float spacing, const Color color) {
     auto [x, y] = MeasureTextEx(font, text, fontSize, spacing);
@@ -171,7 +176,7 @@ void ui::draw_planet_info(const Color text_color, const Color background_color, 
     DrawText(config::uiFont, "Celestial body information", {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
 
     DrawText(config::uiFont, "Use as center", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
-    if (copied && std::chrono::steady_clock::now() - last_copied < std::chrono::milliseconds(1000)) {
+    if (ui_config::copied && std::chrono::steady_clock::now() - ui_config::last_copied < std::chrono::milliseconds(1000)) {
         DrawText(config::uiFont, "Copied!", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, 20, 1, text_color);
     } else {
         DrawText(config::uiFont, "Copy info", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, 20, 1, text_color);
@@ -198,6 +203,7 @@ void ui::draw_stats(const Color text_color, const Color background_color, const 
     DrawText(config::uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(config::steps_simulated) * runtime_config::time_step / (86'400 * 365))).c_str(), Vec2(config::WINDOW_MARGIN, 10), 20, 1, text_color);
     DrawText(config::uiFont, std::format("Computation time: {} seconds", round_to_hundreds(seconds)).c_str(), Vec2(config::WINDOW_MARGIN, 30), 20, 1, text_color);
     DrawText(config::uiFont, std::format("Step size: {}", runtime_config::time_step_string).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, text_color);
+    DrawText(config::uiFont, std::format("FPS: {}", GetFPS()).c_str(), Vec2(config::WINDOW_MARGIN, 70), 20, 1, text_color);
 
     // Right side
     DrawText(config::uiFont, std::format("Simulated years per second: {}", (seconds > 0.0 ? round_to_hundreds(((static_cast<double>(config::steps_simulated) * runtime_config::time_step / (86'400 * 365))) / seconds) : "0")).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, text_color);
@@ -206,17 +212,18 @@ void ui::draw_stats(const Color text_color, const Color background_color, const 
 }
 
 void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
-    const bool timer_running = config::timer.is_running();
+    const int hovered_body_i = pick_body_at_mouse_2d(snap);
 
     // snap->bodies positions are already relative to the center body (see publish_snapshot)
-    for (const auto& [name, position, radius_2d, _radius_3d, color, _planet_visual, _enabled] : snap->bodies) {
+    for (int i = 0; i < snap->bodies.size(); i++) {
+        const auto& [name, position, radius_2d, _radius_3d, color, _planet_visual, _enabled] = snap->bodies[i];
         if (color.has_value() && inside_screen(position)) {
             const Vector2 pos = to_raylib(position);
             DrawCircleV(pos, radius_2d, *color);
             Vector2 text_pos = pos;
             text_pos.y -= 10;
             text_pos.x += 10;
-            if (!timer_running) {
+            if (hovered_body_i != -1 && i == hovered_body_i) {
                 DrawTextOutlined(config::uiFont, name.c_str(), text_pos, 20, 1, *color, {0, 0, 0, 125});
             }
         }
@@ -224,7 +231,9 @@ void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
 }
 
 void ui::draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
-    for (const auto& [points, color] : snap->orbits) {
+    const int orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
+    for (int i = 0; i < orbit_max_i; i++) {
+        const auto& [points, color] = snap->orbits[i];
         if (!color.has_value() || points.size() < 2) continue;
 
         const auto segment_count = static_cast<float>(points.size() - 1);
@@ -469,8 +478,6 @@ int ui::pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap,
 }
 
 void ui::draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
-    if (config::timer.is_running()) return; // draw labels only while paused
-
     const int hovered_body_i = pick_body_at_mouse_3d(snap, cam);
 
     if (hovered_body_i == -1) return;
@@ -498,9 +505,9 @@ Camera3D ui::make_camera() {
     c.fovy = 45.0f;
     c.projection = CAMERA_PERSPECTIVE; // alternative: CAMERA_ORTHOGRAPHIC
     c.position = {
-        cam_distance * cosf(cam_elevation) * cosf(cam_azimuth),
-        cam_distance * sinf(cam_elevation),
-        cam_distance * cosf(cam_elevation) * sinf(cam_azimuth)
+        ui_config::cam_distance * cosf(ui_config::cam_elevation) * cosf(ui_config::cam_azimuth),
+        ui_config::cam_distance * sinf(ui_config::cam_elevation),
+        ui_config::cam_distance * cosf(ui_config::cam_elevation) * sinf(ui_config::cam_azimuth)
     };
 
     return c;
@@ -538,7 +545,7 @@ void ui::draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
         DrawRectangle(config::WINDOW_WIDTH - config::WINDOW_MARGIN, 0, config::WINDOW_MARGIN, config::WINDOW_HEIGHT, WHITE);
         draw_stats(BLACK, WHITE, snap);
         draw_ui();
-        if (view_legend) draw_legend(snap);
+        if (ui_config::view_legend) draw_legend(snap);
         draw_planet_info(BLACK, WHITE, snap);
     }
 }
@@ -550,6 +557,7 @@ General
     r: Reset scaling
     Space: Continue / Pause simulation
     t: Toggle 2d/3d
+    m: Toogle moon orbits
     l: Toggle legend (2d-view only)
     Left click: More info on celestial body
 
@@ -571,7 +579,7 @@ Changing center celestial body
     9: Pluto
 
 3D-only
-    Right click: Change angle of camera
+    Left drag: Change angle of camera
 */
 void ui::UpdateDrawFrame() {
     std::shared_ptr<const RenderSnapshot> snap;
@@ -610,14 +618,14 @@ void ui::UpdateDrawFrame() {
         if (copy_start.x <= mx && mx <= copy_end.x &&
             copy_start.y <= my && my <= copy_end.y) {
             copied_button_pressed = true;
-            last_copied = std::chrono::steady_clock::now();
-            copied = true;
+            ui_config::last_copied = std::chrono::steady_clock::now();
+            ui_config::copied = true;
         }
     }
 
     if (!center_button_pressed && !copied_button_pressed) {
         int selected_body_i = -2;
-        if (view_3d) {
+        if (ui_config::view_3d) {
             if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
                 selected_body_i = pick_body_at_mouse_3d(snap, make_camera());
             }
@@ -670,60 +678,61 @@ void ui::UpdateDrawFrame() {
 
     }
 
-    if (IsKeyPressed(KEY_T)) view_3d = !view_3d;
-    if (!view_3d && IsKeyPressed(KEY_L)) view_legend = !view_legend;
+    if (IsKeyPressed(KEY_T)) ui_config::view_3d = !ui_config::view_3d;
+    if (!ui_config::view_3d && IsKeyPressed(KEY_L)) ui_config::view_legend = !ui_config::view_legend;
+    if (IsKeyPressed(KEY_M)) ui_config::draw_moon_orbits = !ui_config::draw_moon_orbits;
 
     const float scroll = GetMouseWheelMove();
 
-    if (view_3d) {
+    if (ui_config::view_3d) {
         bool cam_turned = false;
 
         const float drag_summand = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::DRAG_SENSITIVITY * 5) : config::DRAG_SENSITIVITY * 2;
 
         if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
-            cam_azimuth += drag_summand;
+            ui_config::cam_azimuth += drag_summand;
             cam_turned = true;
         }
         if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
-            cam_elevation += drag_summand;
+            ui_config::cam_elevation += drag_summand;
             cam_turned = true;
         }
         if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
-            cam_azimuth -= drag_summand;
+            ui_config::cam_azimuth -= drag_summand;
             cam_turned = true;
         }
         if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
-            cam_elevation -= drag_summand;
+            ui_config::cam_elevation -= drag_summand;
             cam_turned = true;
         }
 
-        if (IsMouseButtonDown(MOUSE_BUTTON_RIGHT)) {
+        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
             auto [x, y] = GetMouseDelta();
-            cam_azimuth   += x * config::DRAG_SENSITIVITY; // left/right = spin
-            cam_elevation += y * config::DRAG_SENSITIVITY; // up/down = tilt
+            ui_config::cam_azimuth   += x * config::DRAG_SENSITIVITY; // left/right = spin
+            ui_config::cam_elevation += y * config::DRAG_SENSITIVITY; // up/down = tilt
             cam_turned = true;
         }
 
         if (cam_turned) {
             // Clamp
             constexpr float lim = 89.0f * DEG2RAD;
-            cam_elevation = std::clamp(cam_elevation, -lim, lim);
+            ui_config::cam_elevation = std::clamp(ui_config::cam_elevation, -lim, lim);
         }
 
         const float zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR) : config::ZOOM_3D_FACTOR;
 
         if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
-            cam_distance *= 1/zoom_factor;
+            ui_config::cam_distance *= 1/zoom_factor;
         } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
-            cam_distance *= zoom_factor;
+            ui_config::cam_distance *= zoom_factor;
         }
 
-        cam_distance = std::clamp(cam_distance, 0.1f, 200.0f);
+        ui_config::cam_distance = std::clamp(ui_config::cam_distance, 0.1f, 200.0f);
         if (IsKeyPressed(KEY_R)) {
             // reset azimuth/elevation/distance to defaults
-            cam_azimuth = config::DEFAULT_CAM_AZIMUTH;
-            cam_elevation = config::DEFAULT_CAM_ELEVATION;
-            cam_distance = config::DEFAULT_CAM_DISTANCE;
+            ui_config::cam_azimuth = config::DEFAULT_CAM_AZIMUTH;
+            ui_config::cam_elevation = config::DEFAULT_CAM_ELEVATION;
+            ui_config::cam_distance = config::DEFAULT_CAM_DISTANCE;
         }
     } else {
         const double zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_FACTOR*config::ZOOM_FACTOR) : config::ZOOM_FACTOR;
@@ -753,7 +762,7 @@ void ui::UpdateDrawFrame() {
     BeginDrawing();
     ClearBackground(WHITE);
 
-    if (view_3d) {
+    if (ui_config::view_3d) {
         draw_3d(snap);
     } else {
         draw_2d(snap);

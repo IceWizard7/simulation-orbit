@@ -198,12 +198,12 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
                 }
             } else if (val == "planets") {
                 for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                    if (j < 9) celestial_bodies[j].enabled = true;
+                    if (j < NUM_PLANETS) celestial_bodies[j].enabled = true;
                     else celestial_bodies[j].enabled = false;
                 }
             } else if (val == "dwarf") {
                 for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                    if (j < 10) celestial_bodies[j].enabled = true;
+                    if (j < NUM_PLANETS + NUM_DWARF_PLANETS) celestial_bodies[j].enabled = true;
                     else celestial_bodies[j].enabled = false;
                 }
             } else {
