@@ -21,8 +21,14 @@ namespace config {
     constexpr double ORIGINAL_AXIS_SCALING = 8;
 
     constexpr double ZOOM_FACTOR = 1.0717734625362931; // n-th root of 10 works, because then ZOOM_FACTOR**n = 10 => near perfect zoom cycle
-    constexpr int MAX_ORBIT_POINTS = 1'200'000; // => ~274.8 MiB RAM for orbit_history
-    constexpr int ORBIT_SAMPLE_EVERY_SECONDS = 21'600;
+
+    // Orbit trails are sampled per body from its orbital_period_seconds: every body gets the same
+    // angular resolution regardless of period
+    // TAIL_REVOLUTIONS sets how many revolutions each trail keeps: ~1.05 -> one clean closed curve, higher -> faded precession spirals
+    // Memory & per-frame cost scale with REVOLUTIONS * POINTS (points per body ~= that product)
+    constexpr int ORBIT_POINTS_PER_REVOLUTION = 1'024;
+    constexpr double ORBIT_TAIL_REVOLUTIONS = 10;
+
     constexpr bool RENDERING_COORDINATES_RELATIVE_TO_OBJECT = true;
 
     constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2)

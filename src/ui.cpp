@@ -261,21 +261,31 @@ void ui::draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
 void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
-    for (const auto& [pts, color] : snap->orbits) {
+    const int orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
+    for (int i = 0; i < orbit_max_i; i++) {
+        const auto& [pts, color] = snap->orbits[i];
         if (!color || pts.size() < 2) continue;
 
+        const auto segment_count = static_cast<float>(pts.size() - 1);
+
+        // GetWorldToScreen doesn't clip points behind the camera
+        // it can project them to a wrong on-screen spot, so skip those segments
+        const Vector3 first_world = to_world(pts[0]);
+        bool prev_in_front = Vector3DotProduct(Vector3Subtract(first_world, cam.position), forward) > 0;
+        Vector2 prev_screen = prev_in_front ? GetWorldToScreen(first_world, cam) : Vector2{};
+
         for (size_t j = 1; j < pts.size(); j++) {
-            const Vector3 start = to_world(pts[j - 1]);
-            const Vector3 end = to_world(pts[j]);
+            const Vector3 world = to_world(pts[j]);
+            const bool in_front = Vector3DotProduct(Vector3Subtract(world, cam.position), forward) > 0;
+            const Vector2 screen = in_front ? GetWorldToScreen(world, cam) : Vector2{};
 
-            // GetWorldToScreen doesn't clip points behind the camera
-            // it can project them to a wrong on-screen spot, so skip those segments
-            if (Vector3DotProduct(Vector3Subtract(start, cam.position), forward) <= 0) continue;
-            if (Vector3DotProduct(Vector3Subtract(end, cam.position), forward) <= 0) continue;
+            if (prev_in_front && in_front) {
+                const float alpha = 0.10f + 0.70f * (static_cast<float>(j) / segment_count);
+                DrawLineEx(prev_screen, screen, 2.0f, Fade(*color, alpha));
+            }
 
-            // const float alpha = (0.10f + 0.70f * (static_cast<float>(j) / n)) / 3;
-            constexpr float alpha = 1.0f; // TODO: We need to stop overlapping. Otherwise, even if alpha is 0.1f for all planets, for some, the lines will appear as if they had higher alpha
-            DrawLineEx(GetWorldToScreen(start, cam), GetWorldToScreen(end, cam), 2.0f, Fade(*color, alpha));
+            prev_in_front = in_front;
+            prev_screen = screen;
         }
     }
 }

@@ -17,8 +17,13 @@ public:
     const float draw_radius_2d;
     const float draw_radius_3d;
     const std::optional<Color> color;
-    const int max_rendered_orbit_segments_per_body;
-    const int max_rendered_orbit_tail;
+
+    // Approximate orbital period (parent-relative for moons, heliocentric for planets;
+    // the Sun uses Pluto's period so its history — which bounds how far back center-relative
+    // trails can reach — spans every other body's full tail)
+    // Rendering-only; sets the orbit-trail sampling cadence and tail length
+    const double orbital_period_seconds;
+
     PlanetVisual planet_visual;
     bool enabled = true;
 
@@ -36,8 +41,7 @@ public:
         float radius_2d,
         float radius_3d,
         const std::optional<Color>& color,
-        int max_rendered_orbit_segments_per_body,
-        int max_rendered_orbit_tail,
+        double orbital_period_seconds,
         const std::optional<str>& texture_path = std::nullopt,
         double j2 = 0.0,
         double equatorial_radius = 0.0,

@@ -16,6 +16,14 @@ namespace simulation {
     inline std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
     inline std::optional<std::array<Vec3, NUM_CELESTIAL_BODIES>> accelerations_at_current_positions;
 
+    // Per-body orbit-trail sampling derived from orbital_period_seconds and the runtime --dt
+    // (rendering-only; see config::ORBIT_POINTS_PER_REVOLUTION)
+    inline std::array<std::size_t, NUM_CELESTIAL_BODIES> orbit_sample_every_steps;
+    inline std::array<std::size_t, NUM_CELESTIAL_BODIES> orbit_max_points;
+
+    // Must run after CLI parsing (needs the final time step) and before the first simulate_step
+    void initialize_orbit_sampling();
+
     void save_orbit_points();
 
     bool initialize_csv_output();
