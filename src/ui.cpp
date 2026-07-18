@@ -203,7 +203,7 @@ void ui::draw_stats(const Color text_color, const Color background_color, const 
     DrawText(config::uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(config::steps_simulated) * runtime_config::time_step / (86'400 * 365))).c_str(), Vec2(config::WINDOW_MARGIN, 10), 20, 1, text_color);
     DrawText(config::uiFont, std::format("Computation time: {} seconds", round_to_hundreds(seconds)).c_str(), Vec2(config::WINDOW_MARGIN, 30), 20, 1, text_color);
     DrawText(config::uiFont, std::format("Step size: {}", runtime_config::time_step_string).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, text_color);
-    DrawText(config::uiFont, std::format("FPS: {}", GetFPS()).c_str(), Vec2(config::WINDOW_MARGIN, 70), 20, 1, text_color);
+    // DrawText(config::uiFont, std::format("FPS: {}", GetFPS()).c_str(), Vec2(config::WINDOW_MARGIN, 70), 20, 1, text_color);
 
     // Right side
     DrawText(config::uiFont, std::format("Simulated years per second: {}", (seconds > 0.0 ? round_to_hundreds(((static_cast<double>(config::steps_simulated) * runtime_config::time_step / (86'400 * 365))) / seconds) : "0")).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, text_color);
