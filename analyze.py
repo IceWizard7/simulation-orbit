@@ -936,10 +936,10 @@ def compare_csv() -> None:
 
 def print_usage() -> None:
     print("Commands:")
-    print(f"  {sys.argv[0]} code                                        Formatted celestial body JPL data")
-    print(f"  {sys.argv[0]} analyze output.txt                          Analyze program output & compare to JPL data. Reads output from stdin if output is not given")
-    print(f"  {sys.argv[0]} compare reference.txt candidate.txt         Compare 2 program outputs. Reads from candidate from stdin if candidate is not given")
-    print(f"  {sys.argv[0]} compare-csv reference.csv candidate.csv     Compare 2 program csv outputs")
+    print(f"  {sys.argv[0]} code                                       Formatted celestial body JPL data")
+    print(f"  {sys.argv[0]} analyze output.txt                         Analyze program output & compare to JPL data. Reads output from stdin if output is not given")
+    print(f"  {sys.argv[0]} compare reference.txt candidate.txt        Compare 2 program outputs. Reads from candidate from stdin if candidate is not given")
+    print(f"  {sys.argv[0]} compare-csv reference.csv candidate.csv    Compare 2 program csv outputs")
 
 def require_argc(required_argc: int) -> None:
     if len(sys.argv) < required_argc:
