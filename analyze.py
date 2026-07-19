@@ -183,7 +183,6 @@ class Oblateness:
 # R_eq: https://ssd.jpl.nasa.gov/planets/phys_par.html
 planet_oblateness: dict[str, Oblateness] = {
     # j2, R_eq (m), pole RA, pole Dec
-    # TODO: j2, pole RA, pole Dec
     "Earth":   Oblateness(1082.63e-6, 6378.1366e3, 0.0, 90.0),  # http://web.archive.org/web/20250821225047/https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html
     "Mars":    Oblateness(1960.45e-6, 3396.19e3, 317.681, 52.887),  # https://web.archive.org/web/20250820142225/https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html
     "Jupiter": Oblateness(14736e-6, 71492e3, 268.057, 64.495),  # https://web.archive.org/web/20250813051413/https://nssdc.gsfc.nasa.gov/planetary/factsheet/jupiterfact.html
