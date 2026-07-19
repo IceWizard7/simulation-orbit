@@ -8,6 +8,8 @@ import math
 import pathlib
 import shlex
 import typing
+import csv
+import itertools
 
 planet_to_horizon_id: dict[str, int] = {
     # Sun
@@ -149,14 +151,28 @@ class Vec3:
     y: float
     z: float
 
-    def __sub__(self, other: Vec3) -> Vec3:
-        return Vec3(self.x - other.x, self.y - other.y, self.z - other.z)
+    def __sub__(self, other: object) -> Vec3:
+        if isinstance(other, Vec3):
+            return Vec3(self.x - other.x, self.y - other.y, self.z - other.z)
+        return NotImplemented
+
+    def __truediv__(self, other: object) -> Vec3:
+        if isinstance(other, float):
+            return Vec3(self.x / other, self.y / other, self.z / other)
+        return NotImplemented
 
     def length(self) -> float:
         return math.sqrt(self.x ** 2 + self.y ** 2 + self.z ** 2)
 
     def dot(self, other: Vec3) -> float:
         return (self.x * other.x) + (self.y * other.y) + (self.z * other.z)
+
+    def cross(self, other: Vec3) -> Vec3:
+        return Vec3(
+            self.y * other.z - self.z * other.y,
+            self.z * other.x - self.x * other.z,
+            self.x * other.y - self.y * other.x,
+        )
 
     def angle_degrees(self, other: Vec3) -> float:
         denominator = self.length() * other.length()
@@ -190,6 +206,65 @@ class ErrorMetrics:
     relative_percent: float
     angular_degrees: float
     radial_m: float
+
+@dataclasses.dataclass(frozen=True)
+class BodyState:
+    position: Vec3
+    velocity: Vec3
+
+@dataclasses.dataclass(frozen=True)
+class CSVSample:
+    step: int
+    simulated_seconds: int
+    bodies: dict[str, BodyState]
+
+def read_csv_samples(path: pathlib.Path) -> list[CSVSample]:
+    samples: list[CSVSample] = []
+    bodies: list[str] = []
+
+    with path.open(newline="") as f:
+        reader = csv.DictReader(f)
+        field_names: list[str] = list(reader.fieldnames)  # type: ignore[unused-ignore]
+
+        for planet in planet_to_horizon_id:
+            expected_headers = [
+                f'{planet}_position_x',
+                f'{planet}_position_y',
+                f'{planet}_position_z',
+                f'{planet}_velocity_x',
+                f'{planet}_velocity_y',
+                f'{planet}_velocity_z'
+            ]
+            add_planet: bool = True
+            for expected_header in expected_headers:
+                if expected_header not in field_names:
+                    add_planet = False
+                    break
+            if add_planet: bodies.append(planet)
+
+        for row in reader:
+            sample: CSVSample = CSVSample(
+                int(row["step"]),
+                int(row["simulated_seconds"]),
+                {
+                    body: BodyState(
+                        Vec3(
+                            float(row[f"{body}_position_x"]),
+                            float(row[f"{body}_position_y"]),
+                            float(row[f"{body}_position_z"])
+                        ),
+                        Vec3(
+                            float(row[f"{body}_velocity_x"]),
+                            float(row[f"{body}_velocity_y"]),
+                            float(row[f"{body}_velocity_z"])
+                        )
+                    )
+                    for body in bodies
+                }
+            )
+            samples.append(sample)
+
+    return samples
 
 def parse_program_output(text: str) -> ProgramRun:
     computation_seconds_match = re.search(r"Computation time:\s*([0-9.]+)", text)
@@ -642,11 +717,229 @@ def compare() -> None:
     print(f"Candidate computation time: {candidate_run.computation_seconds} seconds\n")
     print(f"Speedup: {reference_run.computation_seconds / candidate_run.computation_seconds}x")
 
+def compare_csv() -> None:
+    reference_path: pathlib.Path = pathlib.Path(sys.argv[2])
+    candidate_path: pathlib.Path = pathlib.Path(sys.argv[3])
+
+    class RunningStats:
+        def __init__(self) -> None:
+            self.count = 0
+            self.final = 0.0
+            self.maximum_absolute = 0.0
+            self.sum_of_squares = 0.0
+
+        def add(self, value: float) -> None:
+            self.count += 1
+            self.final = value
+            self.maximum_absolute = max(self.maximum_absolute, abs(value))
+            self.sum_of_squares += value * value
+
+        def rms(self) -> float:
+            if self.count == 0:
+                return float("nan")
+            return math.sqrt(self.sum_of_squares / self.count)
+
+    def relative_state(sample: CSVSample, body: str, use_sun_relative_frame: bool) -> BodyState:
+        state = sample.bodies[body]
+
+        if body in moon_to_parent:
+            origin_name = moon_to_parent[body]
+        elif body != "Sun" and use_sun_relative_frame:
+            origin_name = "Sun"
+        else:
+            return state
+
+        if origin_name not in sample.bodies:
+            raise RuntimeError(
+                f"{body} requires {origin_name} for relative analysis at "
+                f"simulated_seconds={sample.simulated_seconds}"
+            )
+
+        origin = sample.bodies[origin_name]
+        return BodyState(
+            state.position - origin.position,
+            state.velocity - origin.velocity,
+        )
+
+    def ensure_finite(state: BodyState, body: str, sample: CSVSample, source: str) -> None:
+        values = (
+            state.position.x,
+            state.position.y,
+            state.position.z,
+            state.velocity.x,
+            state.velocity.y,
+            state.velocity.z,
+        )
+        if not all(math.isfinite(value) for value in values):
+            raise RuntimeError(
+                f"Non-finite {source} state for {body} at "
+                f"simulated_seconds={sample.simulated_seconds}"
+            )
+
+    def print_distance_stats(label: str, stats: RunningStats) -> None:
+        print(
+            f"  {label}: final={stats.final / 1_000:.6f} km, "
+            f"max_abs={stats.maximum_absolute / 1_000:.6f} km, "
+            f"RMS={stats.rms() / 1_000:.6f} km"
+        )
+
+    def print_phase_stats(label: str, stats: RunningStats) -> None:
+        print(
+            f"  {label}: final={stats.final:.6f} deg, "
+            f"max_abs={stats.maximum_absolute:.6f} deg, "
+            f"RMS={stats.rms():.6f} deg"
+        )
+
+    reference_samples = read_csv_samples(reference_path)
+    candidate_samples = read_csv_samples(candidate_path)
+    if not reference_samples:
+        raise RuntimeError(f"Reference CSV contains no samples: {reference_path}")
+    if not candidate_samples:
+        raise RuntimeError(f"Candidate CSV contains no samples: {candidate_path}")
+
+    reference_bodies = set(reference_samples[0].bodies)
+    candidate_bodies = set(candidate_samples[0].bodies)
+    missing_reference_bodies = candidate_bodies - reference_bodies
+    if missing_reference_bodies:
+        raise RuntimeError(
+            "Reference CSV is missing candidate bodies: "
+            + ", ".join(sorted(missing_reference_bodies))
+        )
+
+    body_order = [name for name in planet_to_horizon_id if name in candidate_bodies]
+    position_error_stats = {body: RunningStats() for body in body_order}
+    moon_component_stats = {
+        body: {
+            "radial": RunningStats(),
+            "along-track": RunningStats(),
+            "cross-track": RunningStats(),
+            "phase": RunningStats(),
+        }
+        for body in body_order
+        if body in moon_to_parent
+    }
+    previous_wrapped_phase: dict[str, float] = {}
+    unwrapped_phase: dict[str, float] = {}
+
+    sample_count = 0
+    previous_simulated_seconds: int | None = None
+    for reference_sample, candidate_sample in itertools.zip_longest(
+        reference_samples,
+        candidate_samples,
+    ):
+        if reference_sample is None:
+            raise RuntimeError("Candidate CSV contains more samples than the reference CSV")
+        if candidate_sample is None:
+            raise RuntimeError("Reference CSV contains more samples than the candidate CSV")
+        if reference_sample.simulated_seconds != candidate_sample.simulated_seconds:
+            raise RuntimeError(
+                "CSV sample times do not match: "
+                f"reference={reference_sample.simulated_seconds}, "
+                f"candidate={candidate_sample.simulated_seconds}"
+            )
+        if (
+            previous_simulated_seconds is not None
+            and reference_sample.simulated_seconds <= previous_simulated_seconds
+        ):
+            raise RuntimeError(
+                "CSV sample times must be strictly increasing; found "
+                f"{reference_sample.simulated_seconds} after {previous_simulated_seconds}"
+            )
+
+        if set(reference_sample.bodies) != reference_bodies:
+            raise RuntimeError("Reference CSV body columns changed between samples")
+        if set(candidate_sample.bodies) != candidate_bodies:
+            raise RuntimeError("Candidate CSV body columns changed between samples")
+
+        previous_simulated_seconds = reference_sample.simulated_seconds
+        sample_count += 1
+
+        for body in body_order:
+            use_sun_relative_frame = "Sun" in candidate_bodies
+            reference_state = relative_state(reference_sample, body, use_sun_relative_frame)
+            candidate_state = relative_state(candidate_sample, body, use_sun_relative_frame)
+            ensure_finite(reference_state, body, reference_sample, "reference")
+            ensure_finite(candidate_state, body, candidate_sample, "candidate")
+
+            position_error = candidate_state.position - reference_state.position
+            position_error_stats[body].add(position_error.length())
+
+            if body not in moon_component_stats:
+                continue
+
+            reference_radius = reference_state.position.length()
+            reference_angular_momentum = reference_state.position.cross(reference_state.velocity)
+            angular_momentum_length = reference_angular_momentum.length()
+            candidate_radius = candidate_state.position.length()
+            if reference_radius <= EPS or angular_momentum_length <= EPS or candidate_radius <= EPS:
+                raise RuntimeError(
+                    f"Cannot construct the RTN frame for {body} at "
+                    f"simulated_seconds={reference_sample.simulated_seconds}"
+                )
+
+            radial_axis = reference_state.position / reference_radius
+            normal_axis = reference_angular_momentum / angular_momentum_length
+            along_track_axis = normal_axis.cross(radial_axis)
+
+            moon_component_stats[body]["radial"].add(position_error.dot(radial_axis))
+            moon_component_stats[body]["along-track"].add(position_error.dot(along_track_axis))
+            moon_component_stats[body]["cross-track"].add(position_error.dot(normal_axis))
+
+            wrapped_phase = math.atan2(
+                normal_axis.dot(reference_state.position.cross(candidate_state.position)),
+                reference_state.position.dot(candidate_state.position),
+            )
+            if body not in previous_wrapped_phase:
+                unwrapped_phase[body] = wrapped_phase
+            else:
+                phase_change = wrapped_phase - previous_wrapped_phase[body]
+                if phase_change > math.pi:
+                    phase_change -= 2.0 * math.pi
+                elif phase_change < -math.pi:
+                    phase_change += 2.0 * math.pi
+                unwrapped_phase[body] += phase_change
+
+            previous_wrapped_phase[body] = wrapped_phase
+            moon_component_stats[body]["phase"].add(math.degrees(unwrapped_phase[body]))
+
+    print("\nReproduce this report:")
+    print(f"  Reference CSV:      {shlex.quote(str(reference_path))}")
+    print(f"  Candidate CSV:      {shlex.quote(str(candidate_path))}")
+    print(f"  Analysis invocation: {analysis_invocation_command()}\n")
+    print(f"Samples compared: {sample_count}")
+    print(f"Final simulated time: {previous_simulated_seconds} seconds")
+    print(f"Candidate bodies: {', '.join(body_order)}\n")
+
+    print("Time-series position errors:")
+    for body in body_order:
+        if body in moon_to_parent:
+            frame = f"relative to {moon_to_parent[body]}"
+        elif body != "Sun" and "Sun" in candidate_bodies:
+            frame = "relative to Sun"
+        else:
+            frame = "barycentric"
+        print(f"{body} ({frame}):")
+        print_distance_stats("position", position_error_stats[body])
+
+    if moon_component_stats:
+        print("\nParent-relative moon RTN and unwrapped phase errors:")
+        for body in body_order:
+            if body not in moon_component_stats:
+                continue
+            stats = moon_component_stats[body]
+            print(f"{body} relative to {moon_to_parent[body]}:")
+            print_distance_stats("radial", stats["radial"])
+            print_distance_stats("along-track", stats["along-track"])
+            print_distance_stats("cross-track", stats["cross-track"])
+            print_phase_stats("unwrapped phase", stats["phase"])
+
+
 def print_usage() -> None:
     print("Commands:")
-    print(f"  {sys.argv[0]} code                            Formatted celestial body JPL data")
-    print(f"  {sys.argv[0]} analyze output                  Analyze program output & compare to JPL data. Reads output from stdin if output is not given")
-    print(f"  {sys.argv[0]} compare reference candidate     Compare 2 program outputs. Reads from candidate from stdin if candidate is not given")
+    print(f"  {sys.argv[0]} code                                        Formatted celestial body JPL data")
+    print(f"  {sys.argv[0]} analyze output.txt                          Analyze program output & compare to JPL data. Reads output from stdin if output is not given")
+    print(f"  {sys.argv[0]} compare reference.txt candidate.txt         Compare 2 program outputs. Reads from candidate from stdin if candidate is not given")
+    print(f"  {sys.argv[0]} compare-csv reference.csv candidate.csv     Compare 2 program csv outputs")
 
 def require_argc(required_argc: int) -> None:
     if len(sys.argv) < required_argc:
@@ -659,4 +952,5 @@ if __name__ == '__main__':
         case "code": require_argc(2); print_code()
         case "analyze": require_argc(2); analyze_error()
         case "compare": require_argc(3); compare()
-        case _: print_usage()
+        case "compare-csv": require_argc(4); compare_csv()
+        case _: print_usage(); sys.exit(1)
