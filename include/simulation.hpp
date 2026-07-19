@@ -5,6 +5,7 @@
 #include "config.hpp"
 
 struct CSVEntry {
+    size_t simulated_seconds{};
     size_t step{};
     std::array<std::optional<Vec3>, NUM_CELESTIAL_BODIES> positions{};
     std::array<std::optional<Vec3>, NUM_CELESTIAL_BODIES> velocities{};

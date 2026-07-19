@@ -56,6 +56,7 @@ bool simulation::live_csv_write_failed = false;
 CSVEntry simulation::capture_csv_entry() {
     CSVEntry entry;
     entry.step = config::steps_simulated.load();
+    entry.simulated_seconds = entry.step * runtime_config::time_step;
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
         if (!celestial_bodies[i].enabled) continue;
@@ -67,7 +68,8 @@ CSVEntry simulation::capture_csv_entry() {
 }
 
 void simulation::write_csv_header(std::ostream& output) {
-    output << "step";
+    output << "step,";
+    output << "simulated_seconds";
     for (const auto& celestial_body : celestial_bodies) {
         if (!celestial_body.enabled) continue;
         output << ',' << celestial_body.name << "_position_x"
@@ -81,7 +83,7 @@ void simulation::write_csv_header(std::ostream& output) {
 }
 
 void simulation::write_csv_entry(std::ostream& output, const CSVEntry& entry) {
-    output << entry.step;
+    output << entry.step << "," << entry.simulated_seconds;
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
         const auto& position = entry.positions[i];
