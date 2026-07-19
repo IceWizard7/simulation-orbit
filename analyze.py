@@ -1,6 +1,8 @@
 from __future__ import annotations
 import sys
 import dataclasses
+from typing import Any
+
 import requests
 import re
 import datetime
@@ -102,6 +104,18 @@ moon_to_parent: dict[str, str] = {
     "Kerberos": "Pluto"
 }
 
+# The barycentric approximation deliberately uses exactly the bodies modeled by
+# the C++ simulator, rather than Horizons' broader official planet-system membership.
+planetary_system_to_moons: dict[str, tuple[str, ...]] = {
+    "Earth": ("Moon",),
+    "Mars": ("Phobos", "Deimos"),
+    "Jupiter": ("Io", "Europa", "Ganymede", "Callisto"),
+    "Saturn": ("Mimas", "Enceladus", "Tethys", "Dione", "Rhea", "Titan", "Hyperion", "Iapetus", "Phoebe"),
+    "Uranus": ("Ariel", "Umbriel", "Titania", "Oberon", "Miranda"),
+    "Neptune": ("Triton", "Nereid", "Proteus"),
+    "Pluto": ("Charon", "Nix", "Hydra", "Kerberos"),
+}
+
 # GM in m^3/s^2
 # Phobos/Deimos: JPL satellite solution values (Horizons lists only Mass for 401/402).
 # Nereid: no mass or GM anywhere in Horizons
@@ -110,6 +124,49 @@ hardcoded_gm: dict[int, float] = {
     401: 7.087546066894452e-4 * 1e9,  # Phobos ≈ 7.0875e5 m^3/s^2
     402: 9.615569648120313e-5 * 1e9,  # Deimos ≈ 9.6156e4 m^3/s^2
     802: 2.07e9,                      # Nereid ≈ 3.1e19 kg * G
+}
+
+# Exact original GM values used by src/simulation.cpp. Offline CSV-to-CSV
+# barycentre analysis needs these weights without making a Horizons request.
+body_gravitational_mass: dict[str, float] = {
+    "Sun": 1.3271244004193937e20,
+    "Mercury": 22031868550000.0,
+    "Venus": 324858592000000.0,
+    "Earth": 398600435436000.0,
+    "Mars": 42828375662000.0,
+    "Jupiter": 1.266865319e17,
+    "Saturn": 3.7931206234e16,
+    "Uranus": 5793950610300000.0,
+    "Neptune": 6835099970000000.0,
+    "Pluto": 869326000000.0,
+    "Moon": 4902800066000.0,
+    "Phobos": 708754.6066894452,
+    "Deimos": 96155.69648120314,
+    "Io": 5959915500000.0,
+    "Europa": 3202712100000.0,
+    "Ganymede": 9887832800000.0,
+    "Callisto": 7179283400000.0,
+    "Mimas": 2503489000.0,
+    "Enceladus": 7210367000.0,
+    "Tethys": 41210000000.0,
+    "Dione": 73116000000.0,
+    "Rhea": 153940000000.0,
+    "Titan": 8978140000000.0,
+    "Hyperion": 370500000.0,
+    "Iapetus": 120520000000.0,
+    "Phoebe": 554800000.0,
+    "Ariel": 83430000000.0,
+    "Umbriel": 85400000000.0,
+    "Titania": 222800000000.0,
+    "Oberon": 205340000000.0,
+    "Miranda": 4300000000.0,
+    "Triton": 1428495000000.0,
+    "Nereid": 2070000000.0,
+    "Proteus": 2580000000.0,
+    "Charon": 106100000000.0,
+    "Nix": 1496000.0,
+    "Hydra": 2010000.0,
+    "Kerberos": 60380.0,
 }
 
 OBLIQUITY_J2000_DEG: float = 23.4392911  # IAU 2006 mean obliquity of the ecliptic at Year 2000
@@ -151,15 +208,27 @@ class Vec3:
     y: float
     z: float
 
+    def __add__(self, other: object) -> Vec3:
+        if isinstance(other, Vec3):
+            return Vec3(self.x + other.x, self.y + other.y, self.z + other.z)
+        return NotImplemented
+
     def __sub__(self, other: object) -> Vec3:
         if isinstance(other, Vec3):
             return Vec3(self.x - other.x, self.y - other.y, self.z - other.z)
         return NotImplemented
 
     def __truediv__(self, other: object) -> Vec3:
-        if isinstance(other, float):
+        if isinstance(other, (float, int)):
             return Vec3(self.x / other, self.y / other, self.z / other)
         return NotImplemented
+
+    def __mul__(self, other: object) -> Vec3:
+        if isinstance(other, (float, int)):
+            return Vec3(self.x * other, self.y * other, self.z * other)
+        return NotImplemented
+
+    __rmul__ = __mul__
 
     def length(self) -> float:
         return math.sqrt(self.x ** 2 + self.y ** 2 + self.z ** 2)
@@ -198,6 +267,7 @@ class ProgramRun:
     dt: float
     vectors: list[Vec3]
     enabled_body_indices: frozenset[int]
+    body_set: str
     invocation_command: str
 
 @dataclasses.dataclass(frozen=True)
@@ -217,6 +287,82 @@ class CSVSample:
     step: int
     simulated_seconds: int
     bodies: dict[str, BodyState]
+
+def planetary_system_members(parent: str) -> tuple[str, ...]:
+    return parent, *planetary_system_to_moons.get(parent, ())
+
+def weighted_system_state(sample: CSVSample, parent: str, require_explicit_moons: bool) -> BodyState:
+    if parent not in sample.bodies:
+        raise RuntimeError(
+            f"CSV sample has no {parent} state at simulated_seconds={sample.simulated_seconds}"
+        )
+
+    moons = planetary_system_to_moons.get(parent, ())
+    present_moons = tuple(moon for moon in moons if moon in sample.bodies)
+    if not present_moons and not require_explicit_moons:
+        # In a planet-systems or naive moon-free run, the parent column is the
+        # only available representation of the planetary system.
+        return sample.bodies[parent]
+
+    if present_moons != moons:
+        missing = [moon for moon in moons if moon not in sample.bodies]
+        raise RuntimeError(
+            f"Cannot construct the {parent} system barycentre at "
+            f"simulated_seconds={sample.simulated_seconds}; missing: {', '.join(missing)}"
+        )
+
+    members = planetary_system_members(parent)
+    total_gm = sum(body_gravitational_mass[name] for name in members)
+    weighted_position = Vec3(0.0, 0.0, 0.0)
+    weighted_velocity = Vec3(0.0, 0.0, 0.0)
+    for name in members:
+        gm = body_gravitational_mass[name]
+        weighted_position += sample.bodies[name].position * gm
+        weighted_velocity += sample.bodies[name].velocity * gm
+
+    return BodyState(weighted_position / total_gm, weighted_velocity / total_gm)
+
+def collapse_system_positions(vectors: list[Vec3], names: list[str]) -> list[Vec3]:
+    if len(vectors) != len(names):
+        raise ValueError("Vectors and names must have equal lengths for barycentre construction")
+
+    indices: dict[str, int] = {name: index for index, name in enumerate(names)}
+    collapsed: list[Vec3] = list(vectors)
+    for parent in planetary_system_to_moons:
+        members: tuple[str, ...] = planetary_system_members(parent)
+        total_gm: float = sum(body_gravitational_mass[name] for name in members)
+        weighted_position: Vec3 = Vec3(0.0, 0.0, 0.0)
+        for name in members:
+            weighted_position += vectors[indices[name]] * body_gravitational_mass[name]
+        collapsed[indices[parent]] = weighted_position / total_gm
+
+    return collapsed
+
+def system_output_indices(enabled_body_indices: frozenset[int], names: list[str]) -> frozenset[int]:
+    parent_names: set[str] = {"Sun", "Mercury", "Venus", *planetary_system_to_moons.keys()}
+    return frozenset(
+        index
+        for index in enabled_body_indices
+        if names[index] in parent_names
+    )
+
+def require_complete_explicit_systems(
+    enabled_body_indices: frozenset[int],
+    names: list[str],
+    source: str,
+) -> None:
+    enabled_names = {names[index] for index in enabled_body_indices}
+    required_names = {
+        name
+        for parent in planetary_system_to_moons
+        for name in planetary_system_members(parent)
+    }
+    missing_names = [name for name in names if name in required_names and name not in enabled_names]
+    if missing_names:
+        raise RuntimeError(
+            f"{source} cannot construct every modeled planetary-system barycentre; "
+            f"disabled or missing: {', '.join(missing_names)}"
+        )
 
 def read_csv_samples(path: pathlib.Path) -> list[CSVSample]:
     samples: list[CSVSample] = []
@@ -272,6 +418,7 @@ def parse_program_output(text: str) -> ProgramRun:
     steps_match = re.search(r"Steps simulated:\s*(\d+)", text)
     dt_match = re.search(r"Time step:\s*([0-9.eE+-]+)", text)
     invocation_match = re.search(r"Invocation command:\s*(.+)", text)
+    body_set_match = re.search(r"^Body set:\s*(\S+)\s*$", text, re.MULTILINE)
     enabled_body_indices_match = re.search(r"^Enabled body indices:\s*(.*)$", text, re.MULTILINE)
 
     if not computation_seconds_match:
@@ -294,6 +441,19 @@ def parse_program_output(text: str) -> ProgramRun:
     steps: int = int(steps_match.group(1))
     dt: float = float(dt_match.group(1))
     invocation_command: str = invocation_match.group(1).strip()
+    if body_set_match:
+        body_set = body_set_match.group(1)
+    else:
+        # Backward compatibility for result files written before Body set metadata
+        invocation_arguments = shlex.split(invocation_command)
+        body_set = "all"
+        for index, argument in enumerate(invocation_arguments[:-1]):
+            if argument == "--body-set":
+                body_set = invocation_arguments[index + 1]
+
+    valid_body_sets = {"all", "planets", "dwarf", "planet-systems"}
+    if body_set not in valid_body_sets:
+        raise RuntimeError(f"Unknown body set in program output: {body_set}")
 
     positions_line = next(line for line in text.splitlines() if "|" in line and line.startswith("["))
     vectors = []
@@ -332,6 +492,7 @@ def parse_program_output(text: str) -> ProgramRun:
         dt,
         vectors,
         enabled_body_indices,
+        body_set,
         invocation_command,
     )
 
@@ -646,12 +807,22 @@ def oblateness_code(planet_name: str) -> str:
         f"{{{k.x:.8f}, {k.y:.8f}, {k.z:.8f}}}"
     )
 
-def analyze_error() -> None:
+def analyze_error(compare_planetary_systems: bool = False) -> None:
     p_run = parse_program_output(read_program_output(2))
     target_epoch = START + datetime.timedelta(seconds=p_run.steps * p_run.dt)
 
     expected_positions: list[Vec3] = fetch_vectors(target_epoch)[1]
     names: list[str] = list(planet_to_horizon_id.keys())
+    system_mode = compare_planetary_systems or p_run.body_set == "planet-systems"
+    candidate_positions: list[Vec3] = p_run.vectors
+    enabled_body_indices: frozenset[int] = p_run.enabled_body_indices
+
+    if system_mode:
+        expected_positions = collapse_system_positions(expected_positions, names)
+        if p_run.body_set == "all":
+            require_complete_explicit_systems(p_run.enabled_body_indices, names, "Program run")
+            candidate_positions = collapse_system_positions(candidate_positions, names)
+        enabled_body_indices = system_output_indices(enabled_body_indices, names)
 
     print("\n")
     print("Reproduce this report:")
@@ -659,20 +830,23 @@ def analyze_error() -> None:
     print(f"  Analysis invocation: {analysis_invocation_command()}\n")
     print(f"JPL simulation time: {(target_epoch - START).days / 365} years (@ 365 days)")
     print(f"Program simulation time: {p_run.years} years (@ 365 days)\n")
+    print(f"Body set: {p_run.body_set}")
+    print(f"Analyzed representation: {'planetary-system barycentres' if system_mode else 'body centres'}\n")
 
-    enabled_names = [names[index] for index in sorted(p_run.enabled_body_indices)]
+    enabled_names = [names[index] for index in sorted(enabled_body_indices)]
     print(f"Enabled bodies: {', '.join(enabled_names)}\n")
 
     print(f"JPL positions: {expected_positions}")
-    print(f"Program positions: {p_run.vectors}\n")
+    print(f"Program positions: {candidate_positions}\n")
 
-    print_error_metric(expected_positions, p_run.vectors, names, p_run.enabled_body_indices)
+    print_error_metric(expected_positions, candidate_positions, names, enabled_body_indices)
 
-def compare() -> None:
+def compare(compare_planetary_systems: bool = False) -> None:
     reference_run = parse_program_output(pathlib.Path(sys.argv[2]).read_text())
     candidate_run = parse_program_output(read_program_output(3))
 
     names: list[str] = list(planet_to_horizon_id.keys())
+    system_mode = compare_planetary_systems or candidate_run.body_set == "planet-systems"
 
     print("\n")
     print("Reproduce this report:")
@@ -692,32 +866,51 @@ def compare() -> None:
         print("Length of vectors & names do not match")
         sys.exit(1)
 
-    missing_reference_indices = candidate_run.enabled_body_indices - reference_run.enabled_body_indices
+    reference_vectors: list[Vec3] = reference_run.vectors
+    candidate_vectors: list[Vec3] = candidate_run.vectors
+    reference_enabled_indices: frozenset[int] = reference_run.enabled_body_indices
+    candidate_enabled_indices: frozenset[int] = candidate_run.enabled_body_indices
+    if system_mode:
+        if reference_run.body_set != "all":
+            raise RuntimeError("Planetary-system comparison requires an explicit --body-set all reference run")
+        require_complete_explicit_systems(reference_enabled_indices, names, "Reference run")
+        reference_vectors = collapse_system_positions(reference_vectors, names)
+        reference_enabled_indices = system_output_indices(reference_enabled_indices, names)
+        if candidate_run.body_set == "all":
+            require_complete_explicit_systems(candidate_enabled_indices, names, "Candidate run")
+            candidate_vectors = collapse_system_positions(candidate_vectors, names)
+        candidate_enabled_indices = system_output_indices(candidate_enabled_indices, names)
+
+    missing_reference_indices = candidate_enabled_indices - reference_enabled_indices
     if missing_reference_indices:
         missing_names = [names[index] for index in sorted(missing_reference_indices)]
         print(f"Reference run does not enable candidate bodies: {', '.join(missing_names)}")
         sys.exit(1)
 
-    reference_enabled_names = [names[index] for index in sorted(reference_run.enabled_body_indices)]
-    candidate_enabled_names = [names[index] for index in sorted(candidate_run.enabled_body_indices)]
+    reference_enabled_names = [names[index] for index in sorted(reference_enabled_indices)]
+    candidate_enabled_names = [names[index] for index in sorted(candidate_enabled_indices)]
+    print(f"Analyzed representation: {'planetary-system barycentres' if system_mode else 'body centres'}")
     print(f"Reference enabled bodies: {', '.join(reference_enabled_names)}")
     print(f"Candidate enabled bodies: {', '.join(candidate_enabled_names)}\n")
 
-    print(f"Reference positions: {reference_run.vectors}\n")
-    print(f"Candidate positions: {candidate_run.vectors}\n")
+    print(f"Reference positions: {reference_vectors}\n")
+    print(f"Candidate positions: {candidate_vectors}\n")
 
     print_error_metric(
-        reference_run.vectors,
-        candidate_run.vectors,
+        reference_vectors,
+        candidate_vectors,
         names,
-        candidate_run.enabled_body_indices,
+        candidate_enabled_indices,
     )
 
     print(f"Reference computation time: {reference_run.computation_seconds} seconds")
     print(f"Candidate computation time: {candidate_run.computation_seconds} seconds\n")
-    print(f"Speedup: {reference_run.computation_seconds / candidate_run.computation_seconds}x")
+    if candidate_run.computation_seconds > 0.0:
+        print(f"Speedup: {reference_run.computation_seconds / candidate_run.computation_seconds}x")
+    else:
+        print("Speedup: unavailable (candidate runtime rounded to 0.00 seconds)")
 
-def compare_csv() -> None:
+def compare_csv(compare_planetary_systems: bool = False) -> None:
     reference_path: pathlib.Path = pathlib.Path(sys.argv[2])
     candidate_path: pathlib.Path = pathlib.Path(sys.argv[3])
 
@@ -739,8 +932,16 @@ def compare_csv() -> None:
                 return float("nan")
             return math.sqrt(self.sum_of_squares / self.count)
 
-    def relative_state(sample: CSVSample, body: str, use_sun_relative_frame: bool) -> BodyState:
-        state = sample.bodies[body]
+    def relative_state(
+        sample: CSVSample,
+        body: str,
+        use_sun_relative_frame: bool,
+        require_explicit_system: bool,
+    ) -> BodyState:
+        if compare_planetary_systems and body in planetary_system_to_moons:
+            state = weighted_system_state(sample, body, require_explicit_system)
+        else:
+            state = sample.bodies[body]
 
         if body in moon_to_parent:
             origin_name = moon_to_parent[body]
@@ -755,7 +956,10 @@ def compare_csv() -> None:
                 f"simulated_seconds={sample.simulated_seconds}"
             )
 
-        origin = sample.bodies[origin_name]
+        if compare_planetary_systems and origin_name in planetary_system_to_moons:
+            origin = weighted_system_state(sample, origin_name, require_explicit_system)
+        else:
+            origin = sample.bodies[origin_name]
         return BodyState(
             state.position - origin.position,
             state.velocity - origin.velocity,
@@ -806,9 +1010,30 @@ def compare_csv() -> None:
             + ", ".join(sorted(missing_reference_bodies))
         )
 
-    body_order = [name for name in planet_to_horizon_id if name in candidate_bodies]
-    position_error_stats = {body: RunningStats() for body in body_order}
-    moon_component_stats = {
+    if compare_planetary_systems:
+        system_names: set[str] = {"Sun", "Mercury", "Venus", *planetary_system_to_moons.keys()}
+        body_order: list[str] = [
+            name
+            for name in planet_to_horizon_id
+            if name in candidate_bodies and name in system_names
+        ]
+        for parent in planetary_system_to_moons:
+            if parent not in candidate_bodies:
+                continue
+            missing_members: list[str] = [
+                name
+                for name in planetary_system_members(parent)
+                if name not in reference_bodies
+            ]
+            if missing_members:
+                raise RuntimeError(
+                    f"Explicit reference CSV cannot construct the {parent} system; "
+                    f"missing: {', '.join(missing_members)}"
+                )
+    else:
+        body_order = [name for name in planet_to_horizon_id if name in candidate_bodies]
+    position_error_stats: dict[str, RunningStats] = {body: RunningStats() for body in body_order}
+    moon_component_stats: dict[str, dict[str, RunningStats]] = {
         body: {
             "radial": RunningStats(),
             "along-track": RunningStats(),
@@ -821,7 +1046,7 @@ def compare_csv() -> None:
     previous_wrapped_phase: dict[str, float] = {}
     unwrapped_phase: dict[str, float] = {}
 
-    sample_count = 0
+    sample_count: int = 0
     previous_simulated_seconds: int | None = None
     for reference_sample, candidate_sample in itertools.zip_longest(
         reference_samples,
@@ -855,37 +1080,47 @@ def compare_csv() -> None:
         sample_count += 1
 
         for body in body_order:
-            use_sun_relative_frame = "Sun" in candidate_bodies
-            reference_state = relative_state(reference_sample, body, use_sun_relative_frame)
-            candidate_state = relative_state(candidate_sample, body, use_sun_relative_frame)
+            use_sun_relative_frame: bool = "Sun" in candidate_bodies
+            reference_state: BodyState = relative_state(
+                reference_sample,
+                body,
+                use_sun_relative_frame,
+                require_explicit_system=compare_planetary_systems,
+            )
+            candidate_state: BodyState = relative_state(
+                candidate_sample,
+                body,
+                use_sun_relative_frame,
+                require_explicit_system=False,
+            )
             ensure_finite(reference_state, body, reference_sample, "reference")
             ensure_finite(candidate_state, body, candidate_sample, "candidate")
 
-            position_error = candidate_state.position - reference_state.position
+            position_error: Vec3 = candidate_state.position - reference_state.position
             position_error_stats[body].add(position_error.length())
 
             if body not in moon_component_stats:
                 continue
 
-            reference_radius = reference_state.position.length()
-            reference_angular_momentum = reference_state.position.cross(reference_state.velocity)
-            angular_momentum_length = reference_angular_momentum.length()
-            candidate_radius = candidate_state.position.length()
+            reference_radius: float = reference_state.position.length()
+            reference_angular_momentum: Vec3 = reference_state.position.cross(reference_state.velocity)
+            angular_momentum_length: float = reference_angular_momentum.length()
+            candidate_radius: float = candidate_state.position.length()
             if reference_radius <= EPS or angular_momentum_length <= EPS or candidate_radius <= EPS:
                 raise RuntimeError(
                     f"Cannot construct the RTN frame for {body} at "
                     f"simulated_seconds={reference_sample.simulated_seconds}"
                 )
 
-            radial_axis = reference_state.position / reference_radius
-            normal_axis = reference_angular_momentum / angular_momentum_length
-            along_track_axis = normal_axis.cross(radial_axis)
+            radial_axis: Vec3 = reference_state.position / reference_radius
+            normal_axis: Vec3 = reference_angular_momentum / angular_momentum_length
+            along_track_axis: Vec3 = normal_axis.cross(radial_axis)
 
             moon_component_stats[body]["radial"].add(position_error.dot(radial_axis))
             moon_component_stats[body]["along-track"].add(position_error.dot(along_track_axis))
             moon_component_stats[body]["cross-track"].add(position_error.dot(normal_axis))
 
-            wrapped_phase = math.atan2(
+            wrapped_phase: float = math.atan2(
                 normal_axis.dot(reference_state.position.cross(candidate_state.position)),
                 reference_state.position.dot(candidate_state.position),
             )
@@ -908,11 +1143,14 @@ def compare_csv() -> None:
     print(f"  Analysis invocation: {analysis_invocation_command()}\n")
     print(f"Samples compared: {sample_count}")
     print(f"Final simulated time: {previous_simulated_seconds} seconds")
+    print(f"Analyzed representation: {'planetary-system barycentres' if compare_planetary_systems else 'body centres'}")
     print(f"Candidate bodies: {', '.join(body_order)}\n")
 
     print("Time-series position errors:")
     for body in body_order:
-        if body in moon_to_parent:
+        if compare_planetary_systems and body in planetary_system_to_moons:
+            frame = "system barycentre relative to Sun" if "Sun" in candidate_bodies else "system barycentre"
+        elif body in moon_to_parent:
             frame = f"relative to {moon_to_parent[body]}"
         elif body != "Sun" and "Sun" in candidate_bodies:
             frame = "relative to Sun"
@@ -936,10 +1174,13 @@ def compare_csv() -> None:
 
 def print_usage() -> None:
     print("Commands:")
-    print(f"  {sys.argv[0]} code                                       Formatted celestial body JPL data")
-    print(f"  {sys.argv[0]} analyze output.txt                         Analyze program output & compare to JPL data. Reads output from stdin if output is not given")
-    print(f"  {sys.argv[0]} compare reference.txt candidate.txt        Compare 2 program outputs. Reads from candidate from stdin if candidate is not given")
-    print(f"  {sys.argv[0]} compare-csv reference.csv candidate.csv    Compare 2 program csv outputs")
+    print(f"  {sys.argv[0]} code                                               Formatted celestial body JPL data")
+    print(f"  {sys.argv[0]} analyze output.txt                                 Analyze body centres against JPL; planet-systems runs are detected automatically")
+    print(f"  {sys.argv[0]} analyze-systems output.txt                         Analyze modeled planetary-system barycentres against constructed JPL barycentres")
+    print(f"  {sys.argv[0]} compare reference.txt candidate.txt                Compare 2 program endpoints; planet-systems candidates are detected automatically")
+    print(f"  {sys.argv[0]} compare-systems reference.txt candidate.txt        Compare planetary-system barycentres for 2 program endpoints")
+    print(f"  {sys.argv[0]} compare-csv reference.csv candidate.csv            Compare body-centre time series")
+    print(f"  {sys.argv[0]} compare-systems-csv reference.csv candidate.csv    Compare planetary-system-barycentre time series")
 
 def require_argc(required_argc: int) -> None:
     if len(sys.argv) < required_argc:
@@ -951,6 +1192,9 @@ if __name__ == '__main__':
     match sys.argv[1]:
         case "code": require_argc(2); print_code()
         case "analyze": require_argc(2); analyze_error()
+        case "analyze-systems": require_argc(2); analyze_error(compare_planetary_systems=True)
         case "compare": require_argc(3); compare()
+        case "compare-systems": require_argc(3); compare(compare_planetary_systems=True)
         case "compare-csv": require_argc(4); compare_csv()
+        case "compare-systems-csv": require_argc(4); compare_csv(compare_planetary_systems=True)
         case _: print_usage(); sys.exit(1)

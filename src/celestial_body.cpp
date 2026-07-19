@@ -18,7 +18,7 @@ CelestialBody::CelestialBody(
     const double equatorial_radius,
     const Vec3& pole_axis
 )
-: mass(gravitational_mass / config::GRAVITATIONAL_CONSTANT),
+: original_gravitational_mass(gravitational_mass),
 gravitational_mass(gravitational_mass),
 name(std::move(name)),
 position(position),
@@ -35,6 +35,10 @@ pole_axis(pole_axis) {
 
 [[nodiscard]] double CelestialBody::distance_to(const CelestialBody &body) const {
     return (position - body.position).length();
+}
+
+[[nodiscard]] double CelestialBody::get_mass() const {
+    return gravitational_mass / config::GRAVITATIONAL_CONSTANT;
 }
 
 [[nodiscard]] Vec3 CelestialBody::acceleration_due_to(const CelestialBody &source) const {

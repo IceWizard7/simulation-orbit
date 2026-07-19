@@ -71,6 +71,13 @@ namespace config {
 }
 
 namespace runtime_config {
+    enum class BodySet {
+        all,
+        planets,
+        dwarf,
+        planet_systems,
+    };
+
     extern str invocation_command;
     extern bool exit_immediately;
     extern bool headless;
@@ -90,6 +97,10 @@ namespace runtime_config {
     extern bool csv_live;
 
     extern bool use_j2;
+
+    extern BodySet body_set;
+
+    [[nodiscard]] const char* body_set_name();
 
     extern int enabled_celestial_bodies;
 

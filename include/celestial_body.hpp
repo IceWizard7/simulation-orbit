@@ -9,8 +9,8 @@
 
 class CelestialBody {
 public:
-    const double mass;
-    const double gravitational_mass; // mass * G
+    const double original_gravitational_mass; // immutable GM of this explicit body
+    double gravitational_mass; // effective GM; combined system GM in planet-systems mode
     const str name;
     Vec3 position;
     Vec3 velocity;
@@ -49,6 +49,8 @@ public:
     );
 
     [[nodiscard]] double distance_to(const CelestialBody &body) const;
+
+    [[nodiscard]] double get_mass() const;
 
     [[nodiscard]] Vec3 acceleration_due_to(const CelestialBody &source) const;
 };

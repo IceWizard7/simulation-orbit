@@ -48,6 +48,50 @@ CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES] = {
     {"Kerberos", {5.435454730070845e12, -2.498637906440255e12, -1.304282146787419e12}, {2.598784079825089e3, 3.601093273190158e3, -1.023177596881631e3}, 60380.0, 5, 0.01, (Color){84, 80, 78, 255}, 32.168 * 86'400},
 };
 
+namespace {
+    constexpr std::array earth_moons{10};
+    constexpr std::array mars_moons{11, 12};
+    constexpr std::array jupiter_moons{13, 14, 15, 16};
+    constexpr std::array saturn_moons{17, 18, 19, 20, 21, 22, 23, 24, 25};
+    constexpr std::array uranus_moons{26, 27, 28, 29, 30};
+    constexpr std::array neptune_moons{31, 32, 33};
+    constexpr std::array pluto_moons{34, 35, 36, 37};
+}
+
+const std::array<PlanetarySystem, 7> simulation::planetary_systems{{
+    {3, earth_moons},
+    {4, mars_moons},
+    {5, jupiter_moons},
+    {6, saturn_moons},
+    {7, uranus_moons},
+    {8, neptune_moons},
+    {9, pluto_moons},
+}};
+
+void simulation::apply_planet_systems_approximation() {
+    for (const auto&[parent_index, moon_indices] : planetary_systems) {
+        auto& parent = celestial_bodies[parent_index];
+
+        double total_gravitational_mass = parent.original_gravitational_mass;
+        Vec3 weighted_position = parent.position * parent.original_gravitational_mass;
+        Vec3 weighted_velocity = parent.velocity * parent.original_gravitational_mass;
+
+        for (const int moon_index : moon_indices) {
+            auto& moon = celestial_bodies[moon_index];
+            total_gravitational_mass += moon.original_gravitational_mass;
+            weighted_position += moon.position * moon.original_gravitational_mass;
+            weighted_velocity += moon.velocity * moon.original_gravitational_mass;
+            moon.enabled = false;
+        }
+
+        parent.position = weighted_position / total_gravitational_mass;
+        parent.velocity = weighted_velocity / total_gravitational_mass;
+        parent.gravitational_mass = total_gravitational_mass;
+    }
+
+    accelerations_at_current_positions.reset();
+}
+
 std::ofstream simulation::live_csv_file;
 std::optional<std::size_t> simulation::last_csv_sample_step;
 bool simulation::csv_output_initialized = false;
@@ -359,7 +403,7 @@ void simulation::publish_snapshot() {
 
     if (planet_info_display_index != -1) {
         const auto& body = celestial_bodies[planet_info_display_index];
-        snap->detailed_body_display = {body.name, body.position, body.velocity, body.mass, body.color};
+        snap->detailed_body_display = {body.name, body.position, body.velocity, body.get_mass(), body.color};
     }
 
     {
@@ -509,6 +553,7 @@ void simulation::print_final_state() {
     printf("Simulation time: %.8f years (@ 365 days)\n", ui::simulated_years());
     printf("Steps simulated: %zu\n", config::steps_simulated.load());
     printf("Time step: %d seconds\n", runtime_config::time_step);
+    printf("Body set: %s\n", runtime_config::body_set_name());
     printf("Invocation command: %s\n", runtime_config::invocation_command.c_str());
 
     printf("Enabled body indices: ");

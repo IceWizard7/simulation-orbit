@@ -9,14 +9,16 @@
 #include "ui.hpp"
 
 // TODO: Parallel Execution?
-// TODO: Analyze which forces we can skip calculating (or calculate ex. every 1000 steps) to reach certain accuracy
-// TODO: Think of Topic & research questions
 // TODO: Internal planet rotation
 
 int main(const int argc, char* argv[]) {
     const int err = runtime_config::parse_cli_args(argc, argv, simulation::celestial_bodies);
     if (err != 0) return err;
     if (runtime_config::exit_immediately) return 0;
+
+    if (runtime_config::body_set == runtime_config::BodySet::planet_systems) {
+        simulation::apply_planet_systems_approximation();
+    }
 
     if (!simulation::initialize_csv_output()) return 1;
     simulation::initialize_orbit_sampling();

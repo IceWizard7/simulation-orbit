@@ -1,5 +1,6 @@
 #pragma once
 #include <stop_token>
+#include <span>
 
 #include "celestial_body.hpp"
 #include "config.hpp"
@@ -11,8 +12,14 @@ struct CSVEntry {
     std::array<std::optional<Vec3>, NUM_CELESTIAL_BODIES> velocities{};
 };
 
+struct PlanetarySystem {
+    int parent_index;
+    std::span<const int> moon_indices;
+};
+
 namespace simulation {
     extern CelestialBody celestial_bodies[NUM_CELESTIAL_BODIES];
+    extern const std::array<PlanetarySystem, 7> planetary_systems;
     inline std::vector<CSVEntry> csv_data;
     inline std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
     inline std::optional<std::array<Vec3, NUM_CELESTIAL_BODIES>> accelerations_at_current_positions;
@@ -24,6 +31,10 @@ namespace simulation {
 
     // Must run after CLI parsing (needs the final time step) and before the first simulate_step
     void initialize_orbit_sampling();
+
+    // Replaces each planet and its modeled moons by one point mass at their GM-weighted barycenter
+    // Must run after CLI parsing and before CSV/orbit initialization.
+    void apply_planet_systems_approximation();
 
     void save_orbit_points();
 
