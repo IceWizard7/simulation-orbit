@@ -1,6 +1,9 @@
 #include "ui.hpp"
 
+#include <algorithm>
+#include <cmath>
 #include <raymath.h>
+#include <rlgl.h>
 
 #include "celestial_body.hpp"
 #include "screen_utils.hpp"
@@ -16,6 +19,98 @@ namespace ui_config {
     auto last_copied = std::chrono::steady_clock::now();
     bool copied = false;
     bool draw_moon_orbits = false;
+}
+
+namespace {
+    constexpr float CAMERA_FOVY = 45.0f;
+    constexpr float MIN_CAM_DISTANCE = 1.0e-6f;
+    constexpr float MAX_CAM_DISTANCE = 200.0f;
+
+    constexpr float PLANET_MIN_RADIUS_PX = 6.0f;
+    constexpr float PLANET_MAX_RADIUS_PX = 30.0f;
+    constexpr float MOON_MIN_RADIUS_PX = 3.0f;
+    constexpr float MOON_MAX_RADIUS_PX = 10.0f;
+
+    [[nodiscard]] bool is_moon(const int body_index) {
+        return body_index >= NUM_PLANETS + NUM_DWARF_PLANETS;
+    }
+
+    [[nodiscard]] float projected_radius_pixels(
+        const Vector3& world_position,
+        const float world_radius,
+        const Camera3D& cam
+    ) {
+        const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
+        const Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, cam.up));
+        const Vector2 center_screen = GetWorldToScreen(world_position, cam);
+        const Vector2 edge_screen = GetWorldToScreen(
+            Vector3Add(world_position, Vector3Scale(right, world_radius)),
+            cam
+        );
+
+        return Vector2Distance(center_screen, edge_screen);
+    }
+
+    [[nodiscard]] float adaptive_body_radius_3d(
+        const ui::RenderSnapshot::Body& body,
+        const int body_index,
+        const Camera3D& cam
+    ) {
+        const Vector3 world_position = to_world(body.position);
+        const float projected_radius = projected_radius_pixels(world_position, body.radius_3d, cam);
+        if (!std::isfinite(projected_radius) || projected_radius <= 0.0f) return body.radius_3d;
+
+        const float min_radius = is_moon(body_index) ? MOON_MIN_RADIUS_PX : PLANET_MIN_RADIUS_PX;
+        const float max_radius = is_moon(body_index) ? MOON_MAX_RADIUS_PX : PLANET_MAX_RADIUS_PX;
+        const float desired_radius = std::clamp(projected_radius, min_radius, max_radius);
+        return body.radius_3d * desired_radius / projected_radius;
+    }
+
+    [[nodiscard]] double camera_near_plane(const Camera3D& cam) {
+        return std::max(1.0e-9, static_cast<double>(Vector3Distance(cam.position, cam.target)) * 1.0e-3);
+    }
+
+    [[nodiscard]] double camera_far_plane(const Camera3D& cam) {
+        return std::max(camera_near_plane(cam) * 1.0e6, 1.0e-6);
+    }
+
+    void fit_camera_to_planetary_system(
+        const std::shared_ptr<const ui::RenderSnapshot>& snap,
+        const int center_index
+    ) {
+        if (!snap) return;
+
+        const auto system = std::ranges::find_if(
+            simulation::planetary_systems,
+            [center_index](const PlanetarySystem& candidate) {
+                return candidate.parent_index == center_index;
+            }
+        );
+        if (system == simulation::planetary_systems.end()) return;
+
+        const Vec3 parent_position = snap->bodies[center_index].position;
+        double system_radius_meters = 0.0;
+        for (const int moon_index : system->moon_indices) {
+            const auto& moon = snap->bodies[moon_index];
+            if (!moon.enabled) continue;
+            system_radius_meters = std::max(
+                system_radius_meters,
+                (moon.position - parent_position).length()
+            );
+        }
+        if (system_radius_meters <= 0.0) return;
+
+        // Keep the outermost modeled moon within 70% of the vertical half-view.
+        constexpr double VIEW_FILL = 0.70;
+        const double system_radius_world = system_radius_meters / config::WORLD_UNIT_METERS;
+        constexpr double half_vertical_fov = CAMERA_FOVY * DEG2RAD / 2.0;
+        const double fitted_distance = system_radius_world / (VIEW_FILL * std::tan(half_vertical_fov));
+        ui_config::cam_distance = std::clamp(
+            static_cast<float>(fitted_distance),
+            MIN_CAM_DISTANCE,
+            MAX_CAM_DISTANCE
+        );
+    }
 }
 
 
@@ -290,8 +385,10 @@ void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const
     }
 }
 
-void ui::draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
-    for (const auto& [name, pos, _radius_2d, radius_3d, color, planet_visual, _enabled] : snap->bodies) {
+void ui::draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
+    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        const auto& [name, pos, _radius_2d, _radius_3d, color, planet_visual, _enabled] = snap->bodies[i];
+        const float radius_3d = adaptive_body_radius_3d(snap->bodies[i], i, cam);
         if (planet_visual != nullptr && planet_visual->loaded) {
             DrawModel(
                 planet_visual->model,
@@ -309,7 +406,7 @@ void ui::draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
 
 void ui::draw_grid_3d(const Camera3D& cam) {
     constexpr int half_grid = 5;
-    constexpr float near_epsilon = 0.01f;
+    const float near_epsilon = static_cast<float>(camera_near_plane(cam));
 
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
@@ -470,7 +567,8 @@ int ui::pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap,
         const float dx = mx - sx;
         const float dy = my - sy;
 
-        const Vector3 edge = Vector3Add(world, Vector3Scale(right, body.radius_3d));
+        const float rendered_radius = adaptive_body_radius_3d(body, i, cam);
+        const Vector3 edge = Vector3Add(world, Vector3Scale(right, rendered_radius));
         const auto [ex, ey] = GetWorldToScreen(edge, cam);
         const float radius_px  = std::hypot(ex - sx, ey - sy); // sphere radius in pixels
         const float hit_radius = std::max(radius_px, MIN_CLICK_RADIUS_PX);
@@ -512,7 +610,7 @@ Camera3D ui::make_camera() {
     Camera3D c{};
     c.target = {0, 0, 0};
     c.up = {0, 1, 0};
-    c.fovy = 45.0f;
+    c.fovy = CAMERA_FOVY;
     c.projection = CAMERA_PERSPECTIVE; // alternative: CAMERA_ORTHOGRAPHIC
     c.position = {
         ui_config::cam_distance * cosf(ui_config::cam_elevation) * cosf(ui_config::cam_azimuth),
@@ -526,6 +624,7 @@ Camera3D ui::make_camera() {
 void ui::draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
     DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_HEIGHT, BLACK);
     const Camera3D cam = make_camera();
+    rlSetClipPlanes(camera_near_plane(cam), camera_far_plane(cam));
 
     // TODO: Make orbits & planets overlap correctly, according to real perspective
 
@@ -533,7 +632,7 @@ void ui::draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
     draw_grid_3d(cam);
 
     BeginMode3D(cam);
-    if (snap) draw_planets_3d(snap);
+    if (snap) draw_planets_3d(snap, cam);
     EndMode3D();
 
     // 2D overlays, projected by 3D points
@@ -653,12 +752,15 @@ void ui::UpdateDrawFrame() {
     }
 
     if (center_button_pressed) {
-        config::center_celestial_body_index.store(config::planet_info_display_index.load());
+        const int center_index = config::planet_info_display_index.load();
+        config::center_celestial_body_index.store(center_index);
+        fit_camera_to_planetary_system(snap, center_index);
         config::republish_needed = true;
         config::planet_info_display_index = -1; // optional: reset config::planet_info_display_index
     } else if (new_center_i != -1 && new_center_i != config::center_celestial_body_index) {
         if (snap->bodies[new_center_i].enabled) {
             config::center_celestial_body_index = new_center_i;
+            fit_camera_to_planetary_system(snap, new_center_i);
             config::republish_needed = true;
         }
     }
@@ -688,7 +790,12 @@ void ui::UpdateDrawFrame() {
 
     }
 
-    if (IsKeyPressed(KEY_T)) ui_config::view_3d = !ui_config::view_3d;
+    if (IsKeyPressed(KEY_T)) {
+        ui_config::view_3d = !ui_config::view_3d;
+        if (ui_config::view_3d) {
+            fit_camera_to_planetary_system(snap, config::center_celestial_body_index.load());
+        }
+    }
     if (!ui_config::view_3d && IsKeyPressed(KEY_L)) ui_config::view_legend = !ui_config::view_legend;
     if (IsKeyPressed(KEY_M)) ui_config::draw_moon_orbits = !ui_config::draw_moon_orbits;
 
@@ -737,7 +844,7 @@ void ui::UpdateDrawFrame() {
             ui_config::cam_distance *= zoom_factor;
         }
 
-        ui_config::cam_distance = std::clamp(ui_config::cam_distance, 0.1f, 200.0f);
+        ui_config::cam_distance = std::clamp(ui_config::cam_distance, MIN_CAM_DISTANCE, MAX_CAM_DISTANCE);
         if (IsKeyPressed(KEY_R)) {
             // reset azimuth/elevation/distance to defaults
             ui_config::cam_azimuth = config::DEFAULT_CAM_AZIMUTH;

@@ -1,5 +1,6 @@
 #include "simulation.hpp"
 
+#include <algorithm>
 #include <fstream>
 #include <iostream>
 #include <limits>
@@ -67,6 +68,22 @@ const std::array<PlanetarySystem, 7> simulation::planetary_systems{{
     {8, neptune_moons},
     {9, pluto_moons},
 }};
+
+namespace {
+    [[nodiscard]] std::optional<int> planetary_system_parent(const int body_index) {
+        for (const auto& [parent_index, moon_indices] : simulation::planetary_systems) {
+            if (body_index == parent_index || std::ranges::find(moon_indices, body_index) != moon_indices.end()) {
+                return parent_index;
+            }
+        }
+        return std::nullopt;
+    }
+
+    [[nodiscard]] bool share_planetary_system(const int first_index, const int second_index) {
+        const std::optional<int> first_parent = planetary_system_parent(first_index);
+        return first_parent.has_value() && first_parent == planetary_system_parent(second_index);
+    }
+}
 
 void simulation::apply_planet_systems_approximation() {
     for (const auto&[parent_index, moon_indices] : planetary_systems) {
@@ -184,7 +201,14 @@ bool simulation::record_csv_sample(const bool force) {
 }
 
 void simulation::initialize_orbit_sampling() {
+    double longest_orbital_period_seconds = 0.0;
+
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        longest_orbital_period_seconds = std::max(
+            longest_orbital_period_seconds,
+            celestial_bodies[i].orbital_period_seconds
+        );
+
         const double seconds_per_point_target = celestial_bodies[i].orbital_period_seconds / config::ORBIT_POINTS_PER_REVOLUTION;
 
         orbit_sample_every_steps[i] = std::max<std::size_t>(
@@ -202,6 +226,24 @@ void simulation::initialize_orbit_sampling() {
         );
     }
 
+    const double center_reference_seconds_per_point_target =
+        config::SECONDS_PER_YEAR / config::ORBIT_CENTER_REFERENCE_POINTS_PER_YEAR;
+    orbit_center_reference_sample_every_steps = std::max<std::size_t>(
+        1,
+        static_cast<std::size_t>(center_reference_seconds_per_point_target / runtime_config::time_step)
+    );
+
+    const double center_reference_seconds_per_point =
+        static_cast<double>(orbit_center_reference_sample_every_steps) * runtime_config::time_step;
+    orbit_center_reference_max_points = std::max<std::size_t>(
+        2,
+        static_cast<std::size_t>(std::ceil(
+            config::ORBIT_CENTER_REFERENCE_LONGEST_REVOLUTIONS
+            * longest_orbital_period_seconds
+            / center_reference_seconds_per_point
+        )) + 1
+    );
+
     // Seed every history with the step-0 state so all bodies' coverage starts together;
     // otherwise coarse-cadence bodies would have no samples until their first cadence multiple
     // and publish_snapshot would truncate other trails against a late-starting center history
@@ -213,10 +255,19 @@ void simulation::save_orbit_points() {
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies[i].enabled) continue;
+
+        if (step % orbit_center_reference_sample_every_steps == 0) {
+            auto& center_reference_history = orbit_center_reference_history[i];
+            center_reference_history.push_back(celestial_bodies[i].position);
+
+            if (center_reference_history.size() > orbit_center_reference_max_points) {
+                center_reference_history.pop_front();
+            }
+        }
+
         if (step % orbit_sample_every_steps[i] != 0) continue;
 
         auto& history = orbit_history[i];
-
         history.push_back(celestial_bodies[i].position);
 
         if (history.size() > orbit_max_points[i]) {
@@ -314,7 +365,7 @@ void simulation::simulate_step() {
 }
 
 // Builds a render snapshot from the simulation-owned state (no lock needed: the simulation thread is the only owner
-// of celestial_bodies & orbit_history) and publishes it atomically
+// of celestial_bodies and both orbit histories) and publishes it atomically
 void simulation::publish_snapshot() {
     auto snap = std::make_shared<ui::RenderSnapshot>();
 
@@ -324,21 +375,35 @@ void simulation::publish_snapshot() {
     const auto& center_history = orbit_history[center_index];
     const std::size_t center_cadence = orbit_sample_every_steps[center_index];
     const std::size_t center_last_step = current_step / center_cadence * center_cadence;
-    // Oldest step for which the center's position is known. Trail samples older than this have no
-    // co-moving frame: subtracting a stale center position would draw a ghost of the body's
-    // barycentric orbit on top of its relative trail, so publish truncates them instead
+    // Oldest high-resolution center sample. Local planet/moon-family trails stop here; older
+    // distant trails may continue through the coarse center-reference history below.
     const std::size_t center_first_step = center_history.empty()
         ? current_step
         : center_last_step - (center_history.size() - 1) * center_cadence;
 
+    const auto& center_reference_history = orbit_center_reference_history[center_index];
+    const std::size_t center_reference_cadence = orbit_center_reference_sample_every_steps;
+    const std::size_t center_reference_last_step =
+        current_step / center_reference_cadence * center_reference_cadence;
+    const std::size_t center_reference_first_step = center_reference_history.empty()
+        ? current_step
+        : center_reference_last_step
+            - (center_reference_history.size() - 1) * center_reference_cadence;
+
     // Per-body cadences are not index-aligned across bodies, so the center position belonging to a
     // body sample is interpolated between the center's own samples by step number
-    auto center_position_at_step = [&](const std::size_t step) -> Vec3 {
-        if (center_history.empty()) return center;
+    auto center_position_at_step = [&](const std::size_t step, const bool allow_coarse_history) -> std::optional<Vec3> {
+        if (!center_history.empty() && step >= center_first_step) {
+            if (step == center_first_step) return center_history.front();
 
-        if (step <= center_first_step) return center_history.front();
+            if (step < center_last_step) {
+                const std::size_t offset = step - center_first_step;
+                const std::size_t k = offset / center_cadence;
+                const double t = static_cast<double>(offset - k * center_cadence)
+                    / static_cast<double>(center_cadence);
+                return center_history[k] + (center_history[k + 1] - center_history[k]) * t;
+            }
 
-        if (step >= center_last_step) {
             // Between the center's newest sample and its current position
             if (current_step == center_last_step) return center_history.back();
             const double t = static_cast<double>(step - center_last_step)
@@ -346,10 +411,19 @@ void simulation::publish_snapshot() {
             return center_history.back() + (center - center_history.back()) * t;
         }
 
-        const std::size_t offset = step - center_first_step;
-        const std::size_t k = offset / center_cadence;
-        const double t = static_cast<double>(offset - k * center_cadence) / static_cast<double>(center_cadence);
-        return center_history[k] + (center_history[k + 1] - center_history[k]) * t;
+        if (!allow_coarse_history || center_reference_history.empty()
+            || step < center_reference_first_step || step > center_reference_last_step) {
+            return std::nullopt;
+        }
+
+        if (step == center_reference_last_step) return center_reference_history.back();
+
+        const std::size_t offset = step - center_reference_first_step;
+        const std::size_t k = offset / center_reference_cadence;
+        const double t = static_cast<double>(offset - k * center_reference_cadence)
+            / static_cast<double>(center_reference_cadence);
+        return center_reference_history[k]
+            + (center_reference_history[k + 1] - center_reference_history[k]) * t;
     };
 
     std::size_t max_used = 0;
@@ -379,10 +453,17 @@ void simulation::publish_snapshot() {
         const std::size_t last_step = current_step / cadence * cadence;
         const std::size_t first_step = last_step - (history.size() - 1) * cadence;
 
-        // Skip samples older than the center's history (no co-moving frame exists for them)
+        // Nearby bodies in the same planet/moon system require the center's high-resolution
+        // history. Distant bodies can use the coarse, centuries-long center history: its small
+        // interpolation error is invisible at planetary distances and allows complete outer orbits.
+        const bool allow_coarse_center_history = !share_planetary_system(center_index, i);
+        const std::size_t oldest_center_step = allow_coarse_center_history
+            ? std::min(center_first_step, center_reference_first_step)
+            : center_first_step;
+
         std::size_t first_rendered = 0;
-        if (first_step < center_first_step) {
-            first_rendered = (center_first_step - first_step + cadence - 1) / cadence;
+        if (first_step < oldest_center_step) {
+            first_rendered = (oldest_center_step - first_step + cadence - 1) / cadence;
             if (first_rendered > history.size()) first_rendered = history.size();
         }
 
@@ -390,7 +471,13 @@ void simulation::publish_snapshot() {
 
         for (std::size_t j = first_rendered; j < history.size(); j++) {
             const std::size_t step = last_step - (history.size() - 1 - j) * cadence;
-            snap->orbits[i].points.push_back(history[j] - center_position_at_step(step));
+            const std::optional<Vec3> center_at_step = center_position_at_step(
+                step,
+                allow_coarse_center_history
+            );
+            if (center_at_step.has_value()) {
+                snap->orbits[i].points.push_back(history[j] - *center_at_step);
+            }
         }
 
         // Connect the trail head to the body's current position

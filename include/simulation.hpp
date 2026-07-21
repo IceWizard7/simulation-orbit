@@ -22,12 +22,15 @@ namespace simulation {
     extern const std::array<PlanetarySystem, 7> planetary_systems;
     inline std::vector<CSVEntry> csv_data;
     inline std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
+    inline std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_center_reference_history;
     inline std::optional<std::array<Vec3, NUM_CELESTIAL_BODIES>> accelerations_at_current_positions;
 
-    // Per-body orbit-trail sampling derived from orbital_period_seconds and the runtime --dt
-    // (rendering-only; see config::ORBIT_POINTS_PER_REVOLUTION)
+    // Per-body primary trail sampling plus the common coarse center-reference sampling
+    // (rendering-only; see the ORBIT_* constants in config.hpp)
     inline std::array<std::size_t, NUM_CELESTIAL_BODIES> orbit_sample_every_steps;
     inline std::array<std::size_t, NUM_CELESTIAL_BODIES> orbit_max_points;
+    inline std::size_t orbit_center_reference_sample_every_steps;
+    inline std::size_t orbit_center_reference_max_points;
 
     // Must run after CLI parsing (needs the final time step) and before the first simulate_step
     void initialize_orbit_sampling();
@@ -49,7 +52,7 @@ namespace simulation {
     void simulate_step();
 
     // Builds a render snapshot from the simulation-owned state (no lock needed: the simulation thread is the only owner
-    // of celestial_bodies & orbit_history) and publishes it atomically
+    // of celestial_bodies and both orbit histories) and publishes it atomically
     void publish_snapshot();
 
     void simulate_cpu(const std::stop_token& stop_token);

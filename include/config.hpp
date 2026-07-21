@@ -24,10 +24,16 @@ namespace config {
 
     // Orbit trails are sampled per body from its orbital_period_seconds: every body gets the same
     // angular resolution regardless of period
-    // TAIL_REVOLUTIONS sets how many revolutions each trail keeps: ~1.05 -> one clean closed curve, higher -> faded precession spirals
+    // ORBIT_TAIL_REVOLUTIONS sets how many revolutions each trail keeps: ~1.05 -> one clean closed curve, higher -> faded precession spirals
     // Memory & per-frame cost scale with REVOLUTIONS * POINTS (points per body ~= that product)
     constexpr int ORBIT_POINTS_PER_REVOLUTION = 1'024;
     constexpr double ORBIT_TAIL_REVOLUTIONS = 10;
+
+    // Coarse, long-lived positions used only to reconstruct a moving center for old, distant
+    // orbit samples. 1.05 of Pluto's period keeps at least one complete outer-planet orbit
+    // available without retaining every moon's high-frequency history for centuries
+    constexpr int ORBIT_CENTER_REFERENCE_POINTS_PER_YEAR = 64;
+    constexpr double ORBIT_CENTER_REFERENCE_LONGEST_REVOLUTIONS = 1.05;
 
     constexpr bool RENDERING_COORDINATES_RELATIVE_TO_OBJECT = true;
 

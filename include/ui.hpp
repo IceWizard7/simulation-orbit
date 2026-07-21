@@ -18,7 +18,7 @@ namespace ui {
             float radius_3d = 0;
             std::optional<Color> color;
             const PlanetVisual* planet_visual = nullptr;
-            bool enabled;
+            bool enabled = false;
         };
         struct DetailedBody {
             str name;
@@ -86,7 +86,7 @@ namespace ui {
 
     void draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam);
 
-    void draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap);
+    void draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam);
 
     void draw_grid_3d(const Camera3D& cam);
 
