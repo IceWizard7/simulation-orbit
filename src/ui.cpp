@@ -476,7 +476,7 @@ void ui::draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap, cons
 
 void ui::draw_grid_3d(const Camera3D& cam) {
     constexpr int half_grid = 5;
-    const float near_epsilon = static_cast<float>(camera_near_plane(cam));
+    const auto near_epsilon = static_cast<float>(camera_near_plane(cam));
 
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
