@@ -63,8 +63,8 @@ int main(const int argc, char* argv[]) {
 
     config::timer.resume();
 
-    std::jthread cpu_thread(simulation::simulate_cpu);
     simulation::publish_snapshot();
+    std::jthread cpu_thread(simulation::simulate_cpu);
 
     #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
