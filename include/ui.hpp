@@ -46,6 +46,10 @@ namespace ui {
         return seconds > 0.0 ? simulated_years() / seconds : 0.0;
     }
 
+    void load_star_background();
+
+    void unload_star_background();
+
     void DrawTextCenteredEx(const Font &font, const char *text, Vec2 center, float angle, float fontSize, float spacing, Color color);
 
     inline void DrawCircle(const Vec2& pos, const float radius, const Color color) {

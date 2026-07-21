@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <iostream>
 #include <raymath.h>
 #include <rlgl.h>
 
@@ -19,6 +20,7 @@ namespace ui_config {
     auto last_copied = std::chrono::steady_clock::now();
     bool copied = false;
     bool draw_moon_orbits = false;
+    bool draw_orbits = true;
 }
 
 namespace {
@@ -30,6 +32,10 @@ namespace {
     constexpr float PLANET_MAX_RADIUS_PX = 30.0f;
     constexpr float MOON_MIN_RADIUS_PX = 3.0f;
     constexpr float MOON_MAX_RADIUS_PX = 10.0f;
+
+    Model star_model{};
+    Texture2D star_texture{};
+    bool star_background_loaded = false;
 
     [[nodiscard]] bool is_moon(const int body_index) {
         return body_index >= NUM_PLANETS + NUM_DWARF_PLANETS;
@@ -111,8 +117,68 @@ namespace {
             MAX_CAM_DISTANCE
         );
     }
+
+    void draw_star_background(const Camera3D& cam) {
+        if (!star_background_loaded) return;
+
+        const auto radius = static_cast<float>(camera_far_plane(cam) * 0.5);
+
+        // We are looking at the sphere from inside
+        rlDisableBackfaceCulling();
+
+
+        // The sky must not hide planets drawn afterwards
+        rlDisableDepthMask();
+
+        DrawModelEx(
+            star_model,
+            cam.position,
+            {0.0f, 1.0f, 0.0f},
+            0.0f,
+            {radius, radius, radius},
+            WHITE
+        );
+
+        // Enable rlgl-stuff again
+        rlEnableDepthMask();
+        rlEnableBackfaceCulling();
+    }
 }
 
+
+void ui::load_star_background() {
+    star_model = LoadModelFromMesh(make_equirectangular_sphere_mesh(1.0f, 64, 128));
+    star_texture = LoadTexture("resources/8k_stars_milky_way.jpg");
+    // Alternative: "resources/stars.jpg"
+
+    if (star_texture.id == 0) {
+        std::cerr << "Could not load star background.\n";
+        UnloadModel(star_model);
+        star_model = {};
+        return;
+    }
+
+    GenTextureMipmaps(&star_texture);
+    SetTextureFilter(star_texture, TEXTURE_FILTER_TRILINEAR); // smooth sampling between pixels
+    SetMaterialTexture(
+        &star_model.materials[0],
+        MATERIAL_MAP_ALBEDO,
+        star_texture
+    );
+
+    star_background_loaded = true;
+}
+
+void ui::unload_star_background() {
+    if (!star_background_loaded) return;
+
+    UnloadTexture(star_texture);
+    UnloadModel(star_model);
+
+    star_texture = {};
+    star_model = {};
+    star_background_loaded = false;
+}
 
 void ui::DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, const float angle, const float fontSize, const float spacing, const Color color) {
     auto [x, y] = MeasureTextEx(font, text, fontSize, spacing);
@@ -326,6 +392,8 @@ void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
 }
 
 void ui::draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
+    if (!ui_config::draw_orbits) return;
+
     const int orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
     for (int i = 0; i < orbit_max_i; i++) {
         const auto& [points, color] = snap->orbits[i];
@@ -354,6 +422,8 @@ void ui::draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
 }
 
 void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
+    if (!ui_config::draw_orbits) return;
+
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
     const int orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
@@ -376,7 +446,7 @@ void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const
 
             if (prev_in_front && in_front) {
                 const float alpha = 0.10f + 0.70f * (static_cast<float>(j) / segment_count);
-                DrawLineEx(prev_screen, screen, 2.0f, Fade(*color, alpha));
+                DrawLineEx(prev_screen, screen, 1.0f, Fade(*color, alpha));
             }
 
             prev_in_front = in_front;
@@ -622,14 +692,17 @@ Camera3D ui::make_camera() {
 }
 
 void ui::draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
-    DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_HEIGHT, BLACK);
     const Camera3D cam = make_camera();
     rlSetClipPlanes(camera_near_plane(cam), camera_far_plane(cam));
+
+    BeginMode3D(cam);
+    draw_star_background(cam);
+    EndMode3D();
 
     // TODO: Make orbits & planets overlap correctly, according to real perspective
 
     if (snap) draw_orbits_3d(snap, cam);
-    draw_grid_3d(cam);
+    // draw_grid_3d(cam);
 
     BeginMode3D(cam);
     if (snap) draw_planets_3d(snap, cam);
@@ -666,7 +739,8 @@ General
     r: Reset scaling
     Space: Continue / Pause simulation
     t: Toggle 2d/3d
-    m: Toogle moon orbits
+    o: Toggle orbits (general switch)
+    m: Toggle moon orbits
     l: Toggle legend (2d-view only)
     Left click: More info on celestial body
 
@@ -797,6 +871,7 @@ void ui::UpdateDrawFrame() {
         }
     }
     if (!ui_config::view_3d && IsKeyPressed(KEY_L)) ui_config::view_legend = !ui_config::view_legend;
+    if (IsKeyPressed(KEY_O)) ui_config::draw_orbits = !ui_config::draw_orbits;
     if (IsKeyPressed(KEY_M)) ui_config::draw_moon_orbits = !ui_config::draw_moon_orbits;
 
     const float scroll = GetMouseWheelMove();
@@ -877,7 +952,7 @@ void ui::UpdateDrawFrame() {
     }
 
     BeginDrawing();
-    ClearBackground(WHITE);
+    ClearBackground(ui_config::view_3d ? BLACK : WHITE);
 
     if (ui_config::view_3d) {
         draw_3d(snap);

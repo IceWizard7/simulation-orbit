@@ -47,6 +47,9 @@ int main(const int argc, char* argv[]) {
     InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "Umlaufbahn Simulation");
     SetTargetFPS(config::TARGET_FPS);
 
+    // Loading begin
+    ui::load_star_background();
+
     for (auto& celestial_body : simulation::celestial_bodies) {
         if (celestial_body.enabled) celestial_body.planet_visual.load_planet_visual();
     }
@@ -60,6 +63,8 @@ int main(const int argc, char* argv[]) {
 
     GenTextureMipmaps(&config::uiFont.texture);
     SetTextureFilter(config::uiFont.texture, TEXTURE_FILTER_TRILINEAR);
+
+    // Loading done
 
     config::timer.resume();
 
@@ -78,11 +83,17 @@ int main(const int argc, char* argv[]) {
     config::timer.pause();
     cpu_thread.join();
 
+    // Unloading begin
+
     for (auto& celestial_body : simulation::celestial_bodies) {
         if (celestial_body.enabled) celestial_body.planet_visual.unload_planet_visual();
     }
 
+    ui::unload_star_background();
     UnloadFont(config::uiFont);
+
+    // Unloading end
+
     CloseWindow();
     printf("\n");
 
