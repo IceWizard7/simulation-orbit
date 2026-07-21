@@ -325,10 +325,45 @@ std::array<Vec3, NUM_CELESTIAL_BODIES> simulation::compute_accelerations() {
 
     for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies[i].enabled) continue;
-        for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+        for (int j = i + 1; j < NUM_CELESTIAL_BODIES; j++) {
             if (!celestial_bodies[j].enabled) continue;
-            if (i == j) continue; // do not apply gravity from this object to this
-            accelerations[i] += celestial_bodies[i].acceleration_due_to(celestial_bodies[j]);
+
+            const CelestialBody& first = celestial_bodies[i];
+            const CelestialBody& second = celestial_bodies[j];
+            const Vec3 separation = second.position - first.position;
+            const double distance = separation.length();
+            const Vec3 first_to_second_direction = separation / distance;
+            const double distance_squared = distance * distance;
+
+            // Evaluate each Newtonian pair once
+            // These accelerations correspond to equal-and-opposite forces because mass is proportional to GM
+            accelerations[i] += first_to_second_direction
+                * (second.gravitational_mass / distance_squared);
+            accelerations[j] -= first_to_second_direction
+                * (first.gravitational_mass / distance_squared);
+
+            if (!runtime_config::use_j2) continue;
+
+            // The direct J2 acceleration acts on the target
+            // Its reaction on the oblate source is scaled by target_mass/source_mass, equivalently
+            // target_GM/source_GM, so total linear momentum remains conserved
+            if (second.j2 != 0.0) {
+                const Vec3 j2_on_first = second.j2_acceleration_at(
+                    first_to_second_direction * -1.0,
+                    distance
+                );
+                accelerations[i] += j2_on_first;
+                accelerations[j] -= j2_on_first * (first.gravitational_mass / second.gravitational_mass);
+            }
+
+            if (first.j2 != 0.0) {
+                const Vec3 j2_on_second = first.j2_acceleration_at(
+                    first_to_second_direction,
+                    distance
+                );
+                accelerations[j] += j2_on_second;
+                accelerations[i] -= j2_on_second * (second.gravitational_mass / first.gravitational_mass);
+            }
         }
     }
 

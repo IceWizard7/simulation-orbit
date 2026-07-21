@@ -41,17 +41,14 @@ pole_axis(pole_axis) {
     return gravitational_mass / config::GRAVITATIONAL_CONSTANT;
 }
 
-[[nodiscard]] Vec3 CelestialBody::acceleration_due_to(const CelestialBody &source) const {
-    const double distance = distance_to(source);
-    const Vec3 direction = (source.position - position) / distance;
-
-    // Newtonian point mass: (G * M / r^2) * direction
-    Vec3 acceleration = direction * (source.gravitational_mass / (distance * distance));
-
+[[nodiscard]] Vec3 CelestialBody::j2_acceleration_at(
+    const Vec3& source_to_target_direction,
+    const double distance
+) const {
     // Oblateness (zonal J2) perturbation from a non-spherical source
     // Ex. an oblate planet acting on its moons
     // The term falls off as 1/r^4, so it is only meaningful for close satellites and is automatically negligible for distant bodies
-    // Vector form with spin axis k and r_hat from source to this:
+    // Vector form with spin axis k and r_hat from this source to the target:
     // a_J2 = -1.5 * J2 * GM * R_eq^2 / r^4 * [ (1 - 5*u^2) r_hat + 2*u*k ],  u = r_hat . k
     // Derivation: a = -grad(U) of the quadrupole-truncated external potential
     // U(r) = -GM/r * [ 1 - J2 (R_eq/r)^2 * P2(u) ],  P2(u) = (3*u^2 - 1)/2,
@@ -64,13 +61,25 @@ pole_axis(pole_axis) {
 
     // Sanity check, equatorial plane (u=0): a_J2 = -1.5*J2*GM*R_eq^2/r^4 * r_hat,
     // i.e. extra inward pull -> prograde apsidal precession, as expected.
-    if (runtime_config::use_j2 && source.j2 != 0.0) {
-        const Vec3 r_hat = direction * -1.0; // unit vector from source (planet) to this body
-        const double u = r_hat.dot(source.pole_axis); // cos(colatitude) relative to the spin axis
-        const double coefficient = -1.5 * source.j2 * source.gravitational_mass
-            * source.equatorial_radius * source.equatorial_radius
-            / (distance * distance * distance * distance);
-        acceleration += (r_hat * (1.0 - 5.0 * u * u) + source.pole_axis * (2.0 * u)) * coefficient;
+    if (j2 == 0.0) return {};
+
+    const double u = source_to_target_direction.dot(pole_axis);
+    const double coefficient = -1.5 * j2 * gravitational_mass
+        * equatorial_radius * equatorial_radius
+        / (distance * distance * distance * distance);
+    return (source_to_target_direction * (1.0 - 5.0 * u * u) + pole_axis * (2.0 * u))
+        * coefficient;
+}
+
+[[nodiscard]] Vec3 CelestialBody::acceleration_due_to(const CelestialBody &source) const {
+    const double distance = distance_to(source);
+    const Vec3 direction = (source.position - position) / distance;
+
+    // Newtonian point mass: (G * M / r^2) * direction
+    Vec3 acceleration = direction * (source.gravitational_mass / (distance * distance));
+
+    if (runtime_config::use_j2) {
+        acceleration += source.j2_acceleration_at(direction * -1.0, distance);
     }
 
     return acceleration;
