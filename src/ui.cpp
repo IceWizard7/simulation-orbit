@@ -1,12 +1,14 @@
 #include "ui.hpp"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
+#include <format>
 #include <iostream>
+#include <mutex>
 #include <raymath.h>
 #include <rlgl.h>
 
-#include "celestial_body.hpp"
 #include "screen_utils.hpp"
 #include "simulation.hpp"
 

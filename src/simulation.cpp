@@ -1,10 +1,16 @@
 #include "simulation.hpp"
 
 #include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <iostream>
 #include <limits>
+#include <memory>
+#include <mutex>
 #include <thread>
+#include <utility>
 
 #include "ui.hpp"
 

@@ -1,7 +1,11 @@
 #pragma once
 
+#include <atomic>
+#include <cstddef>
 #include <filesystem>
-#include <fstream>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <raylib.h>
 
 #include "celestial_body.hpp"

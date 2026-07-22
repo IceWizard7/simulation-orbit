@@ -1,6 +1,12 @@
 #pragma once
 
+#include <array>
+#include <cstddef>
+#include <memory>
+#include <optional>
 #include <raylib.h>
+#include <utility>
+#include <vector>
 
 #include "config.hpp"
 #include "planet_visual.hpp"

@@ -1,5 +1,6 @@
 #include "utils.hpp"
 
+#include <cmath>
 #include <format>
 
 using str = std::string;

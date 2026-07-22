@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <format>
 #include <iostream>
 #include <limits>
 #include <regex>

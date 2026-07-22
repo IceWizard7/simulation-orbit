@@ -3,6 +3,9 @@
 #include <emscripten.h>
 #endif
 
+#include <cstdio>
+#include <raylib.h>
+
 #include "config.hpp"
 #include "simulation.hpp"
 #include "timer.hpp"

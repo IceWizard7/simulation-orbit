@@ -1,5 +1,7 @@
 #include "planet_visual.hpp"
 
+#include <cmath>
+
 Mesh make_equirectangular_sphere_mesh(const float radius, const int rings, const int slices) {
     // builds a custom textured sphere mesh for planet maps
     Mesh mesh{};
