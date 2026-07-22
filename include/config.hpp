@@ -108,6 +108,8 @@ namespace runtime_config {
 
     [[nodiscard]] const char* body_set_name();
 
+    void update_body_set(CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]);
+
     extern int enabled_celestial_bodies;
 
     template <typename T>

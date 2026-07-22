@@ -4,6 +4,7 @@
 #include <cmath>
 #include <iostream>
 #include <limits>
+#include <regex>
 #include <stdexcept>
 #include <vector>
 
@@ -28,7 +29,7 @@ namespace runtime_config {
 
     bool use_j2 = false;
 
-    auto body_set = BodySet::all;
+    auto body_set = BodySet::dwarf;
 
     int enabled_celestial_bodies;
 }
@@ -40,6 +41,33 @@ const char* runtime_config::body_set_name() {
         case BodySet::dwarf: return "dwarf";
         case BodySet::planet_systems: return "planet-systems";
         default: return "unknown";
+    }
+}
+
+void runtime_config::update_body_set(CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]) {
+    switch (body_set) {
+        case BodySet::all:
+            for (auto & celestial_body : celestial_bodies) {
+                celestial_body.enabled = true;
+            }
+            break;
+        case BodySet::planets:
+            for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+                if (j < NUM_PLANETS) celestial_bodies[j].enabled = true;
+                else celestial_bodies[j].enabled = false;
+            }
+            break;
+        case runtime_config::BodySet::dwarf:
+            for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+                if (j < NUM_PLANETS + NUM_DWARF_PLANETS) celestial_bodies[j].enabled = true;
+                else celestial_bodies[j].enabled = false;
+            }
+            break;
+        case runtime_config::BodySet::planet_systems:
+            for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+                celestial_bodies[j].enabled = j < NUM_PLANETS + NUM_DWARF_PLANETS;
+            }
+            break;
     }
 }
 
@@ -152,15 +180,15 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
         printf("    Options:\n");
         printf("    -v, --version                                        Show version\n");
         printf("    -h, --help                                           Show help\n");
-        printf("        --headless                                       Run without raylib window\n");
-        printf("        --dt <seconds>                                   Configure time step\n");
-        printf("        --years <years>                                  Configure total simulation time\n");
-        printf("        --csv <path>                                     Set CSV path for export of positions\n");
-        printf("        --sample-every-seconds <seconds>                 Set the physical sampling interval. Must be a multiple of --dt\n");
-        printf("        --csv-live                                       Stream CSV rows during simulation instead of writing at the end\n");
-        printf("        --j2                                             Enable planetary oblateness (J2) perturbation on satellites\n");
-        printf("        --body-set <all|planets|dwarf|planet-systems>    Enable only a subset of the available celestial bodies (planet-systems uses barycentric approximation)\n");
-        printf("        --disable-body <name>                            Disable a certain body; must come after --body-set\n");
+        printf("        --headless                                       Run without raylib window (default: off)\n");
+        printf("        --dt <seconds>                                   Configure time step (default: 900)\n");
+        printf("        --years <years>                                  Configure total simulation time (default: unlimited, -1)\n");
+        printf("        --csv <path>                                     Set CSV path for export of positions (default: off)\n");
+        printf("        --sample-every-seconds <seconds>                 Set the physical sampling interval. Must be a multiple of --dt (default: off)\n");
+        printf("        --csv-live                                       Stream CSV rows during simulation instead of writing at the end (default: off)\n");
+        printf("        --j2                                             Enable planetary oblateness (J2) perturbation on satellites (default: off)\n");
+        printf("        --body-set <all|planets|dwarf|planet-systems>    Enable only a subset of the available celestial bodies, planet-systems uses barycentric approximation (default: dwarf)\n");
+        printf("        --disable-body <name>                            Disable a certain body; must come after --body-set (default: none explicitly disabled)\n");
         exit_immediately = true;
         return 0;
     }
@@ -172,6 +200,9 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
 
     bool years_supplied = false;
     std::vector<int> explicitly_disabled_body_indices;
+
+    body_set = BodySet::dwarf;
+    update_body_set(celestial_bodies);
 
     for (int i = 1; i < argc; i++) {
         str arg = argv[i];
@@ -209,26 +240,16 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
             explicitly_disabled_body_indices.clear();
             if (val == "all") {
                 body_set = BodySet::all;
-                for (auto & celestial_body : celestial_bodies) {
-                    celestial_body.enabled = true;
-                }
+                update_body_set(celestial_bodies);
             } else if (val == "planets") {
                 body_set = BodySet::planets;
-                for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                    if (j < NUM_PLANETS) celestial_bodies[j].enabled = true;
-                    else celestial_bodies[j].enabled = false;
-                }
+                update_body_set(celestial_bodies);
             } else if (val == "dwarf") {
                 body_set = BodySet::dwarf;
-                for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                    if (j < NUM_PLANETS + NUM_DWARF_PLANETS) celestial_bodies[j].enabled = true;
-                    else celestial_bodies[j].enabled = false;
-                }
+                update_body_set(celestial_bodies);
             } else if (val == "planet-systems") {
                 body_set = BodySet::planet_systems;
-                for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                    celestial_bodies[j].enabled = j < NUM_PLANETS + NUM_DWARF_PLANETS;
-                }
+                update_body_set(celestial_bodies);
             } else {
                 std::cerr << std::format(
                     "Error: {} is an invalid value for --body-set. Pass \"all\", \"planets\", \"dwarf\" or \"planet-systems\" instead.\n",
