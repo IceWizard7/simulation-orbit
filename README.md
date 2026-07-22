@@ -81,7 +81,7 @@ The current results should be considered provisional. Final validated accuracy r
 ### 2.1 Requirements
 
 C++ Simulator:
-- CMake 4.2 or newer
+- CMake 3.25 or newer
 - A recent C++20 compiler (with `std::format` support)
 - OpenGL (`--headless` does not open a window, but still builds and links raylib/OpenGL dependencies)
 
