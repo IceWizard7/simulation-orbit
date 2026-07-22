@@ -6,7 +6,7 @@
     <br />
     <br />
     <a href="#1-features">Features</a> •
-    <a href="#2-running-the-c++-simulator">Running the C++ simulator</a> •
+    <a href="#2-running-the-c-simulator">Running the C++ simulator</a> •
     <a href="#3-analysis">Analysis</a> •
     <a href="#4-research-status">Research status</a> •
     <a href="#5-attribution-and-licensing">Attribution</a>
