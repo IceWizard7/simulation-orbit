@@ -732,38 +732,6 @@ void ui::draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     }
 }
 
-/*
-Keybinds
-
-General
-    r: Reset scaling
-    Space: Continue / Pause simulation
-    t: Toggle 2d/3d
-    o: Toggle orbits (general switch)
-    m: Toggle moon orbits
-    l: Toggle legend (2d-view only)
-    Left click: More info on celestial body
-
-Zooming
-    Scrolling: Zoom in & out
-    +: Zoom in
-    -: Zoom in
-
-Changing center celestial body
-    0: Sun
-    1: Mercury
-    2: Venus
-    3: Earth
-    4: Mars
-    5: Jupiter
-    6: Saturn
-    7: Uranus
-    8: Neptun
-    9: Pluto
-
-3D-only
-    Left drag: Change angle of camera
-*/
 void ui::UpdateDrawFrame() {
     std::shared_ptr<const RenderSnapshot> snap;
     {
