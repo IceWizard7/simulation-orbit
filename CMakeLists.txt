@@ -47,6 +47,5 @@ target_compile_options(simulation-orbit PRIVATE
         $<$<AND:$<CONFIG:Release>,$<CXX_COMPILER_ID:AppleClang,Clang>>:
         -O3
         -mcpu=native
-        -ffast-math
         >
 )
