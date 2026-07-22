@@ -31,7 +31,7 @@ namespace runtime_config {
 
     bool use_j2 = false;
 
-    auto body_set = BodySet::dwarf;
+    BodySet body_set = BodySet::dwarf;
 
     int enabled_celestial_bodies;
 }
