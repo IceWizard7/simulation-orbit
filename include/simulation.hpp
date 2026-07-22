@@ -1,13 +1,20 @@
 #pragma once
-#include <stop_token>
+
+#include <array>
+#include <cstddef>
+#include <deque>
+#include <iosfwd>
+#include <optional>
 #include <span>
+#include <stop_token>
+#include <vector>
 
 #include "celestial_body.hpp"
 #include "config.hpp"
 
 struct CSVEntry {
-    size_t simulated_seconds{};
-    size_t step{};
+    std::size_t simulated_seconds{};
+    std::size_t step{};
     std::array<std::optional<Vec3>, NUM_CELESTIAL_BODIES> positions{};
     std::array<std::optional<Vec3>, NUM_CELESTIAL_BODIES> velocities{};
 };
