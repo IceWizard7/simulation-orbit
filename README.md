@@ -122,7 +122,7 @@ Start the simulator visualization:
 | `M`                  | Toggle moon orbit trails                              |
 | `L`                  | Toggle 2D legend                                      |
 | `R`                  | Reset zoom or camera                                  |
-| `o`                  | Toggle orbits (general switch)                        |
+| `O`                  | Toggle orbits (global switch)                         |
 | `0-9`                | Center on sun, planets or Pluto                       |
 | Mouse wheel          | Zoom in & out                                         |
 | `]` or `/`           | Keyboard zoom for QWERTZ layouts (maps to `+` or `-`) |
