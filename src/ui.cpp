@@ -78,8 +78,31 @@ namespace {
         return std::max(1.0e-9, static_cast<double>(Vector3Distance(cam.position, cam.target)) * 1.0e-3);
     }
 
-    [[nodiscard]] double camera_far_plane(const Camera3D& cam) {
-        return std::max(camera_near_plane(cam) * 1.0e6, 1.0e-6);
+    [[nodiscard]] double camera_far_plane(
+        const Camera3D& cam,
+        const std::shared_ptr<const ui::RenderSnapshot>& snap
+    ) {
+        double far_plane = std::max(camera_near_plane(cam) * 1.0e6, 1.0e-6);
+        if (!snap) return far_plane;
+
+        constexpr double DEPTH_MARGIN = 1.05;
+        const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
+        for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+            const auto& body = snap->bodies[i];
+            if (!body.enabled) continue;
+
+            const Vector3 world_position = to_world(body.position);
+            const double center_depth = Vector3DotProduct(
+                Vector3Subtract(world_position, cam.position),
+                forward
+            );
+            const double outer_depth = center_depth + adaptive_body_radius_3d(body, i, cam);
+            if (!std::isfinite(outer_depth) || outer_depth <= 0.0) continue;
+
+            far_plane = std::max(far_plane, outer_depth * DEPTH_MARGIN);
+        }
+
+        return far_plane;
     }
 
     void fit_camera_to_planetary_system(
@@ -120,10 +143,10 @@ namespace {
         );
     }
 
-    void draw_star_background(const Camera3D& cam) {
+    void draw_star_background(const Camera3D& cam, const double far_plane) {
         if (!star_background_loaded) return;
 
-        const auto radius = static_cast<float>(camera_far_plane(cam) * 0.5);
+        const auto radius = static_cast<float>(far_plane * 0.5);
 
         // We are looking at the sphere from inside
         rlDisableBackfaceCulling();
@@ -695,10 +718,11 @@ Camera3D ui::make_camera() {
 
 void ui::draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
     const Camera3D cam = make_camera();
-    rlSetClipPlanes(camera_near_plane(cam), camera_far_plane(cam));
+    const double far_plane = camera_far_plane(cam, snap);
+    rlSetClipPlanes(camera_near_plane(cam), far_plane);
 
     BeginMode3D(cam);
-    draw_star_background(cam);
+    draw_star_background(cam, far_plane);
     EndMode3D();
 
     // TODO: Make orbits & planets overlap correctly, according to real perspective
