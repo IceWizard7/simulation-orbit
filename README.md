@@ -24,6 +24,8 @@
 </div>
 <br>
 
+[![Demo Video](screenshots/3.png)](https://www.youtube.com/watch?v=Ui0IkPfnHJc)
+
 > [!WARNING]
 > This research software is under active development.
 
