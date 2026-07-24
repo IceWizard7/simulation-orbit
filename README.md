@@ -13,7 +13,7 @@
   </p>
 </div>
 
-<div align="center">
+<!--<div align="center">
   <img src="screenshots/1.png" alt="3D Solar system" width="250">
   <img src="screenshots/2.png" alt="3D Jupiter & 4 moons" width="250">
   <img src="screenshots/3.png" alt="3D Uranus & 5 moons" width="250">
@@ -21,9 +21,11 @@
   <img src="screenshots/5.png" alt="3D Pluto & 4 moons" width="250">
   <img src="screenshots/6.png" alt="2D Solar system" width="250">
   <img src="screenshots/7.png" alt="2D Solar system relative to Jupter" width="250">
-</div>
+</div>-->
 <br>
 
+> [!Note]
+> Demo Video
 [![Demo Video](screenshots/3.png)](https://www.youtube.com/watch?v=Ui0IkPfnHJc)
 
 > [!WARNING]
