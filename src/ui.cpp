@@ -326,7 +326,7 @@ void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
     constexpr double font_size = 16;
     constexpr double spacing = font_size + 2;
     const Vec2 start = {config::WINDOW_WIDTH - config::WINDOW_MARGIN * 1.25 - config::GRID_SPACING, config::WINDOW_MARGIN};
-    const Vec2 end = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * runtime_config::enabled_celestial_bodies};
+    const Vec2 end = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * static_cast<double>(runtime_config::enabled_celestial_bodies)};
 
     DrawRectangle(start, end, WHITE);
 
