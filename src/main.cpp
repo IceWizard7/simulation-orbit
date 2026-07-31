@@ -51,7 +51,7 @@ int main(const int argc, char* argv[]) {
     }
 
     SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
-    InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "Umlaufbahn Simulation");
+    InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "simulation-orbit");
     SetTargetFPS(config::TARGET_FPS);
 
     // Loading begin
