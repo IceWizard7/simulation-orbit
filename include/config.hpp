@@ -76,8 +76,26 @@ namespace config {
 
     inline Font uiFont;
 
+    inline constexpr std::size_t NO_BODY_SELECTED = NUM_CELESTIAL_BODIES;
+
     inline std::atomic<std::size_t> center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
-    inline std::atomic<std::optional<std::size_t>> planet_info_display_index{std::nullopt}; // -1 -> none
+    inline std::atomic planet_info_display_index = NO_BODY_SELECTED;
+
+    [[nodiscard]] inline std::optional<std::size_t> get_planet_info_display_index() {
+        const std::size_t index = planet_info_display_index.load();
+
+        if (index == NO_BODY_SELECTED) {
+            return std::nullopt;
+        }
+
+        return index;
+    }
+
+    inline void set_planet_info_display_index(const std::optional<std::size_t> index) {
+        planet_info_display_index.store(
+            index.value_or(NO_BODY_SELECTED)
+        );
+    }
 }
 
 namespace runtime_config {

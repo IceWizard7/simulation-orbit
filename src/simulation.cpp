@@ -529,7 +529,7 @@ void simulation::publish_snapshot() {
 
     snap->max_orbit_points_used = max_used;
 
-    const std::optional<std::size_t> planet_info_display_index = config::planet_info_display_index.load(); // load once
+    const std::optional<std::size_t> planet_info_display_index = config::get_planet_info_display_index(); // load once
 
     if (planet_info_display_index.has_value()) {
         const auto& body = celestial_bodies[*planet_info_display_index];

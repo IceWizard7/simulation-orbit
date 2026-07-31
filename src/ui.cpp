@@ -349,7 +349,7 @@ void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
 }
 
 void ui::draw_planet_info(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap) {
-    const std::optional<std::size_t> planet_info_display_index = config::planet_info_display_index.load(); // load once
+    const std::optional<std::size_t> planet_info_display_index = config::get_planet_info_display_index(); // load once
 
     if (!planet_info_display_index.has_value()) return;
 
@@ -784,7 +784,7 @@ void ui::UpdateDrawFrame() {
     bool center_button_pressed = false;
     bool copied_button_pressed = false;
 
-    const std::optional<std::size_t> planet_info_display_index = config::planet_info_display_index.load(); // load once
+    const std::optional<std::size_t> planet_info_display_index = config::get_planet_info_display_index(); // load once
 
     if (planet_info_display_index.has_value() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         auto [center_start, center_end] = center_button_coordinates();
@@ -819,7 +819,7 @@ void ui::UpdateDrawFrame() {
 
         if (selected_body_i != planet_info_display_index) {
             config::republish_needed = true;
-            config::planet_info_display_index = selected_body_i;
+            config::set_planet_info_display_index(selected_body_i);
         }
     }
 
@@ -828,7 +828,7 @@ void ui::UpdateDrawFrame() {
         config::center_celestial_body_index.store(center_index);
         fit_camera_to_planetary_system(snap, center_index);
         config::republish_needed = true;
-        config::planet_info_display_index = std::nullopt; // optional: reset config::planet_info_display_index
+        config::set_planet_info_display_index(std::nullopt); // optional: reset planet_info_display_index
     } else if (new_center_i.has_value() && *new_center_i != config::center_celestial_body_index) {
         if (snap->bodies[*new_center_i].enabled) {
             config::center_celestial_body_index = *new_center_i;
