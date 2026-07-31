@@ -104,9 +104,8 @@ namespace ui {
 
     void draw_axes_labels_3d(const Camera3D& cam);
 
-    int pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap);
-
-    int pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam);
+    std::optional<std::size_t> pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap);
+    std::optional<std::size_t> pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam);
 
     void draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam);
 

@@ -3,15 +3,19 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
-#include <cstdio>
+#include <cstddef>
+#include <format>
 #include <fstream>
 #include <iostream>
 #include <limits>
 #include <memory>
 #include <mutex>
+#include <regex>
 #include <thread>
 #include <utility>
+#include <vector>
 
+#include "force_pairs.hpp"
 #include "ui.hpp"
 
 CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES] = {
@@ -56,13 +60,13 @@ CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES] = {
 };
 
 namespace {
-    constexpr std::array earth_moons{10};
-    constexpr std::array mars_moons{11, 12};
-    constexpr std::array jupiter_moons{13, 14, 15, 16};
-    constexpr std::array saturn_moons{17, 18, 19, 20, 21, 22, 23, 24, 25};
-    constexpr std::array uranus_moons{26, 27, 28, 29, 30};
-    constexpr std::array neptune_moons{31, 32, 33};
-    constexpr std::array pluto_moons{34, 35, 36, 37};
+    constexpr std::array<std::size_t, 1> earth_moons{10};
+    constexpr std::array<std::size_t, 2> mars_moons{11, 12};
+    constexpr std::array<std::size_t, 4> jupiter_moons{13, 14, 15, 16};
+    constexpr std::array<std::size_t, 9> saturn_moons{17, 18, 19, 20, 21, 22, 23, 24, 25};
+    constexpr std::array<std::size_t, 5> uranus_moons{26, 27, 28, 29, 30};
+    constexpr std::array<std::size_t, 3> neptune_moons{31, 32, 33};
+    constexpr std::array<std::size_t, 4> pluto_moons{34, 35, 36, 37};
 }
 
 const std::array<PlanetarySystem, 7> simulation::planetary_systems{{
@@ -76,7 +80,7 @@ const std::array<PlanetarySystem, 7> simulation::planetary_systems{{
 }};
 
 namespace {
-    [[nodiscard]] std::optional<int> planetary_system_parent(const int body_index) {
+    [[nodiscard]] std::optional<std::size_t> planetary_system_parent(const std::size_t body_index) {
         for (const auto& [parent_index, moon_indices] : simulation::planetary_systems) {
             if (body_index == parent_index || std::ranges::find(moon_indices, body_index) != moon_indices.end()) {
                 return parent_index;
@@ -85,8 +89,8 @@ namespace {
         return std::nullopt;
     }
 
-    [[nodiscard]] bool share_planetary_system(const int first_index, const int second_index) {
-        const std::optional<int> first_parent = planetary_system_parent(first_index);
+    [[nodiscard]] bool share_planetary_system(const std::size_t first_index, const std::size_t second_index) {
+        const std::optional<std::size_t> first_parent = planetary_system_parent(first_index);
         return first_parent.has_value() && first_parent == planetary_system_parent(second_index);
     }
 }
@@ -99,7 +103,7 @@ void simulation::apply_planet_systems_approximation() {
         Vec3 weighted_position = parent.position * parent.original_gravitational_mass;
         Vec3 weighted_velocity = parent.velocity * parent.original_gravitational_mass;
 
-        for (const int moon_index : moon_indices) {
+        for (const std::size_t moon_index : moon_indices) {
             auto& moon = celestial_bodies[moon_index];
             total_gravitational_mass += moon.original_gravitational_mass;
             weighted_position += moon.position * moon.original_gravitational_mass;
@@ -123,9 +127,9 @@ bool simulation::live_csv_write_failed = false;
 CSVEntry simulation::capture_csv_entry() {
     CSVEntry entry;
     entry.step = config::steps_simulated.load();
-    entry.simulated_seconds = entry.step * runtime_config::time_step;
+    entry.simulated_seconds = entry.step * static_cast<std::size_t>(runtime_config::time_step);
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
         if (!celestial_bodies[i].enabled) continue;
         entry.positions[i] = celestial_bodies[i].position;
         entry.velocities[i] = celestial_bodies[i].velocity;
@@ -152,7 +156,7 @@ void simulation::write_csv_header(std::ostream& output) {
 void simulation::write_csv_entry(std::ostream& output, const CSVEntry& entry) {
     output << entry.step << "," << entry.simulated_seconds;
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
         const auto& position = entry.positions[i];
         const auto& velocity = entry.velocities[i];
 
@@ -209,7 +213,7 @@ bool simulation::record_csv_sample(const bool force) {
 void simulation::initialize_orbit_sampling() {
     double longest_orbital_period_seconds = 0.0;
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         longest_orbital_period_seconds = std::max(
             longest_orbital_period_seconds,
             celestial_bodies[i].orbital_period_seconds
@@ -259,7 +263,7 @@ void simulation::initialize_orbit_sampling() {
 void simulation::save_orbit_points() {
     const std::size_t step = config::steps_simulated.load();
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies[i].enabled) continue;
 
         if (step % orbit_center_reference_sample_every_steps == 0) {
@@ -327,49 +331,47 @@ void simulation::update_csv_data() {
 }
 
 std::array<Vec3, NUM_CELESTIAL_BODIES> simulation::compute_accelerations() {
+    force_pairs::record_acceleration_evaluation();
+
     std::array<Vec3, NUM_CELESTIAL_BODIES> accelerations = {};
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (!celestial_bodies[i].enabled) continue;
-        for (int j = i + 1; j < NUM_CELESTIAL_BODIES; j++) {
-            if (!celestial_bodies[j].enabled) continue;
+    for (const auto&[i, j] : force_pairs::active_pairs) {
+        const CelestialBody& first = celestial_bodies[i];
+        const CelestialBody& second = celestial_bodies[j];
 
-            const CelestialBody& first = celestial_bodies[i];
-            const CelestialBody& second = celestial_bodies[j];
-            const Vec3 separation = second.position - first.position;
-            const double distance = separation.length();
-            const Vec3 first_to_second_direction = separation / distance;
-            const double distance_squared = distance * distance;
+        const Vec3 separation = second.position - first.position;
+        const double distance = separation.length();
+        const Vec3 first_to_second_direction = separation / distance;
+        const double distance_squared = distance * distance;
 
-            // Evaluate each Newtonian pair once
-            // These accelerations correspond to equal-and-opposite forces because mass is proportional to GM
-            accelerations[i] += first_to_second_direction
-                * (second.gravitational_mass / distance_squared);
-            accelerations[j] -= first_to_second_direction
-                * (first.gravitational_mass / distance_squared);
+        // Evaluate each Newtonian pair once
+        // These accelerations correspond to equal-and-opposite forces because mass is proportional to GM
+        accelerations[i] += first_to_second_direction
+            * (second.gravitational_mass / distance_squared);
+        accelerations[j] -= first_to_second_direction
+            * (first.gravitational_mass / distance_squared);
 
-            if (!runtime_config::use_j2) continue;
+        if (!runtime_config::use_j2) continue;
 
-            // The direct J2 acceleration acts on the target
-            // Its reaction on the oblate source is scaled by target_mass/source_mass, equivalently
-            // target_GM/source_GM, so total linear momentum remains conserved
-            if (second.j2 != 0.0) {
-                const Vec3 j2_on_first = second.j2_acceleration_at(
-                    first_to_second_direction * -1.0,
-                    distance
-                );
-                accelerations[i] += j2_on_first;
-                accelerations[j] -= j2_on_first * (first.gravitational_mass / second.gravitational_mass);
-            }
+        // The direct J2 acceleration acts on the target
+        // Its reaction on the oblate source is scaled by target_mass/source_mass, equivalently
+        // target_GM/source_GM, so total linear momentum remains conserved
+        if (second.j2 != 0.0) {
+            const Vec3 j2_on_first = second.j2_acceleration_at(
+                first_to_second_direction * -1.0,
+                distance
+            );
+            accelerations[i] += j2_on_first;
+            accelerations[j] -= j2_on_first * (first.gravitational_mass / second.gravitational_mass);
+        }
 
-            if (first.j2 != 0.0) {
-                const Vec3 j2_on_second = first.j2_acceleration_at(
-                    first_to_second_direction,
-                    distance
-                );
-                accelerations[j] += j2_on_second;
-                accelerations[i] -= j2_on_second * (second.gravitational_mass / first.gravitational_mass);
-            }
+        if (first.j2 != 0.0) {
+            const Vec3 j2_on_second = first.j2_acceleration_at(
+                first_to_second_direction,
+                distance
+            );
+            accelerations[j] += j2_on_second;
+            accelerations[i] -= j2_on_second * (second.gravitational_mass / first.gravitational_mass);
         }
     }
 
@@ -384,7 +386,7 @@ void simulation::simulate_step() {
     const std::array<Vec3, NUM_CELESTIAL_BODIES>& accelerations = *accelerations_at_current_positions;
 
     // Velocity Verlet: keep the orbit phase stable over many short-period inner-planet revolutions
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies[i].enabled) continue;
         celestial_bodies[i].position += celestial_bodies[i].velocity * runtime_config::time_step
             + accelerations[i] * runtime_config::half_dt_squared;
@@ -392,7 +394,7 @@ void simulation::simulate_step() {
 
     const std::array<Vec3, NUM_CELESTIAL_BODIES> next_accelerations = compute_accelerations();
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies[i].enabled) continue;
         celestial_bodies[i].velocity += (accelerations[i] + next_accelerations[i]) * runtime_config::half_dt;
     }
@@ -411,7 +413,7 @@ void simulation::publish_snapshot() {
     auto snap = std::make_shared<ui::RenderSnapshot>();
 
     const std::size_t current_step = config::steps_simulated.load();
-    const int center_index = config::center_celestial_body_index;
+    const std::size_t center_index = config::center_celestial_body_index;
     const Vec3 center = celestial_bodies[center_index].position;
     const auto& center_history = orbit_history[center_index];
     const std::size_t center_cadence = orbit_sample_every_steps[center_index];
@@ -469,7 +471,7 @@ void simulation::publish_snapshot() {
 
     std::size_t max_used = 0;
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies[i].enabled) continue;
         const auto& body = celestial_bodies[i];
 
@@ -527,10 +529,10 @@ void simulation::publish_snapshot() {
 
     snap->max_orbit_points_used = max_used;
 
-    const int planet_info_display_index = config::planet_info_display_index; // load once
+    const std::optional<std::size_t> planet_info_display_index = config::planet_info_display_index.load(); // load once
 
-    if (planet_info_display_index != -1) {
-        const auto& body = celestial_bodies[planet_info_display_index];
+    if (planet_info_display_index.has_value()) {
+        const auto& body = celestial_bodies[*planet_info_display_index];
         snap->detailed_body_display = {body.name, body.position, body.velocity, body.get_mass(), body.color};
     }
 
@@ -676,30 +678,38 @@ bool simulation::finalize_csv_output() {
 void simulation::print_final_state() {
     const double seconds = config::timer.seconds();
 
-    printf("Simulated years per second: %.2f\n", seconds > 0.0 ? ui::simulated_years() / seconds : 0);
-    printf("Computation time: %.2f seconds\n", seconds);
-    printf("Simulation time: %.8f years (@ 365 days)\n", ui::simulated_years());
-    printf("Steps simulated: %zu\n", config::steps_simulated.load());
-    printf("Time step: %d seconds\n", runtime_config::time_step);
-    printf("Body set: %s\n", runtime_config::body_set_name());
-    printf("Invocation command: %s\n", runtime_config::invocation_command.c_str());
+    std::cout << std::format("Simulated years per second: {:.9f}\n", seconds > 0.0 ? ui::simulated_years() / seconds : 0);
+    std::cout << std::format("Computation time: {:.9f} seconds\n", seconds);
+    std::cout << std::format("Simulation time: {:.9f} years (@ 365 days)\n", ui::simulated_years());
 
-    printf("Enabled body indices: ");
+    std::cout << std::format("Interaction set: {}\n", runtime_config::interaction_set_name());
+    std::cout << std::format("Active force pairs: {}\n", force_pairs::active_pair_count());
+    std::cout << std::format("Skipped force pairs: {}\n", force_pairs::skipped_pair_count());
+
+    std::cout << std::format("Acceleration evaluations: {}\n", force_pairs::acceleration_evaluation_count());
+    std::cout << std::format("Newtonian pair evaluations: {}\n", force_pairs::pair_evaluation_count());
+
+    std::cout << std::format("Steps simulated: {}\n", config::steps_simulated.load());
+    std::cout << std::format("Time step: {} seconds\n", runtime_config::time_step);
+    std::cout << std::format("Body set: {}\n", runtime_config::body_set_name());
+    std::cout << std::format("Invocation command: {}\n", runtime_config::invocation_command);
+
+    std::cout << "Enabled body indices: ";
     bool first_enabled_body = true;
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies[i].enabled) continue;
-        if (!first_enabled_body) printf(",");
-        printf("%d", i);
+        if (!first_enabled_body) std::cout << ',';
+        std::cout << i;
         first_enabled_body = false;
     }
-    printf("\n");
+    std::cout << '\n';
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         const auto& celestial_body = celestial_bodies[i];
-        printf("%s", celestial_body.position.to_exact_string().c_str());
+        std::cout << celestial_body.position.to_exact_string();
         if (i != NUM_CELESTIAL_BODIES - 1) {
-            printf("|");
+            std::cout << '|';
         }
     }
-    printf("\n");
+    std::cout << '\n';
 }

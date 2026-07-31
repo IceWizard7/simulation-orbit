@@ -20,8 +20,8 @@ struct CSVEntry {
 };
 
 struct PlanetarySystem {
-    int parent_index;
-    std::span<const int> moon_indices;
+    std::size_t parent_index;
+    std::span<const std::size_t> moon_indices;
 };
 
 namespace simulation {

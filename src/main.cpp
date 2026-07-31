@@ -1,14 +1,15 @@
+#include <cstddef>
+#include <cstdio>
 #include <thread>
+
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
-
-#include <cstdio>
 #include <raylib.h>
 
 #include "config.hpp"
+#include "force_pairs.hpp"
 #include "simulation.hpp"
-#include "timer.hpp"
 #include "ui.hpp"
 
 // TODO: Parallel Execution?
@@ -23,10 +24,13 @@ int main(const int argc, char* argv[]) {
         simulation::apply_planet_systems_approximation();
     }
 
+    force_pairs::initialize_all_pairs(simulation::celestial_bodies);
+    force_pairs::set_interaction_set(simulation::planetary_systems);
+
     if (!simulation::initialize_csv_output()) return 1;
     simulation::initialize_orbit_sampling();
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
         if (simulation::celestial_bodies[i].enabled) {
             config::center_celestial_body_index = i;
             break;

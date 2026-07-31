@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -9,7 +10,7 @@ str to_power_of10(double x);
 
 str round_to_hundreds(double x);
 
-str get_numerical_suffix(int x);
+str get_numerical_suffix(std::size_t x);
 
 namespace Vector_Utils {
     template <typename T>

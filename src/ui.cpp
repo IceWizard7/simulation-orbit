@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cmath>
+#include <cstddef>
 #include <format>
 #include <iostream>
 #include <mutex>
@@ -39,7 +40,7 @@ namespace {
     Texture2D star_texture{};
     bool star_background_loaded = false;
 
-    [[nodiscard]] bool is_moon(const int body_index) {
+    [[nodiscard]] bool is_moon(const std::size_t body_index) {
         return body_index >= NUM_PLANETS + NUM_DWARF_PLANETS;
     }
 
@@ -61,7 +62,7 @@ namespace {
 
     [[nodiscard]] float adaptive_body_radius_3d(
         const ui::RenderSnapshot::Body& body,
-        const int body_index,
+        const std::size_t body_index,
         const Camera3D& cam
     ) {
         const Vector3 world_position = to_world(body.position);
@@ -87,7 +88,7 @@ namespace {
 
         constexpr double DEPTH_MARGIN = 1.05;
         const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
-        for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
             const auto& body = snap->bodies[i];
             if (!body.enabled) continue;
 
@@ -107,7 +108,7 @@ namespace {
 
     void fit_camera_to_planetary_system(
         const std::shared_ptr<const ui::RenderSnapshot>& snap,
-        const int center_index
+        const std::size_t center_index
     ) {
         if (!snap) return;
 
@@ -121,7 +122,7 @@ namespace {
 
         const Vec3 parent_position = snap->bodies[center_index].position;
         double system_radius_meters = 0.0;
-        for (const int moon_index : system->moon_indices) {
+        for (const std::size_t moon_index : system->moon_indices) {
             const auto& moon = snap->bodies[moon_index];
             if (!moon.enabled) continue;
             system_radius_meters = std::max(
@@ -331,7 +332,7 @@ void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
 
     int completed_iterations = 0;
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (const auto& body = snap->bodies[i]; body.color.has_value()) {
             DrawCircle({start.x + 10, start.y + spacing * completed_iterations + (font_size / 2)}, 5, *body.color);
             DrawText(config::uiFont, body.name.c_str(), Vec2(start.x + 25, start.y + spacing * completed_iterations), font_size, 1, BLACK);
@@ -348,7 +349,9 @@ void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
 }
 
 void ui::draw_planet_info(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap) {
-    if (config::planet_info_display_index == -1) return;
+    const std::optional<std::size_t> planet_info_display_index = config::planet_info_display_index.load(); // load once
+
+    if (!planet_info_display_index.has_value()) return;
 
     const auto& body = snap->detailed_body_display;
     if (!body.has_value()) return;
@@ -369,10 +372,10 @@ void ui::draw_planet_info(const Color text_color, const Color background_color, 
     }
 
     DrawCircle({config::WINDOW_MARGIN + 22.5, config::WINDOW_MARGIN + 60}, 7.5, *body->color);
-    if (1 <= config::planet_info_display_index && config::planet_info_display_index <= 8) {
-        DrawText(config::uiFont, std::format("{} ({}{} planet from sun)", body->name, config::planet_info_display_index.load(), get_numerical_suffix(config::planet_info_display_index)).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
+    if (1 <= *planet_info_display_index && *planet_info_display_index <= 8) {
+        DrawText(config::uiFont, std::format("{} ({}{} planet from sun)", body->name, *planet_info_display_index, get_numerical_suffix(*planet_info_display_index)).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
     } else {
-        DrawText(config::uiFont, std::format("{} (index {})", body->name, config::planet_info_display_index.load()).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
+        DrawText(config::uiFont, std::format("{} (index {})", body->name, *planet_info_display_index).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
     }
     DrawText(config::uiFont, std::format("Position: {:<34}m", body->position.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 70}, 20, 1, text_color);
     DrawText(config::uiFont, std::format("Velocity: {:<34}m/s", body->velocity.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 90}, 20, 1, text_color);
@@ -398,10 +401,10 @@ void ui::draw_stats(const Color text_color, const Color background_color, const 
 }
 
 void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
-    const int hovered_body_i = pick_body_at_mouse_2d(snap);
+    const std::optional<std::size_t> hovered_body_i = pick_body_at_mouse_2d(snap);
 
     // snap->bodies positions are already relative to the center body (see publish_snapshot)
-    for (int i = 0; i < snap->bodies.size(); i++) {
+    for (std::size_t i = 0; i < snap->bodies.size(); i++) {
         const auto& [name, position, radius_2d, _radius_3d, color, _planet_visual, _enabled] = snap->bodies[i];
         if (color.has_value() && inside_screen(position)) {
             const Vector2 pos = to_raylib(position);
@@ -409,7 +412,7 @@ void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
             Vector2 text_pos = pos;
             text_pos.y -= 10;
             text_pos.x += 10;
-            if (hovered_body_i != -1 && i == hovered_body_i) {
+            if (hovered_body_i.has_value() && i == *hovered_body_i) {
                 DrawTextOutlined(config::uiFont, name.c_str(), text_pos, 20, 1, *color, {0, 0, 0, 125});
             }
         }
@@ -419,8 +422,8 @@ void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
 void ui::draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
     if (!ui_config::draw_orbits) return;
 
-    const int orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
-    for (int i = 0; i < orbit_max_i; i++) {
+    const std::size_t orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
+    for (std::size_t i = 0; i < orbit_max_i; i++) {
         const auto& [points, color] = snap->orbits[i];
         if (!color.has_value() || points.size() < 2) continue;
 
@@ -451,8 +454,8 @@ void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const
 
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
-    const int orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
-    for (int i = 0; i < orbit_max_i; i++) {
+    const std::size_t orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
+    for (std::size_t i = 0; i < orbit_max_i; i++) {
         const auto& [pts, color] = snap->orbits[i];
         if (!color || pts.size() < 2) continue;
 
@@ -464,7 +467,7 @@ void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const
         bool prev_in_front = Vector3DotProduct(Vector3Subtract(first_world, cam.position), forward) > 0;
         Vector2 prev_screen = prev_in_front ? GetWorldToScreen(first_world, cam) : Vector2{};
 
-        for (size_t j = 1; j < pts.size(); j++) {
+        for (std::size_t j = 1; j < pts.size(); j++) {
             const Vector3 world = to_world(pts[j]);
             const bool in_front = Vector3DotProduct(Vector3Subtract(world, cam.position), forward) > 0;
             const Vector2 screen = in_front ? GetWorldToScreen(world, cam) : Vector2{};
@@ -481,7 +484,7 @@ void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const
 }
 
 void ui::draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         const auto& [name, pos, _radius_2d, _radius_3d, color, planet_visual, _enabled] = snap->bodies[i];
         const float radius_3d = adaptive_body_radius_3d(snap->bodies[i], i, cam);
         if (planet_visual != nullptr && planet_visual->loaded) {
@@ -608,15 +611,15 @@ void ui::draw_axes_labels_3d(const Camera3D& cam) {
 }
 
 
-int ui::pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
-    if (!snap) return -1;
+std::optional<std::size_t> ui::pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
+    if (!snap) return std::nullopt;
 
     const auto [mx, my] = GetMousePosition();
 
-    int best = -1;
+    std::optional<std::size_t> best;
     float best_dist_sq = 0;
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         constexpr float MIN_CLICK_RADIUS = 8.0f; // keeps tiny planets clickable
 
         const auto& body = snap->bodies[i];
@@ -628,7 +631,7 @@ int ui::pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap)
         const float dist_sq = dx * dx + dy * dy;
 
         const float hit_radius = std::max(body.radius_2d, MIN_CLICK_RADIUS);
-        if (dist_sq <= hit_radius * hit_radius && (best == -1 || dist_sq < best_dist_sq)) {
+        if (dist_sq <= hit_radius * hit_radius && (!best.has_value() || dist_sq < best_dist_sq)) {
             best = i;
             best_dist_sq = dist_sq;
         }
@@ -637,18 +640,18 @@ int ui::pick_body_at_mouse_2d(const std::shared_ptr<const RenderSnapshot>& snap)
     return best;
 }
 
-int ui::pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
-    if (!snap) return -1;
+std::optional<std::size_t> ui::pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
+    if (!snap) return std::nullopt;
 
     const auto [mx, my]   = GetMousePosition();
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
-    int best = -1;
+    std::optional<std::size_t> best;
     float best_cam_dist = 0; // front-most body under the cursor wins
 
     const Vector3 right = Vector3Normalize(Vector3CrossProduct(forward, cam.up));
 
-    for (int i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         constexpr float MIN_CLICK_RADIUS_PX = 12.0f;
         const auto& body = snap->bodies[i];
         if (!body.color.has_value()) continue;
@@ -671,7 +674,7 @@ int ui::pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap,
         if (dx * dx + dy * dy > hit_radius * hit_radius) continue;
 
         const float cam_dist = Vector3Distance(cam.position, world);
-        if (best == -1 || cam_dist < best_cam_dist) {
+        if (!best.has_value() || cam_dist < best_cam_dist) {
             best = i;
             best_cam_dist = cam_dist;
         }
@@ -681,13 +684,13 @@ int ui::pick_body_at_mouse_3d(const std::shared_ptr<const RenderSnapshot>& snap,
 }
 
 void ui::draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
-    const int hovered_body_i = pick_body_at_mouse_3d(snap, cam);
+    const std::optional<std::size_t> hovered_body_i = pick_body_at_mouse_3d(snap, cam);
 
-    if (hovered_body_i == -1) return;
+    if (!hovered_body_i.has_value()) return;
 
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
-    const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual, _enabled] = snap->bodies[hovered_body_i];
+    const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual, _enabled] = snap->bodies[*hovered_body_i];
     if (!color.has_value()) return;
 
     const Vector3 world = to_world(pos);
@@ -765,7 +768,7 @@ void ui::UpdateDrawFrame() {
         snap = config::latest_snapshot;
     }
 
-    int new_center_i = -1;
+    std::optional<std::size_t> new_center_i;
 
     if (IsKeyPressed(KEY_ZERO)) { new_center_i=0; }
     if (IsKeyPressed(KEY_ONE)) { new_center_i=1; }
@@ -781,7 +784,9 @@ void ui::UpdateDrawFrame() {
     bool center_button_pressed = false;
     bool copied_button_pressed = false;
 
-    if (config::planet_info_display_index != -1 && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    const std::optional<std::size_t> planet_info_display_index = config::planet_info_display_index.load(); // load once
+
+    if (planet_info_display_index.has_value() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         auto [center_start, center_end] = center_button_coordinates();
         auto [copy_start, copy_end] = copy_button_coordinates();
 
@@ -800,35 +805,34 @@ void ui::UpdateDrawFrame() {
         }
     }
 
-    if (!center_button_pressed && !copied_button_pressed) {
-        int selected_body_i = -2;
+    if (!center_button_pressed &&
+        !copied_button_pressed &&
+        IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+        std::optional<std::size_t> selected_body_i;
+
         if (ui_config::view_3d) {
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                selected_body_i = pick_body_at_mouse_3d(snap, make_camera());
-            }
+            selected_body_i = pick_body_at_mouse_3d(snap, make_camera());
         }
         else {
-            if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-                selected_body_i = pick_body_at_mouse_2d(snap);
-            }
+            selected_body_i = pick_body_at_mouse_2d(snap);
         }
 
-        if (selected_body_i != -2 && selected_body_i != config::planet_info_display_index) {
+        if (selected_body_i != planet_info_display_index) {
             config::republish_needed = true;
             config::planet_info_display_index = selected_body_i;
         }
     }
 
     if (center_button_pressed) {
-        const int center_index = config::planet_info_display_index.load();
+        const std::size_t center_index = *planet_info_display_index;
         config::center_celestial_body_index.store(center_index);
         fit_camera_to_planetary_system(snap, center_index);
         config::republish_needed = true;
-        config::planet_info_display_index = -1; // optional: reset config::planet_info_display_index
-    } else if (new_center_i != -1 && new_center_i != config::center_celestial_body_index) {
-        if (snap->bodies[new_center_i].enabled) {
-            config::center_celestial_body_index = new_center_i;
-            fit_camera_to_planetary_system(snap, new_center_i);
+        config::planet_info_display_index = std::nullopt; // optional: reset config::planet_info_display_index
+    } else if (new_center_i.has_value() && *new_center_i != config::center_celestial_body_index) {
+        if (snap->bodies[*new_center_i].enabled) {
+            config::center_celestial_body_index = *new_center_i;
+            fit_camera_to_planetary_system(snap, *new_center_i);
             config::republish_needed = true;
         }
     }

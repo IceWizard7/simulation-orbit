@@ -1,6 +1,7 @@
 #include "utils.hpp"
 
 #include <cmath>
+#include <cstddef>
 #include <format>
 
 using str = std::string;
@@ -45,7 +46,7 @@ str round_to_hundreds(const double x) {
     return result;
 }
 
-str get_numerical_suffix(const int x) {
+str get_numerical_suffix(const std::size_t x) {
     if (x % 100 / 10 == 1) return "th";
 
     switch (x % 10) {

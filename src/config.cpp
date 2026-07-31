@@ -2,7 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdio>
+#include <cstddef>
 #include <format>
 #include <iostream>
 #include <limits>
@@ -32,8 +32,9 @@ namespace runtime_config {
     bool use_j2 = false;
 
     BodySet body_set = BodySet::dwarf;
+    InteractionSet interaction_set = InteractionSet::full;
 
-    int enabled_celestial_bodies;
+    std::size_t enabled_celestial_bodies;
 }
 
 const char* runtime_config::body_set_name() {
@@ -42,8 +43,19 @@ const char* runtime_config::body_set_name() {
         case BodySet::planets: return "planets";
         case BodySet::dwarf: return "dwarf";
         case BodySet::planet_systems: return "planet-systems";
-        default: return "unknown";
     }
+    return "unknown";
+}
+
+const char* runtime_config::interaction_set_name() {
+    switch (interaction_set) {
+        case InteractionSet::full: return "full";
+        case InteractionSet::no_moon_moon: return "no-moon-moon";
+        case InteractionSet::same_system_moons: return "same-system-moons";
+        case InteractionSet::local_moon_systems: return "local-moon-systems";
+        case InteractionSet::parent_sun_only: return "parent-sun-only";
+    }
+    return "unknown";
 }
 
 void runtime_config::update_body_set(CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]) {
@@ -54,19 +66,19 @@ void runtime_config::update_body_set(CelestialBody (&celestial_bodies)[NUM_CELES
             }
             break;
         case BodySet::planets:
-            for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+            for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
                 if (j < NUM_PLANETS) celestial_bodies[j].enabled = true;
                 else celestial_bodies[j].enabled = false;
             }
             break;
-        case runtime_config::BodySet::dwarf:
-            for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+        case BodySet::dwarf:
+            for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
                 if (j < NUM_PLANETS + NUM_DWARF_PLANETS) celestial_bodies[j].enabled = true;
                 else celestial_bodies[j].enabled = false;
             }
             break;
-        case runtime_config::BodySet::planet_systems:
-            for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+        case BodySet::planet_systems:
+            for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
                 celestial_bodies[j].enabled = j < NUM_PLANETS + NUM_DWARF_PLANETS;
             }
             break;
@@ -89,7 +101,7 @@ runtime_config::ParseRes<double> runtime_config::parse_double(const str& argumen
             throw std::invalid_argument("not a finite number");
         }
     } catch (const std::exception&) {
-        std::cerr << std::format("Error: {} is an invalid value for {}.\n", argv[i + 1], argument_name);
+        std::cerr << std::format("Error: \"{}\" is an invalid value for {}.\n", argv[i + 1], argument_name);
         return {0, 1};
     }
 
@@ -111,7 +123,7 @@ runtime_config::ParseRes<int> runtime_config::parse_int(const str& argument_name
             throw std::invalid_argument("not an integer");
         }
     } catch (const std::exception&) {
-        std::cerr << std::format("Error: {} is an invalid value for {}.\n", argv[i + 1], argument_name);
+        std::cerr << std::format("Error: \"{}\" is an invalid value for {}.\n", argv[i + 1], argument_name);
         return {0, 1};
     }
 
@@ -128,7 +140,7 @@ runtime_config::ParseRes<str> runtime_config::parse_str(const str& argument_name
 }
 
 void print_logo() {
-    printf(R"(
+    std::cout << R"(
          ██████╗ ██████╗ ██████╗ ██╗████████╗    ███████╗██╗███╗   ███╗██╗   ██╗██╗      █████╗ ████████╗██╗ ██████╗ ███╗   ██╗
         ██╔═══██╗██╔══██╗██╔══██╗██║╚══██╔══╝    ██╔════╝██║████╗ ████║██║   ██║██║     ██╔══██╗╚══██╔══╝██║██╔═══██╗████╗  ██║
         ██║   ██║██████╔╝██████╔╝██║   ██║       ███████╗██║██╔████╔██║██║   ██║██║     ███████║   ██║   ██║██║   ██║██╔██╗ ██║
@@ -136,8 +148,7 @@ void print_logo() {
         ╚██████╔╝██║  ██║██████╔╝██║   ██║       ███████║██║██║ ╚═╝ ██║╚██████╔╝███████╗██║  ██║   ██║   ██║╚██████╔╝██║ ╚████║
          ╚═════╝ ╚═╝  ╚═╝╚═════╝ ╚═╝   ╚═╝       ╚══════╝╚═╝╚═╝     ╚═╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝   ╚═╝   ╚═╝ ╚═════╝ ╚═╝  ╚═══╝
 
-        )");
-    printf("\n");
+        )" << '\n';
 }
 
 // POSIX-shell-quote -> fully copy-paste reproducible
@@ -179,29 +190,34 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
 
     if (argc >= 2 && (str(argv[1]) == "--help" || str(argv[1]) == "-h")) {
         print_logo();
-        printf("    Options:\n");
-        printf("    -v, --version                                        Show version\n");
-        printf("    -h, --help                                           Show help\n");
-        printf("        --headless                                       Run without raylib window (default: off)\n");
-        printf("        --dt <seconds>                                   Configure time step (default: 900)\n");
-        printf("        --years <years>                                  Configure total simulation time (default: unlimited, -1)\n");
-        printf("        --csv <path>                                     Set CSV path for export of positions (default: off)\n");
-        printf("        --sample-every-seconds <seconds>                 Set the physical sampling interval. Must be a multiple of --dt (default: off)\n");
-        printf("        --csv-live                                       Stream CSV rows during simulation instead of writing at the end (default: off)\n");
-        printf("        --j2                                             Enable planetary oblateness (J2) perturbation on satellites (default: off)\n");
-        printf("        --body-set <all|planets|dwarf|planet-systems>    Enable only a subset of the available celestial bodies, planet-systems uses barycentric approximation (default: dwarf)\n");
-        printf("        --disable-body <name>                            Disable a certain body; must come after --body-set (default: none explicitly disabled)\n");
+        std::cout <<   "    -v, --version                 Show version                                                                                             [boolean] [default: false]\n";
+        std::cout <<   "    -h, --help                    Show help                                                                                                [boolean] [default: false]\n";
+        std::cout <<   "        --headless                Run without raylib window                                                                                [boolean] [default: false]\n";
+        std::cout <<   "        --dt                      Configure time step                                                                                      [number]  [default: 900]\n";
+        std::cout <<   "        --years                   Configure total simulation time, -1 for unlimited                                                        [number]  [default: -1]\n";
+        std::cout <<   "        --csv                     Set CSV path for export of positions                                                                     [string]  [default: none]\n";
+        std::cout <<   "        --sample-every-seconds    Set the physical sampling interval. Must be a multiple of --dt                                           [number]  [default: none]\n";
+        std::cout <<   "        --csv-live                Stream CSV rows during simulation instead of writing at the end                                          [boolean] [default: false]\n";
+        std::cout <<   "        --j2                      Enable planetary oblateness (J2) perturbation on satellites                                              [boolean] [default: false]\n";
+        std::cout <<   "        --body-set                Enable only a subset of the available celestial bodies, planet-systems uses barycentric approximation    [string]  [default: \"dwarf\"]\n";
+        std::cout << R"(            choices:          ["all", "planets", "dwarf", "planet-systems"])" << '\n';
+        std::cout <<   "        --disable-body            Disable a certain body; must come after --body-set; can be stacked                                       [string]  [default: none]\n";
+        std::cout <<   "        --interaction-set         Enable only a subset of all interactions                                                                 [string]  [default: \"full\"]\n";
+        std::cout << R"(            choices:          ["full" (all forces), "no-moon-moon" (no interactions between moons),)" << '\n';
+        std::cout << R"(                              "same-system-moons" (moon-moon interactions only within the same system),)" << '\n';
+        std::cout << R"(                              "local-moon-systems" (moons only interact with the sun and members of their own system),)" << '\n';
+        std::cout << R"(                              "parent-sun-only" (moons interact only with the sun and their parent planet)])" << '\n';
         exit_immediately = true;
         return 0;
     }
     if (argc >= 2 && (str(argv[1]) == "--version" || str(argv[1]) == "-v")) {
-        printf("v0.1.0\n");
+        std::cout << "simulation-orbit v0.1.0\n";
         exit_immediately = true;
         return 0;
     }
 
     bool years_supplied = false;
-    std::vector<int> explicitly_disabled_body_indices;
+    std::vector<std::size_t> explicitly_disabled_body_indices;
 
     body_set = BodySet::dwarf;
     update_body_set(celestial_bodies);
@@ -254,7 +270,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
                 update_body_set(celestial_bodies);
             } else {
                 std::cerr << std::format(
-                    "Error: {} is an invalid value for --body-set. Pass \"all\", \"planets\", \"dwarf\" or \"planet-systems\" instead.\n",
+                    "Error: \"{}\" is an invalid value for --body-set. Pass \"all\", \"planets\", \"dwarf\" or \"planet-systems\" instead.\n",
                     val
                 );
                 return 1;
@@ -264,9 +280,9 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
             auto [val, err] = parse_str("--disable-body", i, argc, argv);
             if (err != 0) return err;
 
-            std::optional<int> celestial_body_index;
+            std::optional<std::size_t> celestial_body_index;
 
-            for (int j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+            for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
                 const auto& celestial_body = celestial_bodies[j];
                 if (celestial_body.name == val) {
                     celestial_body_index = j;
@@ -275,13 +291,34 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
             }
 
             if (!celestial_body_index.has_value()) {
-                std::cerr << std::format("Error: {} is an invalid value for --disable-body. Pass a valid name instead.\n", val);
+                std::cerr << std::format("Error: \"{}\" is an invalid value for --disable-body. Pass a valid name instead.\n", val);
                 return 1;
             }
 
             celestial_bodies[*celestial_body_index].enabled = false;
             explicitly_disabled_body_indices.push_back(*celestial_body_index);
 
+            i++;
+        } else if (arg == "--interaction-set") {
+            auto [val, err] = parse_str("--interaction-set", i, argc, argv);
+            if (err != 0) return err;
+            if (val == "full") {
+                interaction_set = InteractionSet::full;
+            } else if (val == "no-moon-moon") {
+                interaction_set = InteractionSet::no_moon_moon;
+            } else if (val == "same-system-moons") {
+                interaction_set = InteractionSet::same_system_moons;
+            } else if (val == "local-moon-systems") {
+                interaction_set = InteractionSet::local_moon_systems;
+            } else if (val == "parent-sun-only") {
+                interaction_set = InteractionSet::parent_sun_only;
+            } else {
+                std::cerr << std::format(
+                    "Error: \"{}\" is an invalid value for --interaction-set. Pass \"full\", \"no-moon-moon\", \"same-system-moons\", \"local-moon-systems\" or \"parent-sun-only\" instead.\n",
+                    val
+                );
+                return 1;
+            }
             i++;
         } else {
             std::cerr << std::format("Error: Unexpected argument {}.\n", arg);
@@ -329,6 +366,23 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
         return 1;
     }
 
+    if (interaction_set != InteractionSet::full) {
+        if (body_set != BodySet::all) {
+            std::cerr << "Error: A non-full --interaction-set requires --body-set all.\n";
+            return 1;
+        }
+
+        if (!explicitly_disabled_body_indices.empty()) {
+            std::cerr << "Error: --disable-body cannot be combined with a non-full --interaction-set.\n";
+            return 1;
+        }
+
+        if (use_j2) {
+            std::cerr << "Error: --j2 cannot be combined with a non-full --interaction-set.\n";
+            return 1;
+        }
+    }
+
     if (body_set == BodySet::planet_systems && use_j2) {
         std::cerr << "Error: --j2 cannot be combined with --body-set planet-systems; "
                      "the barycentric approximation is a spherical point-mass monopole.\n";
@@ -336,7 +390,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
     }
 
     if (body_set == BodySet::planet_systems) {
-        for (const int index : explicitly_disabled_body_indices) {
+        for (const std::size_t index : explicitly_disabled_body_indices) {
             if (index < NUM_PLANETS + NUM_DWARF_PLANETS) continue;
             std::cerr << std::format(
                 "Error: --disable-body {} cannot be combined with --body-set planet-systems; "

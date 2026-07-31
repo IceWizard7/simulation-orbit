@@ -12,9 +12,9 @@
 #include "timer.hpp"
 #include "utils.hpp"
 
-#define NUM_CELESTIAL_BODIES 38
-#define NUM_PLANETS 9 // excluding dwarf planets & sun; always located at the first indices
-#define NUM_DWARF_PLANETS 1 // only dwarf planets
+inline constexpr std::size_t NUM_CELESTIAL_BODIES = 38;
+inline constexpr std::size_t NUM_PLANETS = 9; // Sun + 8 planets, indices 0-8
+inline constexpr std::size_t NUM_DWARF_PLANETS = 1; // Amount of dwarf planets
 
 namespace ui {
     struct RenderSnapshot;
@@ -76,8 +76,8 @@ namespace config {
 
     inline Font uiFont;
 
-    inline std::atomic center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
-    inline std::atomic planet_info_display_index = -1; // -1 -> none
+    inline std::atomic<std::size_t> center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
+    inline std::atomic<std::optional<std::size_t>> planet_info_display_index{std::nullopt}; // -1 -> none
 }
 
 namespace runtime_config {
@@ -86,6 +86,14 @@ namespace runtime_config {
         planets,
         dwarf,
         planet_systems,
+    };
+
+    enum class InteractionSet {
+        full,
+        no_moon_moon,
+        same_system_moons,
+        local_moon_systems,
+        parent_sun_only
     };
 
     extern str invocation_command;
@@ -109,12 +117,14 @@ namespace runtime_config {
     extern bool use_j2;
 
     extern BodySet body_set;
+    extern InteractionSet interaction_set;
 
     [[nodiscard]] const char* body_set_name();
+    [[nodiscard]] const char* interaction_set_name();
 
     void update_body_set(CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]);
 
-    extern int enabled_celestial_bodies;
+    extern std::size_t enabled_celestial_bodies;
 
     template <typename T>
     struct ParseRes {
