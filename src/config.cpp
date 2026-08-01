@@ -442,7 +442,6 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
     return 0;
 }
 
-
 void runtime_config::set_time_step_string() {
     auto set_string = [](double val, const str& unit) {
         constexpr double epsilon = 1e-6;
