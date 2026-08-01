@@ -1,5 +1,5 @@
 #include <cstddef>
-#include <cstdio>
+#include <iostream>
 #include <thread>
 
 #ifdef __EMSCRIPTEN__
@@ -102,7 +102,7 @@ int main(const int argc, char* argv[]) {
     // Unloading end
 
     CloseWindow();
-    printf("\n");
+    std::cout << '\n';
 
     const bool csv_output_succeeded = simulation::finalize_csv_output();
     simulation::print_final_state();
