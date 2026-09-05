@@ -3,17 +3,26 @@ project(simulation-orbit)
 
 set(CMAKE_CXX_STANDARD 20)
 
-include(FetchContent)
-
+option(USE_SYSTEM_RAYLIB "Use an installed raylib package" OFF)
 set(RAYLIB_VERSION 6.0)
 
-FetchContent_Declare(
-        raylib
-        URL https://github.com/raysan5/raylib/archive/refs/tags/${RAYLIB_VERSION}.tar.gz
-        DOWNLOAD_EXTRACT_TIMESTAMP OFF
-)
+if (USE_SYSTEM_RAYLIB)
+    find_package(raylib ${RAYLIB_VERSION} CONFIG REQUIRED)
+else()
+    include(FetchContent)
 
-FetchContent_MakeAvailable(raylib)
+    FetchContent_Declare(
+            raylib
+            URL https://github.com/raysan5/raylib/archive/refs/tags/${RAYLIB_VERSION}.tar.gz
+            DOWNLOAD_EXTRACT_TIMESTAMP OFF
+    )
+
+    FetchContent_MakeAvailable(raylib)
+
+    target_compile_definitions(raylib PRIVATE
+            SUPPORT_FILEFORMAT_JPG=1
+    )
+endif()
 
 add_executable(simulation-orbit
         src/main.cpp
@@ -27,10 +36,6 @@ add_executable(simulation-orbit
 )
 
 target_include_directories(simulation-orbit PRIVATE include)
-
-target_compile_definitions(raylib PRIVATE
-        SUPPORT_FILEFORMAT_JPG=1
-)
 
 target_link_libraries(simulation-orbit PRIVATE raylib)
 

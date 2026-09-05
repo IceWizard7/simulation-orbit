@@ -95,10 +95,25 @@ Analyze script (`analyze.py`):
 
 ### 2.2 Building
 
+By default, CMake downloads and builds raylib 6.0:
+
 ```bash
 cmake -S . -B cmake-build-release -DCMAKE_BUILD_TYPE=Release
 cmake --build cmake-build-release --parallel
 ```
+
+To use an installed raylib 6.0 or newer with its CMake package configuration instead:
+
+```bash
+cmake -S . -B cmake-build-system -DCMAKE_BUILD_TYPE=Release -DUSE_SYSTEM_RAYLIB=ON
+cmake --build cmake-build-system --parallel
+```
+
+For a custom installation, add `-DCMAKE_PREFIX_PATH=/path/to/raylib-prefix` or
+`-Draylib_DIR=/path/to/raylib-prefix/lib/cmake/raylib` to the configure command.
+The installed library must include JPEG support to load the bundled textures.
+With `USE_SYSTEM_RAYLIB=ON`, configuration fails if a compatible package is missing;
+there is no download fallback. The option defaults to `OFF`.
 
 ### 2.3 CLI options
 
