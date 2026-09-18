@@ -180,7 +180,7 @@ class Oblateness:
 
 # At the time of writing this, https://www.nasa.gov/nssdc/ returns: "The NASA Space Science Data Coordinated Archive website is temporarily offline for maintenance."
 # That's why the sources here are wayback snapshots
-# R_eq: https://ssd.jpl.nasa.gov/planets/phys_par.html
+# equatorial_radius_m: https://ssd.jpl.nasa.gov/planets/phys_par.html NOT from the other NASA links.
 planet_oblateness: dict[str, Oblateness] = {
     # j2, R_eq (m), pole RA, pole Dec
     "Earth":   Oblateness(1082.63e-6, 6378.1366e3, 0.0, 90.0),  # http://web.archive.org/web/20250821225047/https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html
