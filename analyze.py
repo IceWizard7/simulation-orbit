@@ -1032,6 +1032,12 @@ def compare_csv(compare_planetary_systems: bool = False) -> None:
     else:
         body_order = [name for name in planet_to_horizon_id if name in candidate_bodies]
     position_error_stats: dict[str, RunningStats] = {body: RunningStats() for body in body_order}
+    normalized_position_error_stats: dict[str, RunningStats] = {body: RunningStats() for body in body_order}
+    normalization_unavailable: dict[str, str] = {
+        body: "no Sun/parent-relative reference distance (barycentric position only)"
+        for body in body_order
+        if body == "Sun" or (body not in moon_to_parent and "Sun" not in candidate_bodies)
+    }
     moon_component_stats: dict[str, dict[str, RunningStats]] = {
         body: {
             "radial": RunningStats(),
@@ -1096,12 +1102,30 @@ def compare_csv(compare_planetary_systems: bool = False) -> None:
             ensure_finite(candidate_state, body, candidate_sample, "candidate")
 
             position_error: Vec3 = candidate_state.position - reference_state.position
-            position_error_stats[body].add(position_error.length())
+            position_error_m: float = position_error.length()
+            position_error_stats[body].add(position_error_m)
+
+            reference_radius: float = reference_state.position.length()
+            if body not in normalization_unavailable:
+                if not math.isfinite(reference_radius) or reference_radius <= EPS:
+                    # Never clamp the denominator or silently summarize only some samples.
+                    normalization_unavailable[body] = (
+                        f"zero/near-zero or non-finite reference distance at "
+                        f"simulated_seconds={reference_sample.simulated_seconds}"
+                    )
+                else:
+                    # Normalize each sample before aggregating: RMS(e_k / |q_ref,k|).
+                    normalized_position_error: float = position_error_m / reference_radius
+                    if not math.isfinite(normalized_position_error):
+                        raise RuntimeError(
+                            f"Non-finite normalized position error for {body} at "
+                            f"simulated_seconds={reference_sample.simulated_seconds}"
+                        )
+                    normalized_position_error_stats[body].add(normalized_position_error)
 
             if body not in moon_component_stats:
                 continue
 
-            reference_radius: float = reference_state.position.length()
             reference_angular_momentum: Vec3 = reference_state.position.cross(reference_state.velocity)
             angular_momentum_length: float = reference_angular_momentum.length()
             candidate_radius: float = candidate_state.position.length()
@@ -1146,6 +1170,7 @@ def compare_csv(compare_planetary_systems: bool = False) -> None:
     print(f"Candidate bodies: {', '.join(body_order)}\n")
 
     print("Time-series position errors:")
+    print("Normalized position = position error / reference distance at each sample (dimensionless).")
     for body in body_order:
         if compare_planetary_systems and body in planetary_system_to_moons:
             frame = "system barycentre relative to Sun" if "Sun" in candidate_bodies else "system barycentre"
@@ -1157,6 +1182,14 @@ def compare_csv(compare_planetary_systems: bool = False) -> None:
             frame = "barycentric"
         print(f"{body} ({frame}):")
         print_distance_stats("position", position_error_stats[body])
+        if body in normalization_unavailable:
+            print(f"  normalized position: unavailable ({normalization_unavailable[body]})")
+        else:
+            stats = normalized_position_error_stats[body]
+            print(
+                f"  normalized position (dimensionless): final={stats.final:.6e}, "
+                f"max={stats.maximum_absolute:.6e}, RMS={stats.rms():.6e}"
+            )
 
     if moon_component_stats:
         print("\nParent-relative moon RTN and unwrapped phase errors:")
@@ -1178,8 +1211,8 @@ def print_usage() -> None:
     print(f"  {sys.argv[0]} analyze-systems output.txt                         Analyze modeled planetary-system barycentres against constructed JPL barycentres")
     print(f"  {sys.argv[0]} compare reference.txt candidate.txt                Compare 2 program endpoints; planet-systems candidates are detected automatically")
     print(f"  {sys.argv[0]} compare-systems reference.txt candidate.txt        Compare planetary-system barycentres for 2 program endpoints")
-    print(f"  {sys.argv[0]} compare-csv reference.csv candidate.csv            Compare body-centre time series")
-    print(f"  {sys.argv[0]} compare-systems-csv reference.csv candidate.csv    Compare planetary-system-barycentre time series")
+    print(f"  {sys.argv[0]} compare-csv reference.csv candidate.csv            Compare body-centre time series (absolute and normalized final/max/RMS)")
+    print(f"  {sys.argv[0]} compare-systems-csv reference.csv candidate.csv    Compare planetary-system-barycentre time series (absolute and normalized final/max/RMS)")
 
 def require_argc(required_argc: int) -> None:
     if len(sys.argv) < required_argc:
