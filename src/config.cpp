@@ -67,19 +67,17 @@ void runtime_config::update_body_set(CelestialBody (&celestial_bodies)[NUM_CELES
             break;
         case BodySet::planets:
             for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                if (j < NUM_PLANETS) celestial_bodies[j].enabled = true;
-                else celestial_bodies[j].enabled = false;
+                celestial_bodies[j].enabled = (j < NUM_PLANETS);
             }
             break;
         case BodySet::dwarf:
             for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                if (j < NUM_PLANETS + NUM_DWARF_PLANETS) celestial_bodies[j].enabled = true;
-                else celestial_bodies[j].enabled = false;
+                celestial_bodies[j].enabled = (j < NUM_PLANETS + NUM_DWARF_PLANETS);
             }
             break;
         case BodySet::planet_systems:
             for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                celestial_bodies[j].enabled = j < NUM_PLANETS + NUM_DWARF_PLANETS;
+                celestial_bodies[j].enabled = (j < NUM_PLANETS + NUM_DWARF_PLANETS);
             }
             break;
     }
