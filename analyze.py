@@ -1204,6 +1204,30 @@ def compare_csv(compare_planetary_systems: bool = False) -> None:
             print_phase_stats("unwrapped phase", stats["phase"])
 
 
+def repeated_runs() -> None:
+    folder_path: pathlib.Path = pathlib.Path(sys.argv[2])
+
+    if not folder_path.is_dir(follow_symlinks=False):
+        raise RuntimeError(f"Path is not a folder: {folder_path}")
+
+    computations_times: list[float] = []
+
+    for i, file in enumerate(folder_path.iterdir()):
+        if file.is_file():
+            text = file.read_text()
+
+            match = re.search(r"Computation time:\s*([\d.]+)\s*seconds", text)
+
+            if match:
+                computation_time = float(match.group(1))
+                computations_times.append(computation_time)
+
+    if not computations_times:
+        raise RuntimeError("No files match the computation-time RegEx.")
+    else:
+        print(f"Average computation time of {len(computations_times)} runs: {sum(computations_times) / len(computations_times)}")
+
+
 def print_usage() -> None:
     print("Commands:")
     print(f"  {sys.argv[0]} code                                               Formatted celestial body JPL data")
@@ -1213,6 +1237,7 @@ def print_usage() -> None:
     print(f"  {sys.argv[0]} compare-systems reference.txt candidate.txt        Compare planetary-system barycentres for 2 program endpoints")
     print(f"  {sys.argv[0]} compare-csv reference.csv candidate.csv            Compare body-centre time series (absolute and normalized final/max/RMS)")
     print(f"  {sys.argv[0]} compare-systems-csv reference.csv candidate.csv    Compare planetary-system-barycentre time series (absolute and normalized final/max/RMS)")
+    print(f"  {sys.argv[0]} repeated-runs folder/                              Analyze and clalculate the average computation time of multiple runs")
 
 def require_argc(required_argc: int) -> None:
     if len(sys.argv) < required_argc:
@@ -1229,4 +1254,5 @@ if __name__ == '__main__':
         case "compare-systems": require_argc(3); compare(compare_planetary_systems=True)
         case "compare-csv": require_argc(4); compare_csv()
         case "compare-systems-csv": require_argc(4); compare_csv(compare_planetary_systems=True)
+        case "repeated-runs": require_argc(3); repeated_runs()
         case _: print_usage(); sys.exit(1)
