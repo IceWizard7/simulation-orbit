@@ -31,7 +31,7 @@ int main(const int argc, char* argv[]) {
     simulation::initialize_orbit_sampling();
 
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
-        if (simulation::celestial_bodies[i].enabled) {
+        if (simulation::celestial_bodies.enabled[i]) {
             config::center_celestial_body_index = i;
             break;
         }
@@ -57,8 +57,8 @@ int main(const int argc, char* argv[]) {
     // Loading begin
     ui::load_star_background();
 
-    for (auto& celestial_body : simulation::celestial_bodies) {
-        if (celestial_body.enabled) celestial_body.planet_visual.load_planet_visual();
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (simulation::celestial_bodies.enabled[i]) simulation::celestial_bodies.planet_visuals[i].load_planet_visual();
     }
 
     config::uiFont = LoadFontEx(
@@ -92,8 +92,8 @@ int main(const int argc, char* argv[]) {
 
     // Unloading begin
 
-    for (auto& celestial_body : simulation::celestial_bodies) {
-        if (celestial_body.enabled) celestial_body.planet_visual.unload_planet_visual();
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (simulation::celestial_bodies.enabled[i]) simulation::celestial_bodies.planet_visuals[i].unload_planet_visual();
     }
 
     ui::unload_star_background();

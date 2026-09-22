@@ -21,7 +21,7 @@ namespace force_pairs {
 
     inline std::size_t recorded_accelerations = 0;
 
-    void initialize_all_pairs(const CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]);
+    void initialize_all_pairs(const CelestialBodies<NUM_CELESTIAL_BODIES>& celestial_bodies);
 
     bool is_sun(std::size_t body_index);
     bool is_moon(std::size_t body_index, const std::array<PlanetarySystem, 7> &planetary_systems);

@@ -9,7 +9,7 @@
 #include <stop_token>
 #include <vector>
 
-#include "celestial_body.hpp"
+#include "celestial_bodies.hpp"
 #include "config.hpp"
 
 struct CSVEntry {
@@ -24,13 +24,19 @@ struct PlanetarySystem {
     std::span<const std::size_t> moon_indices;
 };
 
+struct Accelerations {
+    alignas(16) double x[NUM_CELESTIAL_BODIES];
+    alignas(16) double y[NUM_CELESTIAL_BODIES];
+    alignas(16) double z[NUM_CELESTIAL_BODIES];
+};
+
 namespace simulation {
-    extern CelestialBody celestial_bodies[NUM_CELESTIAL_BODIES];
+    extern CelestialBodies<NUM_CELESTIAL_BODIES> celestial_bodies;
     extern const std::array<PlanetarySystem, 7> planetary_systems;
     inline std::vector<CSVEntry> csv_data;
     inline std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
     inline std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_center_reference_history;
-    inline std::optional<std::array<Vec3, NUM_CELESTIAL_BODIES>> accelerations_at_current_positions;
+    inline std::optional<Accelerations> accelerations_at_current_positions;
 
     // Per-body primary trail sampling plus the common coarse center-reference sampling
     // (rendering-only; see the ORBIT_* constants in config.hpp)
@@ -54,7 +60,7 @@ namespace simulation {
 
     bool finalize_csv_output();
 
-    std::array<Vec3, NUM_CELESTIAL_BODIES> compute_accelerations();
+    Accelerations compute_accelerations();
 
     void simulate_step();
 

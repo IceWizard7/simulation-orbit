@@ -28,7 +28,7 @@ add_executable(simulation-orbit
         src/main.cpp
         src/utils.cpp
         src/planet_visual.cpp
-        src/celestial_body.cpp
+        src/celestial_bodies.cpp
         src/ui.cpp
         src/simulation.cpp
         src/config.cpp

@@ -8,7 +8,7 @@
 #include <optional>
 #include <raylib.h>
 
-#include "celestial_body.hpp"
+#include "celestial_bodies.hpp"
 #include "timer.hpp"
 #include "utils.hpp"
 
@@ -134,13 +134,15 @@ namespace runtime_config {
 
     extern bool use_j2;
 
+    extern bool use_simd;
+
     extern BodySet body_set;
     extern InteractionSet interaction_set;
 
     [[nodiscard]] const char* body_set_name();
     [[nodiscard]] const char* interaction_set_name();
 
-    void update_body_set(CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]);
+    void update_body_set(CelestialBodies<NUM_CELESTIAL_BODIES>& celestial_bodies);
 
     extern std::size_t enabled_celestial_bodies;
 
@@ -156,7 +158,7 @@ namespace runtime_config {
 
     ParseRes<str> parse_str(const str& argument_name, int i, int argc, char* argv[]);
 
-    int parse_cli_args(int argc, char* argv[], CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]);
+    int parse_cli_args(int argc, char* argv[], CelestialBodies<NUM_CELESTIAL_BODIES>& celestial_bodies);
 
     void set_time_step_string();
 };

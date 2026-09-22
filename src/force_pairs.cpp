@@ -6,17 +6,17 @@
 #include "config.hpp"
 #include "simulation.hpp"
 
-void force_pairs::initialize_all_pairs(const CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]) {
+void force_pairs::initialize_all_pairs(const CelestialBodies<NUM_CELESTIAL_BODIES>& celestial_bodies) {
     // Call after celestial bodies have been enabled / disabled accordingly
 
     all_pairs.clear();
     recorded_accelerations = 0;
 
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (!celestial_bodies[i].enabled) continue;
+        if (!celestial_bodies.enabled[i]) continue;
 
         for (std::size_t j = i + 1; j < NUM_CELESTIAL_BODIES; j++) {
-            if (!celestial_bodies[j].enabled) continue;
+            if (!celestial_bodies.enabled[j]) continue;
             all_pairs.emplace_back(i, j);
         }
     }

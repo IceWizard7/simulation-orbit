@@ -31,6 +31,8 @@ namespace runtime_config {
 
     bool use_j2 = false;
 
+    bool use_simd = false;
+
     BodySet body_set = BodySet::dwarf;
     InteractionSet interaction_set = InteractionSet::full;
 
@@ -58,26 +60,26 @@ const char* runtime_config::interaction_set_name() {
     return "unknown";
 }
 
-void runtime_config::update_body_set(CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]) {
+void runtime_config::update_body_set(CelestialBodies<NUM_CELESTIAL_BODIES> & celestial_bodies) {
     switch (body_set) {
         case BodySet::all:
-            for (auto & celestial_body : celestial_bodies) {
-                celestial_body.enabled = true;
+            for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
+                celestial_bodies.enabled[j] = true;
             }
             break;
         case BodySet::planets:
             for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                celestial_bodies[j].enabled = (j < NUM_PLANETS);
+                celestial_bodies.enabled[j] = (j < NUM_PLANETS);
             }
             break;
         case BodySet::dwarf:
             for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                celestial_bodies[j].enabled = (j < NUM_PLANETS + NUM_DWARF_PLANETS);
+                celestial_bodies.enabled[j] = (j < NUM_PLANETS + NUM_DWARF_PLANETS);
             }
             break;
         case BodySet::planet_systems:
             for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                celestial_bodies[j].enabled = (j < NUM_PLANETS + NUM_DWARF_PLANETS);
+                celestial_bodies.enabled[j] = (j < NUM_PLANETS + NUM_DWARF_PLANETS);
             }
             break;
     }
@@ -177,7 +179,7 @@ static str shell_quote(const str& argument) {
     return quoted;
 }
 
-int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (&celestial_bodies)[NUM_CELESTIAL_BODIES]) {
+int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies<NUM_CELESTIAL_BODIES>& celestial_bodies) {
     for (int i = 0; i < argc; ++i) {
         if (i > 0) {
             invocation_command += ' ';
@@ -205,6 +207,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
         std::cout << R"(                              "same-system-moons" (moon-moon interactions only within the same system),)" << '\n';
         std::cout << R"(                              "local-moon-systems" (moons only interact with the sun and members of their own system),)" << '\n';
         std::cout << R"(                              "parent-sun-only" (moons interact only with the sun and their parent planet)])" << '\n';
+        std::cout <<   "        --simd                    Use platform-specific SIMD optimizations\n";
         exit_immediately = true;
         return 0;
     }
@@ -281,8 +284,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
             std::optional<std::size_t> celestial_body_index;
 
             for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                const auto& celestial_body = celestial_bodies[j];
-                if (celestial_body.name == val) {
+                if (celestial_bodies.names[j] == val) {
                     celestial_body_index = j;
                     break;
                 }
@@ -293,7 +295,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
                 return 1;
             }
 
-            celestial_bodies[*celestial_body_index].enabled = false;
+            celestial_bodies.enabled[*celestial_body_index] = false;
             explicitly_disabled_body_indices.push_back(*celestial_body_index);
 
             i++;
@@ -318,6 +320,8 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
                 return 1;
             }
             i++;
+        } else if (arg == "--simd") {
+            use_simd = true;
         } else {
             std::cerr << std::format("Error: Unexpected argument {}.\n", arg);
             return 1;
@@ -393,7 +397,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
             std::cerr << std::format(
                 "Error: --disable-body {} cannot be combined with --body-set planet-systems; "
                 "that moon is already represented inside its parent system.\n",
-                celestial_bodies[index].name
+                celestial_bodies.names[index]
             );
             return 1;
         }
@@ -428,13 +432,39 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBody (
     target_steps_per_second = target_simulation_speed * config::SECONDS_PER_YEAR / time_step;
 
     enabled_celestial_bodies = 0;
-    for (const auto& celestial_body : celestial_bodies) {
-        if (celestial_body.enabled) enabled_celestial_bodies++;
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (celestial_bodies.enabled[i]) enabled_celestial_bodies++;
     }
 
     if (enabled_celestial_bodies == 0) {
         std::cerr << "Error: At least one celestial body must remain enabled.\n";
         return 1;
+    }
+
+    if (use_simd) {
+        if (use_j2) {
+            std::cerr << "Error: --simd cannot be combined with --j2; "
+             "the SIMD optimization is not implemented for j2 yet.\n";
+            // TODO Update!
+            return 1;
+        }
+
+        if (interaction_set != InteractionSet::full) {
+            std::cerr << "Error: --simd cannot be combined with a non-full --interaction-set.\n";
+            // TODO Update!
+            return 1;
+        }
+
+        if (enabled_celestial_bodies != NUM_CELESTIAL_BODIES) {
+            std::cerr << "Error: --simd requires all celestial bodies to be enabled.\n";
+            // TODO Update!
+            return 1;
+        }
+
+        #if !defined(__aarch64__)
+        std::cerr << "Error: --simd is not supported yet for this platform.\n";
+        return 1;
+        #endif
     }
 
     return 0;

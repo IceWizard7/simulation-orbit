@@ -563,9 +563,7 @@ def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
         "Kerberos": "5, 0.01, (Color){84, 80, 78, 255}, 32.168 * 86'400",
         "Styx": "5, 0.01, (Color){123, 120, 113, 255}, 20.162 * 86'400"
     }
-    
-    # sun: str = "CelestialBody sun   = {\"Sun\", {0, 0, 0}, {0, 0, 0}, 1.98847e30, 10, 0.03, (Color){255, 230,  40, 255}, 30'000, 100'000};"
-    
+
     planet_to_code: dict[str, str] = {planet: "" for planet in planet_to_horizon_id.keys()}
     
     base_coordinate_regex: str = " ?= ?((\\+|-)?\\d\\.(\\d)+(E(\\+|-)?(\\d)+)?)"
@@ -695,9 +693,11 @@ def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
 def print_code() -> None:
     start_values: tuple[list[str], list[Vec3]] = fetch_vectors(START)
     print(f"#define NUM_CELESTIAL_BODIES {len(start_values[0])}\n")
-    print("CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES] = {")
+    print("CelestialBody simulation::celestial_bodies[NUM_CELESTIAL_BODIES]{")
+    print("    std::array<CelestialBodyInit, NUM_CELESTIAL_BODIES>{{")
     for val in start_values[0]:
-        print(f"    {val}")
+        print(f"        {val}")
+    print("    }}")
     print("};")
 
 def calculate_error_metrics(expected_pos: Vec3, candidate_pos: Vec3) -> ErrorMetrics:

@@ -173,6 +173,9 @@ Examples runs:
 # CSV output
 ./cmake-build-release/simulation-orbit --headless --csv positions_and_velocities.csv --sample-every-seconds 2592000 --years 100 --dt 3600 # Simulate 100 years with 1 hour step size headlessly; sample positions & velocities every month into positions_and_velocities.csv file
 ./cmake-build-release/simulation-orbit --headless --csv positions_and_velocities.csv --sample-every-seconds 2592000 --years 100 --dt 3600 --csv-live # Same as previous command; Also stream CSV rows during simulation instead of writing at the end
+
+# SIMD
+./cmake-build-release/simulation-orbit --body-set all --simd  # Enable platform-specific SIMD optimization (only available on some platforms)
 ```
 
 ## 3. Analysis
