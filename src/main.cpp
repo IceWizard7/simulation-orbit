@@ -12,7 +12,6 @@
 #include "simulation.hpp"
 #include "ui.hpp"
 
-// TODO: Parallel Execution?
 // TODO: Internal planet rotation
 
 int main(const int argc, char* argv[]) {

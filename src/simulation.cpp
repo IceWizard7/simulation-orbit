@@ -333,7 +333,7 @@ void simulation::update_csv_data() {
     record_csv_sample(false);
 }
 
-#if defined(__aarch64__) // TODO: ADD A CHECK HERE & IN CONFIG:CPP: Has 128-Bit Vector Registers
+#if defined(__aarch64__) && defined(__ARM_NEON)
 namespace {
     Accelerations compute_accelerations_full_neon() {
         const auto& bodies = simulation::celestial_bodies;

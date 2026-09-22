@@ -461,7 +461,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
             return 1;
         }
 
-        #if !defined(__aarch64__)
+        #if defined(__aarch64__) && defined(__ARM_NEON)
         std::cerr << "Error: --simd is not supported yet for this platform.\n";
         return 1;
         #endif
