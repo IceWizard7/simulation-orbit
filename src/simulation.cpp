@@ -503,7 +503,7 @@ void simulation::simulate_step() {
         accelerations_at_current_positions = compute_accelerations();
     }
 
-    auto&[acc_x, acc_y, acc_z] = *accelerations_at_current_positions;
+    const auto&[acc_x, acc_y, acc_z] = *accelerations_at_current_positions;
 
     // Velocity Verlet: keep the orbit phase stable over many short-period inner-planet revolutions
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
