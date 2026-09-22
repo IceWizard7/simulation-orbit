@@ -514,7 +514,7 @@ void simulation::simulate_step() {
         celestial_bodies.pos_z[i] += celestial_bodies.vel_z[i] * runtime_config::time_step + acc_z[i] * runtime_config::half_dt_squared;
     }
 
-    Accelerations next_accelerations = compute_accelerations();
+    const Accelerations next_accelerations = compute_accelerations();
 
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies.enabled[i]) continue;
