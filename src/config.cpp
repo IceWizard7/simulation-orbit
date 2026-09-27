@@ -378,11 +378,6 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
             std::cerr << "Error: --disable-body cannot be combined with a non-full --interaction-set.\n";
             return 1;
         }
-
-        if (use_j2) {
-            std::cerr << "Error: --j2 cannot be combined with a non-full --interaction-set.\n";
-            return 1;
-        }
     }
 
     if (body_set == BodySet::planet_systems && use_j2) {
