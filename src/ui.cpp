@@ -379,7 +379,7 @@ void ui::draw_planet_info(const Color text_color, const Color background_color, 
     }
     DrawText(config::uiFont, std::format("Position: {:<34}m", body->position.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 70}, 20, 1, text_color);
     DrawText(config::uiFont, std::format("Velocity: {:<34}m/s", body->velocity.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 90}, 20, 1, text_color);
-    DrawText(config::uiFont, std::format("Mass: {:<38}kg", body->mass).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 110}, 20, 1, text_color);
+    DrawText(config::uiFont, std::format("Mass: {:<38e}kg", body->mass).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 110}, 20, 1, text_color);
 }
 
 
@@ -840,7 +840,7 @@ void ui::UpdateDrawFrame() {
     if (copied_button_pressed) {
         const auto& body = snap->detailed_body_display;
         if (body.has_value()) {
-            const str text = std::format("{}\nYears simulated: {:.2f}\nPosition: {} m\nVelocity: {} m/s\nMass: {} kg", body->name, simulated_years(), body->position.to_string(), body->velocity.to_string(), body->mass);
+            const str text = std::format("{}\nYears simulated: {:.2f}\nPosition: {} m\nVelocity: {} m/s\nMass: {:e} kg", body->name, simulated_years(), body->position.to_string(), body->velocity.to_string(), body->mass);
             SetClipboardText(text.c_str());
         }
     }
