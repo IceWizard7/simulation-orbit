@@ -212,7 +212,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
         return 0;
     }
     if (argc >= 2 && (str(argv[1]) == "--version" || str(argv[1]) == "-v")) {
-        std::cout << "simulation-orbit v0.1.0\n";
+        std::cout << "simulation-orbit v1.0.0-aba\n";
         exit_immediately = true;
         return 0;
     }
