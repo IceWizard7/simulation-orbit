@@ -104,7 +104,7 @@ moon_to_parent: dict[str, str] = {
     "Kerberos": "Pluto"
 }
 
-# The barycentric approximation deliberately uses exactly the bodies modeled by
+# The barycentric approximation deliberately uses exactly the bodies modelled by
 # the C++ simulator, rather than Horizons' broader official planet-system membership.
 planetary_system_to_moons: dict[str, tuple[str, ...]] = {
     "Earth": ("Moon",),
@@ -1132,7 +1132,7 @@ def compare_csv(compare_planetary_systems: bool = False) -> None:
             reference_radius: float = reference_state.position.length()
             if body not in normalization_unavailable:
                 if not math.isfinite(reference_radius) or reference_radius <= EPS:
-                    # Never clamp the denominator or silently summarize only some samples.
+                    # Never clamp the denominator or silently summarize only some samples
                     normalization_unavailable[body] = (
                         f"zero/near-zero or non-finite reference distance at "
                         f"simulated_seconds={reference_sample.simulated_seconds}"
@@ -1261,7 +1261,7 @@ def print_usage() -> None:
     print(f"  {sys.argv[0]} compare-systems reference.txt candidate.txt        Compare planetary-system barycentres for 2 program endpoints")
     print(f"  {sys.argv[0]} compare-csv reference.csv candidate.csv            Compare body-centre time series (absolute and normalized final/max/RMS)")
     print(f"  {sys.argv[0]} compare-systems-csv reference.csv candidate.csv    Compare planetary-system-barycentre time series (absolute and normalized final/max/RMS)")
-    print(f"  {sys.argv[0]} repeated-runs folder/                              Analyze and clalculate the average computation time of multiple runs")
+    print(f"  {sys.argv[0]} repeated-runs folder/                              Analyze and calculate the average computation time of multiple runs")
 
 def require_argc(required_argc: int) -> None:
     if len(sys.argv) < required_argc:

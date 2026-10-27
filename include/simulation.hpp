@@ -11,6 +11,7 @@
 
 #include "celestial_bodies.hpp"
 #include "config.hpp"
+#include "ui.hpp"
 
 struct CSVEntry {
     std::size_t simulated_seconds{};

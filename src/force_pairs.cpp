@@ -121,22 +121,18 @@ void force_pairs::set_interaction_set(const std::array<PlanetarySystem, 7>& plan
             break;
         case runtime_config::InteractionSet::local_moon_systems:
             for (const auto& force_pair : all_pairs) {
-                if (is_sun(force_pair.first_index) || is_sun(force_pair.second_index)) {
-                    active_pairs.emplace_back(force_pair);
-                } else if (is_primary(force_pair.first_index, planetary_systems) && is_primary(force_pair.second_index, planetary_systems)) {
-                    active_pairs.emplace_back(force_pair);
-                } else if (belong_to_same_planetary_system(force_pair.first_index, force_pair.second_index, planetary_systems)) {
+                if (is_sun(force_pair.first_index) || is_sun(force_pair.second_index) ||
+                    (is_primary(force_pair.first_index, planetary_systems) && is_primary(force_pair.second_index, planetary_systems)) ||
+                    belong_to_same_planetary_system(force_pair.first_index, force_pair.second_index, planetary_systems)) {
                     active_pairs.emplace_back(force_pair);
                 }
             }
             break;
         case runtime_config::InteractionSet::parent_sun_only:
             for (const auto& force_pair : all_pairs) {
-                if (is_sun(force_pair.first_index) || is_sun(force_pair.second_index)) {
-                    active_pairs.emplace_back(force_pair);
-                } else if (is_primary(force_pair.first_index, planetary_systems) && is_primary(force_pair.second_index, planetary_systems)) {
-                    active_pairs.emplace_back(force_pair);
-                } else if (is_parent_moon_pair(force_pair.first_index, force_pair.second_index, planetary_systems)) {
+                if (is_sun(force_pair.first_index) || is_sun(force_pair.second_index) ||
+                    (is_primary(force_pair.first_index, planetary_systems) && is_primary(force_pair.second_index, planetary_systems)) ||
+                    is_parent_moon_pair(force_pair.first_index, force_pair.second_index, planetary_systems)) {
                     active_pairs.emplace_back(force_pair);
                 }
             }

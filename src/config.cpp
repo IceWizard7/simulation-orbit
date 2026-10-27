@@ -33,8 +33,8 @@ namespace runtime_config {
 
     bool use_simd = false;
 
-    BodySet body_set = BodySet::dwarf;
-    InteractionSet interaction_set = InteractionSet::full;
+    auto body_set = BodySet::dwarf;
+    auto interaction_set = InteractionSet::full;
 
     std::size_t enabled_celestial_bodies;
 }
@@ -63,23 +63,23 @@ const char* runtime_config::interaction_set_name() {
 void runtime_config::update_body_set(CelestialBodies<NUM_CELESTIAL_BODIES> & celestial_bodies) {
     switch (body_set) {
         case BodySet::all:
-            for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                celestial_bodies.enabled[j] = true;
+            for (bool& i : celestial_bodies.enabled) {
+                i = true;
             }
             break;
         case BodySet::planets:
-            for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                celestial_bodies.enabled[j] = (j < NUM_PLANETS);
+            for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+                celestial_bodies.enabled[i] = i < NUM_PLANETS;
             }
             break;
         case BodySet::dwarf:
-            for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                celestial_bodies.enabled[j] = (j < NUM_PLANETS + NUM_DWARF_PLANETS);
+            for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+                celestial_bodies.enabled[i] = i < NUM_PLANETS + NUM_DWARF_PLANETS;
             }
             break;
         case BodySet::planet_systems:
-            for (std::size_t j = 0; j < NUM_CELESTIAL_BODIES; j++) {
-                celestial_bodies.enabled[j] = (j < NUM_PLANETS + NUM_DWARF_PLANETS);
+            for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+                celestial_bodies.enabled[i] = i < NUM_PLANETS + NUM_DWARF_PLANETS;
             }
             break;
     }
@@ -427,8 +427,8 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
     target_steps_per_second = target_simulation_speed * config::SECONDS_PER_YEAR / time_step;
 
     enabled_celestial_bodies = 0;
-    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (celestial_bodies.enabled[i]) enabled_celestial_bodies++;
+    for (bool i : celestial_bodies.enabled) {
+        if (i) enabled_celestial_bodies++;
     }
 
     if (enabled_celestial_bodies == 0) {

@@ -6,6 +6,8 @@
 #include <emscripten.h>
 #endif
 #include <raylib.h>
+#include <imgui.h>
+#include <rlImGui.h>
 
 #include "config.hpp"
 #include "force_pairs.hpp"
@@ -53,6 +55,9 @@ int main(const int argc, char* argv[]) {
     InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "simulation-orbit");
     SetTargetFPS(config::TARGET_FPS);
 
+    rlImGuiSetup(true);
+    // TODO: ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+
     // Loading begin
     ui::load_star_background();
 
@@ -60,15 +65,17 @@ int main(const int argc, char* argv[]) {
         if (simulation::celestial_bodies.enabled[i]) simulation::celestial_bodies.planet_visuals[i].load_planet_visual();
     }
 
-    config::uiFont = LoadFontEx(
+    const ImGuiIO& io = ImGui::GetIO();
+
+    config::imgui_ui_font = io.Fonts->AddFontFromFileTTF(
         "resources/JetBrainsMono-Regular.ttf",
-        96,
-        nullptr,
-        0
+        16.0f
     );
 
-    GenTextureMipmaps(&config::uiFont.texture);
-    SetTextureFilter(config::uiFont.texture, TEXTURE_FILTER_TRILINEAR);
+    config::imgui_ui_font_small = io.Fonts->AddFontFromFileTTF(
+        "resources/JetBrainsMono-Regular.ttf",
+        11.0f
+    );
 
     // Loading done
 
@@ -96,10 +103,10 @@ int main(const int argc, char* argv[]) {
     }
 
     ui::unload_star_background();
-    UnloadFont(config::uiFont);
 
-    // Unloading end
+    // Unloading done
 
+    rlImGuiShutdown();
     CloseWindow();
     std::cout << '\n';
 

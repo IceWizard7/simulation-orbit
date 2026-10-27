@@ -9,6 +9,9 @@
 #include <mutex>
 #include <raymath.h>
 #include <rlgl.h>
+#include <cfloat>
+#include <imgui.h>
+#include <rlImGui.h>
 
 #include "screen_utils.hpp"
 #include "simulation.hpp"
@@ -20,7 +23,7 @@ namespace ui_config {
     float cam_distance = config::DEFAULT_CAM_DISTANCE; // radius in world units
     bool view_3d = false; // toggle with keybind
     bool view_legend = true; // toggle with keybind
-    auto last_copied = std::chrono::steady_clock::now();
+    std::array<std::chrono::steady_clock::time_point, NUM_CELESTIAL_BODIES> last_copied{};
     bool copied = false;
     bool draw_moon_orbits = false;
     bool draw_orbits = true;
@@ -86,9 +89,9 @@ namespace {
         double far_plane = std::max(camera_near_plane(cam) * 1.0e6, 1.0e-6);
         if (!snap) return far_plane;
 
-        constexpr double DEPTH_MARGIN = 1.05;
         const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
         for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+            constexpr double DEPTH_MARGIN = 1.05;
             const auto& body = snap->bodies[i];
             if (!body.enabled) continue;
 
@@ -169,6 +172,29 @@ namespace {
         rlEnableDepthMask();
         rlEnableBackfaceCulling();
     }
+
+    // Seemingly "invalid" values like negative or non-finite masses are considered a "feature".
+    bool imgui_input(ui::EditableDouble& edit, const double current_value, std::size_t i, const str& label, const str& id, int precision, const str& unit) {
+        // Update continuously unless the user is editing
+        if (!edit.editing) {
+            edit.val = current_value;
+            // TODO: Add pending state (because maybe the simulation doesn't process the command INSTANTLY)
+        }
+
+        ImGui::AlignTextToFramePadding();
+        ImGui::TextUnformatted(std::format("{}:", label).c_str());
+        ImGui::SameLine();
+
+        ImGui::SetNextItemWidth(125.0f);
+        const bool committed = ImGui::InputDouble(std::format("##{}_{}", id, i).c_str(), &edit.val, 0, 0, std::format("%.{}e", precision).c_str(), ImGuiInputTextFlags_EnterReturnsTrue);
+
+        edit.editing = ImGui::IsItemActive();
+
+        ImGui::SameLine(0.0f, 2.0f);
+        ImGui::TextUnformatted(unit.c_str());
+
+        return committed;
+    }
 }
 
 
@@ -206,39 +232,105 @@ void ui::unload_star_background() {
     star_background_loaded = false;
 }
 
-void ui::DrawTextCenteredEx(const Font &font, const char *text, const Vec2 center, const float angle, const float fontSize, const float spacing, const Color color) {
-    auto [x, y] = MeasureTextEx(font, text, fontSize, spacing);
-
-    DrawTextPro(
-        font,
-        text,
-        Vector2(static_cast<float>(center.x), static_cast<float>(center.y)),
-        Vector2(x/2, y/2),
-        angle,
-        fontSize,
-        spacing,
-        color
+void ui::draw_imgui_text(const std::string& text, const Vec2 pos, const float font_size, const Color color) {
+    ImGui::GetBackgroundDrawList()->AddText(
+        config::imgui_ui_font,
+        font_size,
+        ImVec2(static_cast<float>(std::round(pos.x)), static_cast<float>(std::round(pos.y))),
+        to_imgui_color(color),
+        text.c_str()
     );
 }
 
-void ui::DrawRectangle(const Vec2& a, const Vec2& b, const Color color) {
-    const auto left = static_cast<float>(std::min(a.x, b.x));
-    const auto top = static_cast<float>(std::min(a.y, b.y));
-    const auto width = static_cast<float>(std::abs(b.x - a.x));
-    const auto height = static_cast<float>(std::abs(b.y - a.y));
+void ui::draw_imgui_centered_text(
+    const str& text,
+    const Vec2 center,
+    const float angle,
+    const float font_size,
+    const Color color
+) {
+    ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
 
-    DrawRectangleV({left, top}, {width, height}, color);
+    const ImVec2 size = config::imgui_ui_font->CalcTextSizeA(
+        font_size, FLT_MAX, 0.0f, text.c_str()
+    );
+
+    const ImVec2 target(
+        static_cast<float>(center.x),
+        static_cast<float>(center.y)
+    );
+
+    // For rotated text, draw at a safe location first to avoid clipping glyphs before their vertices are rotated.
+    const ImVec2 pos = angle == 0.0f
+        ? ImVec2(target.x - size.x / 2, target.y - size.y / 2)
+        : ImVec2(
+            ImGui::GetMainViewport()->Pos.x + 20.0f,
+            ImGui::GetMainViewport()->Pos.y + 20.0f
+        );
+
+    const int start = draw_list->VtxBuffer.Size;
+
+    draw_list->AddText(
+        config::imgui_ui_font,
+        font_size,
+        pos,
+        to_imgui_color(color),
+        text.c_str()
+    );
+
+    if (angle == 0.0f) return;
+
+    const float radians = angle * DEG2RAD;
+    const float c = std::cos(radians);
+    const float s = std::sin(radians);
+
+    const ImVec2 origin(
+        pos.x + size.x / 2,
+        pos.y + size.y / 2
+    );
+
+    // Rotate only the vertices we just created
+    for (int i = start; i < draw_list->VtxBuffer.Size; i++) {
+        ImVec2& p = draw_list->VtxBuffer[i].pos;
+
+        const float x = p.x - origin.x;
+        const float y = p.y - origin.y;
+
+        p.x = target.x + x * c - y * s;
+        p.y = target.y + x * s + y * c;
+    }
 }
 
-void ui::DrawTextOutlined(const Font& font, const char* text, const Vector2& pos, const float fontSize, const float spacing, const Color& fill, const Color& outline) {
+void ui::draw_imgui_outlined_text(
+    const str& text,
+    const Vector2& pos,
+    const float font_size,
+    const Color& fill,
+    const Color& outline
+) {
+    ImDrawList* draw_list = ImGui::GetBackgroundDrawList();
+
     for (int dx = -1; dx <= 1; dx++) {
         for (int dy = -1; dy <= 1; dy++) {
-            if (dx || dy) {
-                DrawTextEx(font, text, {pos.x + static_cast<float>(dx), pos.y + static_cast<float>(dy)}, fontSize, spacing, outline);
-            }
+            if (dx == 0 && dy == 0) continue;
+
+            draw_list->AddText(
+                config::imgui_ui_font,
+                font_size,
+                ImVec2(pos.x + static_cast<float>(dx), pos.y + static_cast<float>(dy)),
+                to_imgui_color(outline),
+                text.c_str()
+            );
         }
     }
-    DrawTextEx(font, text, pos, fontSize, spacing, fill); // colored fill on top
+
+    draw_list->AddText(
+        config::imgui_ui_font,
+        font_size,
+        ImVec2(pos.x, pos.y),
+        to_imgui_color(fill),
+        text.c_str()
+    );
 }
 
 void ui::draw_ui() {
@@ -262,13 +354,11 @@ void ui::draw_ui() {
             color
         );
         if (x != config::WINDOW_WIDTH - config::WINDOW_MARGIN && x != config::WINDOW_MARGIN) {
-            DrawTextCenteredEx(
-                config::uiFont,
-                round_to_hundreds(((static_cast<double>(x) / config::GRID_SPACING) - static_cast<double>(vertical_lines) / 2 - 0.5) * config::AXIS_SCALING / static_cast<int>(vertical_lines / 2)).c_str(),
+            draw_imgui_centered_text(
+                round_to_hundreds((static_cast<double>(x) / config::GRID_SPACING - static_cast<double>(vertical_lines) / 2 - 0.5) * config::AXIS_SCALING / (static_cast<float>(vertical_lines) / 2)),
                 {static_cast<double>(x), static_cast<double>(config::WINDOW_HEIGHT - config::WINDOW_MARGIN + 25)},
-                315,
-                24,
-                1,
+                0,
+                20,
                 BLACK
             );
         }
@@ -289,115 +379,383 @@ void ui::draw_ui() {
             color
         );
         if (y != config::WINDOW_WIDTH - config::WINDOW_MARGIN && y != config::WINDOW_MARGIN) {
-            DrawTextCenteredEx(
-                config::uiFont,
-                round_to_hundreds(((static_cast<double>(y) / config::GRID_SPACING) - static_cast<double>(horizontal_lines) / 2 - 0.5) * config::AXIS_SCALING / static_cast<int>(horizontal_lines / 2)).c_str(),
+            draw_imgui_centered_text(
+                round_to_hundreds((static_cast<double>(y) / config::GRID_SPACING - static_cast<double>(horizontal_lines) / 2 - 0.5) * config::AXIS_SCALING / (static_cast<float>(horizontal_lines) / 2)),
                 {static_cast<double>(config::WINDOW_MARGIN - 25), static_cast<double>(y)},
-                315,
-                24,
-                1,
+                0,
+                20,
                 BLACK
             );
         }
     }
 
-    DrawTextCenteredEx(
-        config::uiFont,
-        std::format("Y Position ({} m)", SCALING_STRING).c_str(),
-        {static_cast<double>(config::WINDOW_MARGIN) / 2 - 15, static_cast<double>(config::WINDOW_HEIGHT) / 2},
-        -90.0f,
+    draw_imgui_centered_text(
+        std::format("Y Position ({} m)", SCALING_STRING),
+        {static_cast<double>(config::WINDOW_MARGIN) / 2 - 20, static_cast<double>(config::WINDOW_HEIGHT) / 2},
+        270,
         24,
-        1,
         BLACK
     );
 
-    DrawTextCenteredEx(
-        config::uiFont,
-        std::format("X Position ({} m)", SCALING_STRING).c_str(),
-        {static_cast<double>(config::WINDOW_WIDTH) / 2, config::WINDOW_HEIGHT - static_cast<double>(config::WINDOW_MARGIN) / 2 + 15},
+    draw_imgui_centered_text(
+        std::format("X Position ({} m)", SCALING_STRING),
+        {static_cast<double>(config::WINDOW_WIDTH) / 2, config::WINDOW_HEIGHT - static_cast<double>(config::WINDOW_MARGIN) / 2 + 20},
         0,
         24,
-        1,
         BLACK
     );
 }
 
 void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
-    constexpr double font_size = 16;
-    constexpr double spacing = font_size + 2;
+    constexpr float font_size = 16;
+    constexpr float spacing = font_size + 2;
+    constexpr float padding = 8.0f;
+
     const Vec2 start = {config::WINDOW_WIDTH - config::WINDOW_MARGIN * 1.25 - config::GRID_SPACING, config::WINDOW_MARGIN};
-    const Vec2 end = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN + spacing * static_cast<double>(runtime_config::enabled_celestial_bodies)};
 
-    DrawRectangle(start, end, WHITE);
+    int visible_count = 0;
 
-    int completed_iterations = 0;
+    for (const auto& body : snap->bodies) {
+        if (body.color.has_value()) visible_count++;
+    }
+
+    const Vec2 end = {config::WINDOW_WIDTH - config::WINDOW_MARGIN, start.y + static_cast<float>(visible_count) * spacing + 2 * padding};
+
+    draw_imgui_rectangle(start, end, WHITE);
+
+    ImDrawList* dl = ImGui::GetBackgroundDrawList();
+    const ImVec2 p_min(
+            static_cast<float>(start.x),
+            static_cast<float>(start.y)
+        );
+    const ImVec2 p_max(
+        static_cast<float>(end.x),
+        static_cast<float>(end.y)
+    );
+
+    // Background
+    dl->AddRectFilled(p_min, p_max, to_imgui_color(WHITE));
+
+    // Border
+    dl->AddRect(p_min, p_max, to_imgui_color(BLACK));
+
+    int row = 0;
+
+    for (const auto& body : snap->bodies) {
+        if (!body.color.has_value())
+            continue;
+
+        const auto y = static_cast<float>(
+            start.y + padding + static_cast<float>(row) * spacing
+        );
+
+        draw_imgui_circle({start.x + 12, y + font_size / 2}, 5.0f, *body.color);
+
+        draw_imgui_text(body.name, {start.x + 25, y}, font_size, BLACK);
+
+        row++;
+    }
+}
+
+void ui::imgui_style_setup(const bool dark_mode) {
+    const ImU32 text_color = dark_mode ? IM_COL32(255, 255, 255, 255) : IM_COL32(20, 20, 20, 255);
+    const ImU32 background_color = dark_mode ? IM_COL32(20, 20, 20, 255) : IM_COL32(245, 245, 245, 255);
+    const ImU32 button_color = dark_mode ? IM_COL32(40, 40, 40, 255) : IM_COL32(220, 220, 220, 255);
+    const ImU32 button_hovered_color = dark_mode ? IM_COL32(60, 60, 60, 255) : IM_COL32(200, 200, 200, 255);
+    const ImU32 button_active_color = dark_mode ? IM_COL32(80, 80, 80, 255) : IM_COL32(180, 180, 180, 255);
+
+    ImGui::PushStyleColor(ImGuiCol_Text, text_color);
+    ImGui::PushStyleColor(ImGuiCol_WindowBg, background_color);
+
+    ImGui::PushStyleColor(ImGuiCol_TitleBg, button_color);
+    ImGui::PushStyleColor(ImGuiCol_TitleBgActive, button_hovered_color);
+    ImGui::PushStyleColor(ImGuiCol_TitleBgCollapsed, background_color);
+
+    ImGui::PushStyleColor(ImGuiCol_Button, button_color);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, button_hovered_color);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, button_active_color);
+
+    ImGui::PushStyleColor(ImGuiCol_FrameBg, button_color);
+
+    ImGui::PushFont(config::imgui_ui_font);
+}
+
+void ui::imgui_style_cleanup() {
+    ImGui::PopFont();
+    ImGui::PopStyleColor(9);
+}
+
+void ui::draw_planet_info(const std::shared_ptr<const RenderSnapshot>& snap, const bool dark_mode) {
+    imgui_style_setup(dark_mode);
 
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (const auto& body = snap->bodies[i]; body.color.has_value()) {
-            DrawCircle({start.x + 10, start.y + spacing * completed_iterations + (font_size / 2)}, 5, *body.color);
-            DrawText(config::uiFont, body.name.c_str(), Vec2(start.x + 25, start.y + spacing * completed_iterations), font_size, 1, BLACK);
-            completed_iterations++;
+        if (config::is_planet_info_selected(i)) {
+            const auto& body = snap->detailed_body_display[i];
+            if (!body.has_value()) continue;
+
+            bool highlighted = true;
+
+            auto&[mass, px, py, pz, vx, vy, vz] = edit_states[i];
+
+            if (!was_open[i]) {
+                const float offset = static_cast<float>(next_window_slot++ % 8) * 35.0f;
+
+                ImGui::SetNextWindowPos(
+                    ImVec2(100.0f + offset, 100.0f + offset),
+                    ImGuiCond_Appearing
+                );
+
+                was_open[i] = true;
+            }
+
+            const bool visible = ImGui::Begin(std::format("  {} ({}) ###planet_{}", body->name, i, i).c_str(), &highlighted, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize);
+
+            // Draw even if collapsed
+
+            if (body->color.has_value()) {
+                const ImVec2 pos = ImGui::GetWindowPos();
+                const ImGuiStyle& style = ImGui::GetStyle();
+
+                const float title_height = ImGui::GetFrameHeight();
+
+                const float x = pos.x + style.FramePadding.x + ImGui::GetFontSize() + style.ItemInnerSpacing.x + 7.0f;
+                const float y = pos.y + title_height / 2.0f;
+
+                ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+                // Allow drawing inside the title bar
+                draw_list->PushClipRect(
+                    pos,
+                    ImVec2(pos.x + ImGui::GetWindowWidth(), pos.y + title_height),
+                    false
+                );
+
+                draw_list->AddCircleFilled(
+                    ImVec2(x, y),
+                    6.0f,
+                    to_imgui_color(*body->color)
+                );
+
+                draw_list->PopClipRect();
+            }
+
+            if (visible) {
+                if (ImGui::BeginTable("PositionVelocity", 2)) {
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted("Position");
+                    ImGui::Indent(15.0f);
+                    if (imgui_input(px, body->position.x, i, "x", "x##position", 4, "m")) update_body_command_queue.push(UpdateBodyCommand{.i = i, .px = px.val});
+                    if (imgui_input(py, body->position.y, i, "y", "y##position", 4, "m")) update_body_command_queue.push(UpdateBodyCommand{.i = i, .py = py.val});
+                    if (imgui_input(pz, body->position.z, i, "z", "z##position", 4, "m")) update_body_command_queue.push(UpdateBodyCommand{.i = i, .pz = pz.val});
+                    ImGui::Unindent(15.0f);
+
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted("Velocity");
+                    ImGui::Indent(15.0f);
+
+                    if (imgui_input(vx, body->velocity.x, i, "x", "x##velocity", 4, "m/s")) update_body_command_queue.push(UpdateBodyCommand{.i = i, .vx = vx.val});
+                    if (imgui_input(vy, body->velocity.y, i, "y", "y##velocity", 4, "m/s")) update_body_command_queue.push(UpdateBodyCommand{.i = i, .vy = vy.val});
+                    if (imgui_input(vz, body->velocity.z, i, "z", "z##velocity", 4, "m/s")) update_body_command_queue.push(UpdateBodyCommand{.i = i, .vz = vz.val});
+                    ImGui::Unindent(15.0f);
+
+                    ImGui::EndTable();
+                }
+
+                ImGui::Spacing();
+
+                if (imgui_input(mass, body->mass, i, "Mass", "mass", 6, "kg")) update_body_command_queue.push(UpdateBodyCommand{.i = i, .mass = mass.val});
+
+                // TODO: 5. Validate numeric inputs -> Negate negative masses?
+                // TODO: Also show (and let edit?) relative position & velocity values to another (separate user-selected) body?
+
+                ImGui::Spacing();
+
+                if (ImGui::Button("Use as center")) {
+                    config::center_celestial_body_index.store(i);
+                    fit_camera_to_planetary_system(snap, i);
+                    config::republish_needed = true;
+                }
+
+                ImGui::SameLine();
+
+                const bool recently_copied = std::chrono::steady_clock::now() - ui_config::last_copied[i] < std::chrono::seconds(1);
+
+                if (ImGui::Button(recently_copied ? "Copied!###copy_info" : "Copy info###copy_info")) {
+                    const str text = std::format("{}\nYears simulated: {:.2f}\nPosition: {} m\nVelocity: {} m/s\nMass: {:e} kg", body->name, simulated_years(), body->position.to_string(), body->velocity.to_string(), body->mass);
+                    SetClipboardText(text.c_str());
+                    ui_config::last_copied[i] = std::chrono::steady_clock::now();
+                }
+            }
+
+            ImGui::End();
+
+            if (!highlighted) {
+                config::unhighlight_planet_info(i);
+                was_open[i] = false;
+            }
+        } else {
+            was_open[i] = false;
         }
     }
 
-    constexpr float thick = 1.2f;
-
-    DrawLine({start.x, start.y}, {end.x, start.y}, thick, BLACK);
-    DrawLine({start.x, start.y}, {start.x, end.y}, thick, BLACK);
-    DrawLine({start.x, end.y}, {end.x, end.y}, thick, BLACK);
-    DrawLine({end.x, start.y}, {end.x, end.y}, thick, BLACK);
-}
-
-void ui::draw_planet_info(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap) {
-    const std::optional<std::size_t> planet_info_display_index = config::get_planet_info_display_index(); // load once
-
-    if (!planet_info_display_index.has_value()) return;
-
-    const auto& body = snap->detailed_body_display;
-    if (!body.has_value()) return;
-
-    DrawRectangle(config::WINDOW_MARGIN, config::WINDOW_MARGIN, 5.5 * config::GRID_SPACING, 1.5 * config::GRID_SPACING, background_color);
-    DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN}, 2, text_color);
-    DrawLine({config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, text_color);
-    DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, text_color);
-    DrawLine({config::WINDOW_MARGIN, config::WINDOW_MARGIN}, {config::WINDOW_MARGIN, config::WINDOW_MARGIN + 1.5 * config::GRID_SPACING}, 2, text_color);
-
-    DrawText(config::uiFont, "Celestial body information", {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
-
-    DrawText(config::uiFont, "Use as center", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, 20, 1, text_color);
-    if (ui_config::copied && std::chrono::steady_clock::now() - ui_config::last_copied < std::chrono::milliseconds(1000)) {
-        DrawText(config::uiFont, "Copied!", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, 20, 1, text_color);
-    } else {
-        DrawText(config::uiFont, "Copy info", {config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}, 20, 1, text_color);
+    if (std::ranges::none_of(was_open, [](const bool open) { return open; })) {
+        next_window_slot = 0;
     }
 
-    DrawCircle({config::WINDOW_MARGIN + 22.5, config::WINDOW_MARGIN + 60}, 7.5, *body->color);
-    if (1 <= *planet_info_display_index && *planet_info_display_index <= 8) {
-        DrawText(config::uiFont, std::format("{} ({}{} planet from sun)", body->name, *planet_info_display_index, get_numerical_suffix(*planet_info_display_index)).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
-    } else {
-        DrawText(config::uiFont, std::format("{} (index {})", body->name, *planet_info_display_index).c_str(), {config::WINDOW_MARGIN + 35, config::WINDOW_MARGIN + 50}, 20, 1, text_color);
-    }
-    DrawText(config::uiFont, std::format("Position: {:<34}m", body->position.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 70}, 20, 1, text_color);
-    DrawText(config::uiFont, std::format("Velocity: {:<34}m/s", body->velocity.to_string()).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 90}, 20, 1, text_color);
-    DrawText(config::uiFont, std::format("Mass: {:<38e}kg", body->mass).c_str(), {config::WINDOW_MARGIN + 15, config::WINDOW_MARGIN + 110}, 20, 1, text_color);
+    imgui_style_cleanup();
 }
 
 
-void ui::draw_stats(const Color text_color, const Color background_color, const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_stats(const std::shared_ptr<const RenderSnapshot>& snap, const bool dark_mode) {
     const double seconds = config::timer.seconds();
+    const double years = simulated_years();
+    const double speed = seconds > 0.0 ? years / seconds : 0.0;
 
-    DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_MARGIN, background_color);
+    const std::size_t center_i = config::center_celestial_body_index.load();
+    const str center_name = center_i < snap->bodies.size() ? snap->bodies[center_i].name : "Unknown";
+    const str target_speed = runtime_config::target_simulation_speed > 0.0 ? std::format("{:.2f} yr/s", runtime_config::target_simulation_speed) : "Unlimited";
 
-    // Left side
-    DrawText(config::uiFont, std::format("Simulation time: {} years", static_cast<int>(static_cast<double>(config::steps_simulated) * runtime_config::time_step / (86'400 * 365))).c_str(), Vec2(config::WINDOW_MARGIN, 10), 20, 1, text_color);
-    DrawText(config::uiFont, std::format("Computation time: {} seconds", round_to_hundreds(seconds)).c_str(), Vec2(config::WINDOW_MARGIN, 30), 20, 1, text_color);
-    DrawText(config::uiFont, std::format("Step size: {}", runtime_config::time_step_string).c_str(), Vec2(config::WINDOW_MARGIN, 50), 20, 1, text_color);
-    // DrawText(config::uiFont, std::format("FPS: {}", GetFPS()).c_str(), Vec2(config::WINDOW_MARGIN, 70), 20, 1, text_color);
+    const bool running = config::timer.is_running();
+    const bool can_resume = runtime_config::target_total_simulation_time < 0.0 || runtime_config::target_total_simulation_time > simulated_years();
 
-    // Right side
-    DrawText(config::uiFont, std::format("Simulated years per second: {}", (seconds > 0.0 ? round_to_hundreds(((static_cast<double>(config::steps_simulated) * runtime_config::time_step / (86'400 * 365))) / seconds) : "0")).c_str(), Vec2(config::WINDOW_MARGIN + 400, 10), 20, 1, text_color);
-    DrawText(config::uiFont, std::format("Rendering relative to: {}", snap->bodies[config::center_celestial_body_index].name).c_str(), Vec2(config::WINDOW_MARGIN + 400, 30), 20, 1, text_color);
-    DrawText(config::uiFont, std::format("Target years per second: {}", runtime_config::target_simulation_speed > 0.0 ? round_to_hundreds(runtime_config::target_simulation_speed) : "Unlimited").c_str(), Vec2(config::WINDOW_MARGIN + 400, 50), 20, 1, text_color);
+    imgui_style_setup(dark_mode);
+
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 3.0f);
+    ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(12.0f, 5.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 0.0f));
+    ImGui::PushStyleVar(ImGuiStyleVar_CellPadding, ImVec2(4.0f, 0.0f));
+
+    ImGui::PushStyleColor(ImGuiCol_TextDisabled, dark_mode ? IM_COL32(170, 170, 170, 255) : IM_COL32(100, 100, 100, 255));
+
+    ImGui::SetNextWindowPos(ImVec2(config::WINDOW_MARGIN, 10.0f), ImGuiCond_Always);
+    constexpr float toolbar_height = config::WINDOW_MARGIN - 16.0f;
+    ImGui::SetNextWindowSize(ImVec2(config::WINDOW_WIDTH - 2.0f * config::WINDOW_MARGIN, toolbar_height), ImGuiCond_Always);
+
+    if (ImGui::Begin("##SimulationStats", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings)) {
+        // Center text within the current table column
+        auto centered_text = [](const char* text, const bool disabled) {
+            const float available_width = ImGui::GetContentRegionAvail().x;
+            const float text_width = ImGui::CalcTextSize(text).x;
+
+            ImGui::SetCursorPosX(
+                ImGui::GetCursorPosX() +
+                std::max(0.0f, (available_width - text_width) * 0.5f)
+            );
+
+            if (disabled) {
+                ImGui::TextDisabled("%s", text);
+            } else {
+                ImGui::TextUnformatted(text);
+            }
+        };
+
+        // Small label above normal-sized value
+        auto stat = [&](const char* label, const str& value) {
+            ImGui::PushFont(config::imgui_ui_font_small);
+            centered_text(label, true);
+            ImGui::PopFont();
+
+            centered_text(value.c_str(), false);
+        };
+
+        // Leave space for the Pause/Resume button.
+        constexpr float button_area_width = 115.0f;
+
+        const float table_width = std::max(
+            1.0f,
+            ImGui::GetContentRegionAvail().x - button_area_width
+        );
+
+        if (ImGui::BeginTable("##StatsTable", 3, ImGuiTableFlags_SizingStretchSame, ImVec2(table_width, 0.0f))) {
+            ImGui::TableNextRow(ImGuiTableRowFlags_None, toolbar_height / 2);
+
+            ImGui::TableSetColumnIndex(0);
+            stat("TIME", std::format("{:.2f} yr", years));
+
+            ImGui::TableSetColumnIndex(1);
+            stat("SPEED", std::format("{:.2f} yr/s", speed));
+
+            ImGui::TableSetColumnIndex(2);
+            stat("STEP", runtime_config::time_step_string);
+
+            ImGui::TableNextRow(ImGuiTableRowFlags_None, toolbar_height / 2);
+
+            ImGui::TableSetColumnIndex(0);
+            stat("COMPUTE", std::format("{:.2f} s", seconds));
+
+            ImGui::TableSetColumnIndex(1);
+            stat("TARGET", target_speed);
+
+            ImGui::TableSetColumnIndex(2);
+            stat("CENTER", center_name);
+
+            ImGui::EndTable();
+        }
+
+        constexpr float button_width = 32;
+        constexpr float button_height = 32;
+
+        const float button_x = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - button_width * 1.5f;
+        const float button_y = ImGui::GetWindowPos().y + (toolbar_height - button_height) * 0.5f;
+
+        ImGui::SetCursorScreenPos(ImVec2(button_x, button_y));
+
+        ImGui::BeginDisabled(!running && !can_resume);
+
+        const bool clicked = ImGui::InvisibleButton(
+            "##pause_resume",
+            ImVec2(button_width, button_height)
+        );
+
+        ImGui::EndDisabled();
+
+        if (clicked) {
+            if (running) {
+                config::timer.pause();
+                config::republish_needed = true;
+            } else {
+                config::timer.resume();
+            }
+        }
+
+        const ImVec2 button_start = ImGui::GetItemRectMin();
+        const ImVec2 button_end = ImGui::GetItemRectMax();
+
+        const ImVec2 center = {
+            (button_start.x + button_end.x) * 0.5f,
+            (button_start.y + button_end.y) * 0.5f
+        };
+
+        ImDrawList* draw_list = ImGui::GetWindowDrawList();
+
+        if (running) {
+            draw_list->AddRectFilled(
+                {center.x - 6, center.y - 9},
+                {center.x - 1, center.y + 9},
+                to_imgui_color(BLACK)
+            );
+
+            draw_list->AddRectFilled(
+                {center.x + 9, center.y - 9},
+                {center.x + 3, center.y + 9},
+                to_imgui_color(BLACK)
+            );
+        } else {
+            draw_list->AddTriangleFilled(
+                {center.x - 6, center.y - 9},
+                {center.x + 9, center.y},
+                {center.x - 6, center.y + 9},
+                to_imgui_color(BLACK)
+            );
+        }
+    }
+
+    ImGui::End();
+
+    ImGui::PopStyleColor();
+    ImGui::PopStyleVar(4);
+
+    imgui_style_cleanup();
 }
 
 void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
@@ -413,7 +771,7 @@ void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
             text_pos.y -= 10;
             text_pos.x += 10;
             if (hovered_body_i.has_value() && i == *hovered_body_i) {
-                DrawTextOutlined(config::uiFont, name.c_str(), text_pos, 20, 1, *color, {0, 0, 0, 125});
+                draw_imgui_outlined_text(name, text_pos, 20, *color, {0, 0, 0, 125});
             }
         }
     }
@@ -591,7 +949,7 @@ void ui::draw_axes_labels_3d(const Camera3D& cam) {
     // TODO: Should change percentile when zooming in & out
 
     const auto forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
-    auto label_axis = [&](auto anchor_of, const char* unit) {
+    auto label_axis = [&](auto anchor_of) {
         for (int k = -8; k <= 8; k++) {
             if (k == 0) continue;
             const Vector3 w = anchor_of(k);
@@ -601,13 +959,13 @@ void ui::draw_axes_labels_3d(const Camera3D& cam) {
 
             auto [x, y] = GetWorldToScreen(w, cam);
             str text = to_power_of10(k * config::WORLD_UNIT_METERS);
-            DrawText(config::uiFont, text.c_str(), {x, y}, 14, 1, LIGHTGRAY);
+            draw_imgui_text(text, {x, y}, 14, LIGHTGRAY);
         }
     };
 
-    label_axis([](const int k){return Vector3{static_cast<float>(k), 0, 0};}, "x");
-    label_axis([](const int k){return Vector3{0, 0, static_cast<float>(k)};}, "x"); // physics y -> raylib z
-    label_axis([](const int k){return Vector3{0, static_cast<float>(k), 0};}, "x"); // raylib z -> raylib y
+    label_axis([](const int k){return Vector3{static_cast<float>(k), 0, 0};}); // x
+    label_axis([](const int k){return Vector3{0, 0, static_cast<float>(k)};}); // physics y -> raylib z
+    label_axis([](const int k){return Vector3{0, static_cast<float>(k), 0};}); // raylib z -> raylib y
 }
 
 
@@ -701,7 +1059,7 @@ void ui::draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap
     Vector2 text_pos = GetWorldToScreen(world, cam);
     text_pos.y -= 10;
     text_pos.x += 10;
-    DrawTextOutlined(config::uiFont, name.c_str(), text_pos, 20, 1, *color, {0, 0, 0, 125});
+    draw_imgui_outlined_text(name, text_pos, 20, *color, {0, 0, 0, 125});
 }
 
 Camera3D ui::make_camera() {
@@ -740,8 +1098,8 @@ void ui::draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
     // 2D overlays, projected by 3D points
     if (snap) {
         draw_planet_labels_3d(snap, cam);
-        draw_stats(WHITE, BLACK, snap);
-        draw_planet_info(WHITE, BLACK, snap);
+        draw_stats(snap, true);
+        draw_planet_info(snap, true);
     }
 }
 
@@ -750,14 +1108,14 @@ void ui::draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     if (snap) {
         draw_orbits(snap);
         draw_planets(snap);
-        DrawRectangle(0, 0, config::WINDOW_MARGIN, config::WINDOW_HEIGHT, WHITE);
-        DrawRectangle(0, 0, config::WINDOW_WIDTH, config::WINDOW_MARGIN, WHITE);
-        DrawRectangle(0, config::WINDOW_HEIGHT - config::WINDOW_MARGIN, config::WINDOW_WIDTH, config::WINDOW_MARGIN, WHITE);
-        DrawRectangle(config::WINDOW_WIDTH - config::WINDOW_MARGIN, 0, config::WINDOW_MARGIN, config::WINDOW_HEIGHT, WHITE);
-        draw_stats(BLACK, WHITE, snap);
+        draw_imgui_rectangle({0, 0}, {config::WINDOW_MARGIN, config::WINDOW_HEIGHT}, WHITE);
+        draw_imgui_rectangle({0, 0}, {config::WINDOW_WIDTH, config::WINDOW_MARGIN}, WHITE);
+        draw_imgui_rectangle({0, config::WINDOW_HEIGHT - config::WINDOW_MARGIN}, {config::WINDOW_WIDTH, config::WINDOW_HEIGHT}, WHITE);
+        draw_imgui_rectangle({config::WINDOW_WIDTH - config::WINDOW_MARGIN, 0}, {config::WINDOW_WIDTH, config::WINDOW_HEIGHT}, WHITE);
+        draw_stats(snap, false);
         draw_ui();
         if (ui_config::view_legend) draw_legend(snap);
-        draw_planet_info(BLACK, WHITE, snap);
+        draw_planet_info(snap, false);
     }
 }
 
@@ -770,44 +1128,24 @@ void ui::UpdateDrawFrame() {
 
     std::optional<std::size_t> new_center_i;
 
-    if (IsKeyPressed(KEY_ZERO)) { new_center_i=0; }
-    if (IsKeyPressed(KEY_ONE)) { new_center_i=1; }
-    if (IsKeyPressed(KEY_TWO)) { new_center_i=2; }
-    if (IsKeyPressed(KEY_THREE)) { new_center_i=3; }
-    if (IsKeyPressed(KEY_FOUR)) { new_center_i=4; }
-    if (IsKeyPressed(KEY_FIVE)) { new_center_i=5; }
-    if (IsKeyPressed(KEY_SIX)) { new_center_i=6; }
-    if (IsKeyPressed(KEY_SEVEN)) { new_center_i=7; }
-    if (IsKeyPressed(KEY_EIGHT)) { new_center_i=8; }
-    if (IsKeyPressed(KEY_NINE)) { new_center_i=9; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_ZERO)) { new_center_i=0; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_ONE)) { new_center_i=1; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_TWO)) { new_center_i=2; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_THREE)) { new_center_i=3; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_FOUR)) { new_center_i=4; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_FIVE)) { new_center_i=5; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_SIX)) { new_center_i=6; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_SEVEN)) { new_center_i=7; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_EIGHT)) { new_center_i=8; }
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_NINE)) { new_center_i=9; }
 
-    bool center_button_pressed = false;
-    bool copied_button_pressed = false;
-
-    const std::optional<std::size_t> planet_info_display_index = config::get_planet_info_display_index(); // load once
-
-    if (planet_info_display_index.has_value() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
-        auto [center_start, center_end] = center_button_coordinates();
-        auto [copy_start, copy_end] = copy_button_coordinates();
-
-        const auto [mx, my] = GetMousePosition();
-
-        if (center_start.x <= mx && mx <= center_end.x &&
-            center_start.y <= my && my <= center_end.y) {
-            center_button_pressed = true;
-        }
-
-        if (copy_start.x <= mx && mx <= copy_end.x &&
-            copy_start.y <= my && my <= copy_end.y) {
-            copied_button_pressed = true;
-            ui_config::last_copied = std::chrono::steady_clock::now();
-            ui_config::copied = true;
-        }
+    if (new_center_i.has_value()) {
+        config::center_celestial_body_index.store(*new_center_i);
+        fit_camera_to_planetary_system(snap, *new_center_i);
+        config::republish_needed = true;
     }
 
-    if (!center_button_pressed &&
-        !copied_button_pressed &&
-        IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    if (!ImGui::GetIO().WantCaptureMouse && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         std::optional<std::size_t> selected_body_i;
 
         if (ui_config::view_3d) {
@@ -817,40 +1155,24 @@ void ui::UpdateDrawFrame() {
             selected_body_i = pick_body_at_mouse_2d(snap);
         }
 
-        if (selected_body_i != planet_info_display_index) {
-            config::republish_needed = true;
-            config::set_planet_info_display_index(selected_body_i);
-        }
-    }
+        if (selected_body_i.has_value()) {
+            if (config::is_planet_info_selected(*selected_body_i)) {
+                config::unhighlight_planet_info(*selected_body_i);
+                was_open[*selected_body_i] = false;
+            } else {
+                config::highlight_planet_info(*selected_body_i);
+            }
 
-    if (center_button_pressed) {
-        const std::size_t center_index = *planet_info_display_index;
-        config::center_celestial_body_index.store(center_index);
-        fit_camera_to_planetary_system(snap, center_index);
-        config::republish_needed = true;
-        config::set_planet_info_display_index(std::nullopt); // optional: reset planet_info_display_index
-    } else if (new_center_i.has_value() && *new_center_i != config::center_celestial_body_index) {
-        if (snap->bodies[*new_center_i].enabled) {
-            config::center_celestial_body_index = *new_center_i;
-            fit_camera_to_planetary_system(snap, *new_center_i);
             config::republish_needed = true;
         }
     }
 
-    if (copied_button_pressed) {
-        const auto& body = snap->detailed_body_display;
-        if (body.has_value()) {
-            const str text = std::format("{}\nYears simulated: {:.2f}\nPosition: {} m\nVelocity: {} m/s\nMass: {:e} kg", body->name, simulated_years(), body->position.to_string(), body->velocity.to_string(), body->mass);
-            SetClipboardText(text.c_str());
-        }
-    }
-
-    if (IsKeyPressed(KEY_R)) {
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_R)) {
         config::SCALING = config::ORIGINAL_SCALING;
         config::AXIS_SCALING = config::ORIGINAL_AXIS_SCALING;
     }
 
-    if (IsKeyPressed(KEY_SPACE)) {
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_SPACE)) {
         if (config::timer.is_running()) {
             config::timer.pause();
             config::republish_needed = true;
@@ -862,41 +1184,43 @@ void ui::UpdateDrawFrame() {
 
     }
 
-    if (IsKeyPressed(KEY_T)) {
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_T)) {
         ui_config::view_3d = !ui_config::view_3d;
         if (ui_config::view_3d) {
             fit_camera_to_planetary_system(snap, config::center_celestial_body_index.load());
         }
     }
-    if (!ui_config::view_3d && IsKeyPressed(KEY_L)) ui_config::view_legend = !ui_config::view_legend;
-    if (IsKeyPressed(KEY_O)) ui_config::draw_orbits = !ui_config::draw_orbits;
-    if (IsKeyPressed(KEY_M)) ui_config::draw_moon_orbits = !ui_config::draw_moon_orbits;
+    if (!ui_config::view_3d && !ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_L)) ui_config::view_legend = !ui_config::view_legend;
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_O)) ui_config::draw_orbits = !ui_config::draw_orbits;
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_M)) ui_config::draw_moon_orbits = !ui_config::draw_moon_orbits;
 
-    const float scroll = GetMouseWheelMove();
+    const float scroll = ImGui::GetIO().WantCaptureMouse ? 0.0f : GetMouseWheelMove();
 
     if (ui_config::view_3d) {
         bool cam_turned = false;
 
-        const float drag_summand = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::DRAG_SENSITIVITY * 5) : config::DRAG_SENSITIVITY * 2;
+        if (!ImGui::GetIO().WantCaptureKeyboard) {
+            const float drag_summand = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? config::DRAG_SENSITIVITY * 5 : config::DRAG_SENSITIVITY * 2;
 
-        if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
-            ui_config::cam_azimuth += drag_summand;
-            cam_turned = true;
-        }
-        if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
-            ui_config::cam_elevation += drag_summand;
-            cam_turned = true;
-        }
-        if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
-            ui_config::cam_azimuth -= drag_summand;
-            cam_turned = true;
-        }
-        if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
-            ui_config::cam_elevation -= drag_summand;
-            cam_turned = true;
+            if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
+                ui_config::cam_azimuth += drag_summand;
+                cam_turned = true;
+            }
+            if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+                ui_config::cam_elevation += drag_summand;
+                cam_turned = true;
+            }
+            if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
+                ui_config::cam_azimuth -= drag_summand;
+                cam_turned = true;
+            }
+            if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
+                ui_config::cam_elevation -= drag_summand;
+                cam_turned = true;
+            }
         }
 
-        if (IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+        if (!ImGui::GetIO().WantCaptureMouse && IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
             auto [x, y] = GetMouseDelta();
             ui_config::cam_azimuth   += x * config::DRAG_SENSITIVITY; // left/right = spin
             ui_config::cam_elevation += y * config::DRAG_SENSITIVITY; // up/down = tilt
@@ -909,47 +1233,53 @@ void ui::UpdateDrawFrame() {
             ui_config::cam_elevation = std::clamp(ui_config::cam_elevation, -lim, lim);
         }
 
-        const float zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR) : config::ZOOM_3D_FACTOR;
+        if (!ImGui::GetIO().WantCaptureKeyboard) {
+            const float zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR : config::ZOOM_3D_FACTOR;
 
-        if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
-            ui_config::cam_distance *= 1/zoom_factor;
-        } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
-            ui_config::cam_distance *= zoom_factor;
+            if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
+                ui_config::cam_distance *= 1/zoom_factor;
+            } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
+                ui_config::cam_distance *= zoom_factor;
+            }
         }
 
         ui_config::cam_distance = std::clamp(ui_config::cam_distance, MIN_CAM_DISTANCE, MAX_CAM_DISTANCE);
-        if (IsKeyPressed(KEY_R)) {
+        if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_R)) {
             // reset azimuth/elevation/distance to defaults
             ui_config::cam_azimuth = config::DEFAULT_CAM_AZIMUTH;
             ui_config::cam_elevation = config::DEFAULT_CAM_ELEVATION;
             ui_config::cam_distance = config::DEFAULT_CAM_DISTANCE;
         }
     } else {
-        const double zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? (config::ZOOM_FACTOR*config::ZOOM_FACTOR) : config::ZOOM_FACTOR;
-        if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
-            // scrolled up (=> in)
-            if (config::AXIS_SCALING / zoom_factor < 4.0/3) {
-                config::AXIS_SCALING *= 10;
-                config::AXIS_SCALING /= zoom_factor;
-                config::SCALING /= zoom_factor;
-            } else {
-                config::AXIS_SCALING /= zoom_factor;
-                config::SCALING /= zoom_factor;
-            }
-        } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
-            // scrolled down (=> out)
-            if (config::AXIS_SCALING * zoom_factor > 10 * 4.0/3) {
-                config::AXIS_SCALING /= 10;
-                config::AXIS_SCALING *= zoom_factor;
-                config::SCALING *= zoom_factor;
-            } else {
-                config::AXIS_SCALING *= zoom_factor;
-                config::SCALING *= zoom_factor;
+        if (!ImGui::GetIO().WantCaptureKeyboard) {
+            const double zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? config::ZOOM_FACTOR*config::ZOOM_FACTOR : config::ZOOM_FACTOR;
+            if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
+                // scrolled up (=> in)
+                if (config::AXIS_SCALING / zoom_factor < 4.0/3) {
+                    config::AXIS_SCALING *= 10;
+                    config::AXIS_SCALING /= zoom_factor;
+                    config::SCALING /= zoom_factor;
+                } else {
+                    config::AXIS_SCALING /= zoom_factor;
+                    config::SCALING /= zoom_factor;
+                }
+            } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
+                // scrolled down (=> out)
+                if (config::AXIS_SCALING * zoom_factor > 10 * 4.0/3) {
+                    config::AXIS_SCALING /= 10;
+                    config::AXIS_SCALING *= zoom_factor;
+                    config::SCALING *= zoom_factor;
+                } else {
+                    config::AXIS_SCALING *= zoom_factor;
+                    config::SCALING *= zoom_factor;
+                }
             }
         }
     }
 
     BeginDrawing();
+    rlImGuiBegin();
+
     ClearBackground(ui_config::view_3d ? BLACK : WHITE);
 
     if (ui_config::view_3d) {
@@ -958,6 +1288,6 @@ void ui::UpdateDrawFrame() {
         draw_2d(snap);
     }
 
-
+    rlImGuiEnd();
     EndDrawing();
 }

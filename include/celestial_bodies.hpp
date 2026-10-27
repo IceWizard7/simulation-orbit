@@ -77,6 +77,4 @@ struct CelestialBodies {
         const Vec3& source_to_target_direction,
         double distance
     ) const;
-
-    [[nodiscard]] Vec3 acceleration_due_to(std::size_t i, std::size_t source) const;
 };

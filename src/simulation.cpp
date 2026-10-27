@@ -16,7 +16,6 @@
 #include <vector>
 
 #include "force_pairs.hpp"
-#include "ui.hpp"
 
 #if defined(__aarch64__)
 #include <arm_neon.h>
@@ -662,16 +661,16 @@ void simulation::publish_snapshot() {
 
     snap->max_orbit_points_used = max_used;
 
-    const std::optional<std::size_t> planet_info_display_index = config::get_planet_info_display_index(); // load once
-
-    if (planet_info_display_index.has_value()) {
-        snap->detailed_body_display = {
-            celestial_bodies.names[*planet_info_display_index],
-            celestial_bodies.position(*planet_info_display_index),
-            celestial_bodies.velocity(*planet_info_display_index),
-            celestial_bodies.get_mass(*planet_info_display_index),
-            celestial_bodies.colors[*planet_info_display_index],
-        };
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (config::is_planet_info_selected(i)) {
+            snap->detailed_body_display[i] = {
+                celestial_bodies.names[i],
+                celestial_bodies.position(i),
+                celestial_bodies.velocity(i),
+                celestial_bodies.get_mass(i),
+                celestial_bodies.colors[i],
+            };
+        }
     }
 
     {
@@ -700,6 +699,27 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
         // It does not affect CPU simulation speed
         constexpr std::size_t MAX_STEPS_PER_BATCH = 4096;
         constexpr double MAX_CATCH_UP_SECONDS = 0.25;
+
+        const bool queue_was_empty = ui::update_body_command_queue.is_empty();
+
+        while (!ui::update_body_command_queue.is_empty()) {
+            const auto cmd = ui::update_body_command_queue.try_pop();
+
+            if (cmd->mass.has_value()) celestial_bodies.gravitational_masses[cmd->i] = *cmd->mass * config::GRAVITATIONAL_CONSTANT;
+            if (cmd->px.has_value()) celestial_bodies.pos_x[cmd->i] = *cmd->px;
+            if (cmd->py.has_value()) celestial_bodies.pos_y[cmd->i] = *cmd->py;
+            if (cmd->pz.has_value()) celestial_bodies.pos_z[cmd->i] = *cmd->pz;
+            if (cmd->vx.has_value()) celestial_bodies.vel_x[cmd->i] = *cmd->vx;
+            if (cmd->vy.has_value()) celestial_bodies.vel_y[cmd->i] = *cmd->vy;
+            if (cmd->vz.has_value()) celestial_bodies.vel_z[cmd->i] = *cmd->vz;
+        }
+
+        if (!queue_was_empty) {
+            // Publish
+            publish_snapshot();
+            last_publish = std::chrono::steady_clock::now();
+        }
+
         if (!config::timer.is_running()) {
             step_budget = 0.0;
             last_budget_update = std::chrono::steady_clock::now();

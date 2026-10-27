@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <filesystem>
+#include <imgui.h>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -41,7 +42,7 @@ namespace config {
 
     constexpr bool RENDERING_COORDINATES_RELATIVE_TO_OBJECT = true;
 
-    constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2)
+    constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2) // TODO: Make this changeable
 
     constexpr int WINDOW_HEIGHT = 900;
     constexpr int WINDOW_WIDTH = 900;
@@ -74,27 +75,24 @@ namespace config {
     inline std::atomic<std::size_t> steps_simulated = 0;
     inline std::atomic republish_needed = false;
 
-    inline Font uiFont;
+    inline ImFont* imgui_ui_font;
+    inline ImFont* imgui_ui_font_small;
 
     inline constexpr std::size_t NO_BODY_SELECTED = NUM_CELESTIAL_BODIES;
 
     inline std::atomic<std::size_t> center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
-    inline std::atomic planet_info_display_index = NO_BODY_SELECTED;
+    inline std::array<std::atomic<bool>, NUM_CELESTIAL_BODIES> planet_info_display_index{};
 
-    [[nodiscard]] inline std::optional<std::size_t> get_planet_info_display_index() {
-        const std::size_t index = planet_info_display_index.load();
-
-        if (index == NO_BODY_SELECTED) {
-            return std::nullopt;
-        }
-
-        return index;
+    [[nodiscard]] inline bool is_planet_info_selected(const std::size_t i) {
+        return planet_info_display_index[i].load();
     }
 
-    inline void set_planet_info_display_index(const std::optional<std::size_t> index) {
-        planet_info_display_index.store(
-            index.value_or(NO_BODY_SELECTED)
-        );
+    inline void highlight_planet_info(const std::size_t i) {
+        planet_info_display_index[i].store(true);
+    }
+
+    inline void unhighlight_planet_info(const std::size_t i) {
+        planet_info_display_index[i].store(false);
     }
 }
 
@@ -161,4 +159,4 @@ namespace runtime_config {
     int parse_cli_args(int argc, char* argv[], CelestialBodies<NUM_CELESTIAL_BODIES>& celestial_bodies);
 
     void set_time_step_string();
-};
+}
