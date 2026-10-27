@@ -22,6 +22,21 @@ namespace ui {
 }
 
 namespace config {
+    constexpr auto KEY_RESET = KEY_R;
+    constexpr auto KEY_RESUME_AND_PAUSE = KEY_SPACE;
+    constexpr auto KEY_3D_2D_TOGGLE = KEY_T;
+    constexpr auto KEY_LEGEND_TOGGLE = KEY_L;
+    constexpr auto KEY_ORBIT_TOGGLE = KEY_O;
+    constexpr auto KEY_MOON_ORBIT_RENDERING_TOGGLE = KEY_M;
+    constexpr std::array KEYS_AMPLIFY_ZOOM_AND_DRAG = {KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT};
+    constexpr std::array KEYS_DRAG_LEFT = {KEY_LEFT, KEY_A};
+    constexpr std::array KEYS_DRAG_UP = {KEY_UP, KEY_W};
+    constexpr std::array KEYS_DRAG_RIGHT = {KEY_RIGHT, KEY_D};
+    constexpr std::array KEYS_DRAG_DOWN = {KEY_DOWN, KEY_S};
+    constexpr auto KEY_ZOOM_IN = KEY_RIGHT_BRACKET; // "+" on QWERTZ
+    constexpr auto KEY_ZOOM_OUT = KEY_SLASH; // "-" on QWERTZ
+    constexpr auto KEY_FOLLOW_NONE = 161; // "^" on QWERTZ
+
     constexpr double ORIGINAL_SCALING = 8e12;
     constexpr double ORIGINAL_AXIS_SCALING = 8;
 
@@ -39,8 +54,6 @@ namespace config {
     // available without retaining every moon's high-frequency history for centuries
     constexpr int ORBIT_CENTER_REFERENCE_POINTS_PER_YEAR = 64;
     constexpr double ORBIT_CENTER_REFERENCE_LONGEST_REVOLUTIONS = 1.05;
-
-    constexpr bool RENDERING_COORDINATES_RELATIVE_TO_OBJECT = true;
 
     constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2) // TODO: Make this changeable
 

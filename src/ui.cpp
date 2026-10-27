@@ -17,16 +17,18 @@
 #include "simulation.hpp"
 
 namespace ui_config {
+    Vec2 view_offset_m;
+    bool panning_2d = false;
+
     float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0
     
     float cam_elevation = config::DEFAULT_CAM_ELEVATION; // 35° shows 3D immediately
     float cam_distance = config::DEFAULT_CAM_DISTANCE; // radius in world units
-    bool view_3d = false; // toggle with keybind
-    bool view_legend = true; // toggle with keybind
+    bool view_3d = false; // default; toggle with keybind
+    bool view_legend = true; // default; toggle with keybind
     std::array<std::chrono::steady_clock::time_point, NUM_CELESTIAL_BODIES> last_copied{};
-    bool copied = false;
-    bool draw_moon_orbits = false;
-    bool draw_orbits = true;
+    bool draw_moon_orbits = true; // default; toggle with keybind
+    bool draw_orbits = true; // default; toggle with keybind
 }
 
 namespace {
@@ -93,7 +95,6 @@ namespace {
         for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
             constexpr double DEPTH_MARGIN = 1.05;
             const auto& body = snap->bodies[i];
-            if (!body.enabled) continue;
 
             const Vector3 world_position = to_world(body.position);
             const double center_depth = Vector3DotProduct(
@@ -109,6 +110,7 @@ namespace {
         return far_plane;
     }
 
+    // Move camera to centered celestial body
     void fit_camera_to_planetary_system(
         const std::shared_ptr<const ui::RenderSnapshot>& snap,
         const std::size_t center_index
@@ -127,7 +129,7 @@ namespace {
         double system_radius_meters = 0.0;
         for (const std::size_t moon_index : system->moon_indices) {
             const auto& moon = snap->bodies[moon_index];
-            if (!moon.enabled) continue;
+
             system_radius_meters = std::max(
                 system_radius_meters,
                 (moon.position - parent_position).length()
@@ -147,7 +149,7 @@ namespace {
         );
     }
 
-    void draw_star_background(const Camera3D& cam, const double far_plane) {
+    void draw_star_background_3d(const Camera3D& cam, const double far_plane) {
         if (!star_background_loaded) return;
 
         const auto radius = static_cast<float>(far_plane * 0.5);
@@ -333,30 +335,65 @@ void ui::draw_imgui_outlined_text(
     );
 }
 
-void ui::draw_ui() {
-    constexpr int horizontal_lines = (config::WINDOW_HEIGHT - 2 * config::WINDOW_MARGIN) / config::GRID_SPACING + 1;
-    constexpr int vertical_lines = (config::WINDOW_WIDTH - 2 * config::WINDOW_MARGIN) / config::GRID_SPACING + 1;
+void ui::draw_ui_2d() {
+    constexpr double viewport_width = config::WINDOW_WIDTH - 2.0 * config::WINDOW_MARGIN;
+    constexpr double viewport_height = config::WINDOW_HEIGHT - 2.0 * config::WINDOW_MARGIN;
 
-    const str SCALING_STRING = to_power_of10(config::SCALING / config::AXIS_SCALING);
+    // Distance in meters represented by one grid interval
+    const double step_x = config::GRID_SPACING * (2.0 * config::SCALING) / viewport_width;
+    const double step_y = config::GRID_SPACING * (2.0 * config::SCALING) / viewport_height;
+
+    const double min_x = ui_config::view_offset_m.x - config::SCALING;
+    const double max_x = ui_config::view_offset_m.x + config::SCALING;
+    const double min_y = ui_config::view_offset_m.y - config::SCALING;
+    const double max_y = ui_config::view_offset_m.y + config::SCALING;
+
+    const double largest_coordinate = std::max({
+        std::abs(min_x), std::abs(max_x),
+        std::abs(min_y), std::abs(max_y)
+    });
+
+    const int axis_exponent = largest_coordinate > 0.0 ? // TODO Try removing check
+        static_cast<int>(std::floor(std::log10(largest_coordinate)))
+        : 0;
+
+    const double axis_unit_m = std::pow(10.0, axis_exponent);
+    const str scaling_string = to_power_of10(axis_unit_m);
+
+    // first_k_(x | y) could only be summarized into 1 if
+    // viewport_width == viewport_height and view_offset_m.x == view_offset_m.y always holds
+    const auto first_k_x = static_cast<long long>(std::ceil(min_x / step_x));
+    const auto last_k_x = static_cast<long long>(std::floor(max_x / step_x));
+    const auto first_k_y = static_cast<long long>(std::ceil(min_y / step_y));
+    const auto last_k_y = static_cast<long long>(std::floor(max_y / step_y));
+
+    constexpr float thick = 1.5;
+    const Color color = Fade(DARKGRAY, 0.35f);
 
     // Grid, axes & labels
-    for (int x = config::WINDOW_MARGIN; x <= config::WINDOW_WIDTH - config::WINDOW_MARGIN; x += static_cast<int>(config::GRID_SPACING)) {
-        float thick = 1.5;
-        Color color = Fade(DARKGRAY, 0.35f);
-        if (x == config::WINDOW_MARGIN || x == config::WINDOW_WIDTH - config::WINDOW_MARGIN) {
-            thick = 2;
-            color = BLACK;
-        }
+    for (auto k = first_k_x; k <= last_k_x; k++) {
+        const double world_x = static_cast<double>(k) * step_x;
+
+        const auto screen_x = to_raylib(
+            Vec3{world_x, 0.0, 0.0},
+            ui_config::view_offset_m
+        ).x;
+
         DrawLine(
-            Vec2(x, config::WINDOW_MARGIN),
-            Vec2(x, config::WINDOW_HEIGHT - config::WINDOW_MARGIN),
+            Vec2{screen_x, config::WINDOW_MARGIN},
+            Vec2{screen_x, config::WINDOW_HEIGHT - config::WINDOW_MARGIN},
             thick,
             color
         );
-        if (x != config::WINDOW_WIDTH - config::WINDOW_MARGIN && x != config::WINDOW_MARGIN) {
+
+        const double label_value = world_x / axis_unit_m;
+
+        // Keep labels away from the viewport corners
+        if (screen_x > config::WINDOW_MARGIN + 20 &&
+            screen_x < config::WINDOW_WIDTH - config::WINDOW_MARGIN - 20) {
             draw_imgui_centered_text(
-                round_to_hundreds((static_cast<double>(x) / config::GRID_SPACING - static_cast<double>(vertical_lines) / 2 - 0.5) * config::AXIS_SCALING / (static_cast<float>(vertical_lines) / 2)),
-                {static_cast<double>(x), static_cast<double>(config::WINDOW_HEIGHT - config::WINDOW_MARGIN + 25)},
+                round_to_hundreds(label_value),
+                Vec2{screen_x, config::WINDOW_HEIGHT - config::WINDOW_MARGIN + 25},
                 0,
                 20,
                 BLACK
@@ -364,24 +401,29 @@ void ui::draw_ui() {
         }
     }
 
-    for (int y = config::WINDOW_MARGIN; y <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN; y += static_cast<int>(config::GRID_SPACING)) {
-        float thick = 1.5;
-        Color color = Fade(DARKGRAY, 0.35f);
-        if (y == config::WINDOW_MARGIN || y == config::WINDOW_HEIGHT - config::WINDOW_MARGIN) {
-            thick = 2;
-            color = BLACK;
-        }
+    for (auto k = first_k_y; k <= last_k_y; k++) {
+        const double world_y = static_cast<double>(k) * step_y;
+
+        const auto screen_y = to_raylib(
+            Vec3{0.0, world_y, 0.0},
+            ui_config::view_offset_m
+        ).y;
 
         DrawLine(
-            Vec2(config::WINDOW_MARGIN, y),
-            Vec2(config::WINDOW_WIDTH - config::WINDOW_MARGIN, y),
+            Vec2{config::WINDOW_MARGIN, screen_y},
+            Vec2{config::WINDOW_WIDTH - config::WINDOW_MARGIN, screen_y},
             thick,
             color
         );
-        if (y != config::WINDOW_WIDTH - config::WINDOW_MARGIN && y != config::WINDOW_MARGIN) {
+
+        const double label_value = world_y / axis_unit_m;
+
+        // Keep labels away from the viewport corners
+        if (screen_y > config::WINDOW_MARGIN + 20 &&
+            screen_y < config::WINDOW_HEIGHT - config::WINDOW_MARGIN - 20) {
             draw_imgui_centered_text(
-                round_to_hundreds((static_cast<double>(y) / config::GRID_SPACING - static_cast<double>(horizontal_lines) / 2 - 0.5) * config::AXIS_SCALING / (static_cast<float>(horizontal_lines) / 2)),
-                {static_cast<double>(config::WINDOW_MARGIN - 25), static_cast<double>(y)},
+                round_to_hundreds(label_value),
+                Vec2{config::WINDOW_MARGIN - 25, screen_y},
                 0,
                 20,
                 BLACK
@@ -390,7 +432,7 @@ void ui::draw_ui() {
     }
 
     draw_imgui_centered_text(
-        std::format("Y Position ({} m)", SCALING_STRING),
+        std::format("Y Position ({} m)", scaling_string),
         {static_cast<double>(config::WINDOW_MARGIN) / 2 - 20, static_cast<double>(config::WINDOW_HEIGHT) / 2},
         270,
         24,
@@ -398,7 +440,7 @@ void ui::draw_ui() {
     );
 
     draw_imgui_centered_text(
-        std::format("X Position ({} m)", SCALING_STRING),
+        std::format("X Position ({} m)", scaling_string),
         {static_cast<double>(config::WINDOW_WIDTH) / 2, config::WINDOW_HEIGHT - static_cast<double>(config::WINDOW_MARGIN) / 2 + 20},
         0,
         24,
@@ -406,7 +448,44 @@ void ui::draw_ui() {
     );
 }
 
-void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_viewport_borders_2d() {
+    constexpr float thick = 2;
+    constexpr auto color = BLACK;
+
+    // Top
+    DrawLine(
+        Vec2{config::WINDOW_MARGIN, config::WINDOW_MARGIN},
+        Vec2{config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN},
+        thick,
+        color
+    );
+
+    // Bottom
+    DrawLine(
+        Vec2{config::WINDOW_MARGIN, config::WINDOW_HEIGHT - config::WINDOW_MARGIN},
+        Vec2{config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_HEIGHT - config::WINDOW_MARGIN},
+        thick,
+        color
+    );
+
+    // Left
+    DrawLine(
+        Vec2{config::WINDOW_MARGIN, config::WINDOW_MARGIN},
+        Vec2{config::WINDOW_MARGIN, config::WINDOW_HEIGHT - config::WINDOW_MARGIN},
+        thick,
+        color
+    );
+
+    // Right
+    DrawLine(
+        Vec2{config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_MARGIN},
+        Vec2{config::WINDOW_WIDTH - config::WINDOW_MARGIN, config::WINDOW_HEIGHT - config::WINDOW_MARGIN},
+        thick,
+        color
+    );
+}
+
+void ui::draw_legend_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     constexpr float font_size = 16;
     constexpr float spacing = font_size + 2;
     constexpr float padding = 8.0f;
@@ -441,15 +520,37 @@ void ui::draw_legend(const std::shared_ptr<const RenderSnapshot>& snap) {
 
     int row = 0;
 
-    for (const auto& body : snap->bodies) {
-        if (!body.color.has_value())
-            continue;
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        const auto& body = snap->bodies[i];
 
-        const auto y = static_cast<float>(
-            start.y + padding + static_cast<float>(row) * spacing
-        );
+        if (!body.color.has_value()) continue;
 
-        draw_imgui_circle({start.x + 12, y + font_size / 2}, 5.0f, *body.color);
+        const auto y = static_cast<float>(start.y + padding + static_cast<float>(row) * spacing);
+
+        Vec2 center = {start.x + 12, y + font_size / 2};
+        constexpr float radius = 5.0f;
+
+        draw_imgui_circle(center, 5.0f, *body.color);
+
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+            const auto [mx, my] = ImGui::GetMousePos();
+
+            const double dx = mx - center.x;
+            const double dy = my - center.y;
+
+            if (dx * dx + dy * dy <= radius * radius) {
+                if (body.rendering_visible) {
+                    update_body_command_queue.push(UpdateBodyCommand{.i = i, .disable_rendering = true});
+                } else {
+                    update_body_command_queue.push(UpdateBodyCommand{.i = i, .enable_rendering = true});
+                }
+
+            }
+        }
+
+        if (!body.rendering_visible) {
+            draw_imgui_circle(center, 3.5f, WHITE);
+        }
 
         draw_imgui_text(body.name, {start.x + 25, y}, font_size, BLACK);
 
@@ -573,6 +674,8 @@ void ui::draw_planet_info(const std::shared_ptr<const RenderSnapshot>& snap, con
                 if (ImGui::Button("Use as center")) {
                     config::center_celestial_body_index.store(i);
                     fit_camera_to_planetary_system(snap, i);
+                    ui_config::view_offset_m = {};
+                    ui_config::panning_2d = false;
                     config::republish_needed = true;
                 }
 
@@ -612,7 +715,7 @@ void ui::draw_stats(const std::shared_ptr<const RenderSnapshot>& snap, const boo
     const double speed = seconds > 0.0 ? years / seconds : 0.0;
 
     const std::size_t center_i = config::center_celestial_body_index.load();
-    const str center_name = center_i < snap->bodies.size() ? snap->bodies[center_i].name : "Unknown";
+    const str center_name = center_i < snap->bodies.size() ? snap->bodies[center_i].name : "None";
     const str target_speed = runtime_config::target_simulation_speed > 0.0 ? std::format("{:.2f} yr/s", runtime_config::target_simulation_speed) : "Unlimited";
 
     const bool running = config::timer.is_running();
@@ -658,7 +761,7 @@ void ui::draw_stats(const std::shared_ptr<const RenderSnapshot>& snap, const boo
             centered_text(value.c_str(), false);
         };
 
-        // Leave space for the Pause/Resume button.
+        // Leave space for the Pause/Resume button
         constexpr float button_area_width = 115.0f;
 
         const float table_width = std::max(
@@ -692,8 +795,8 @@ void ui::draw_stats(const std::shared_ptr<const RenderSnapshot>& snap, const boo
             ImGui::EndTable();
         }
 
-        constexpr float button_width = 32;
-        constexpr float button_height = 32;
+        constexpr float button_width = 16;
+        constexpr float button_height = 18;
 
         const float button_x = ImGui::GetWindowPos().x + ImGui::GetWindowContentRegionMax().x - button_width * 1.5f;
         const float button_y = ImGui::GetWindowPos().y + (toolbar_height - button_height) * 0.5f;
@@ -728,24 +831,28 @@ void ui::draw_stats(const std::shared_ptr<const RenderSnapshot>& snap, const boo
 
         ImDrawList* draw_list = ImGui::GetWindowDrawList();
 
+        const ImU32 color = dark_mode ? IM_COL32(170, 170, 170, 255) : IM_COL32(100, 100, 100, 255);
+
         if (running) {
+            // Pause symbol
             draw_list->AddRectFilled(
                 {center.x - 6, center.y - 9},
-                {center.x - 1, center.y + 9},
-                to_imgui_color(BLACK)
+                {center.x - 0.5f, center.y + 9},
+                color
             );
 
             draw_list->AddRectFilled(
                 {center.x + 9, center.y - 9},
-                {center.x + 3, center.y + 9},
-                to_imgui_color(BLACK)
+                {center.x + 3.5f, center.y + 9},
+                color
             );
         } else {
+            // Resume symbol
             draw_list->AddTriangleFilled(
                 {center.x - 6, center.y - 9},
                 {center.x + 9, center.y},
                 {center.x - 6, center.y + 9},
-                to_imgui_color(BLACK)
+                color
             );
         }
     }
@@ -758,14 +865,17 @@ void ui::draw_stats(const std::shared_ptr<const RenderSnapshot>& snap, const boo
     imgui_style_cleanup();
 }
 
-void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
+void ui::draw_planets_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     const std::optional<std::size_t> hovered_body_i = pick_body_at_mouse_2d(snap);
 
     // snap->bodies positions are already relative to the center body (see publish_snapshot)
     for (std::size_t i = 0; i < snap->bodies.size(); i++) {
-        const auto& [name, position, radius_2d, _radius_3d, color, _planet_visual, _enabled] = snap->bodies[i];
-        if (color.has_value() && inside_screen(position)) {
-            const Vector2 pos = to_raylib(position);
+        const auto& [name, position, radius_2d, _radius_3d, color, _planet_visual, rendering_visible] = snap->bodies[i];
+
+        if (!rendering_visible) continue;
+
+        if (color.has_value() && inside_screen(position, ui_config::view_offset_m)) {
+            const Vector2 pos = to_raylib(position, ui_config::view_offset_m);
             DrawCircleV(pos, radius_2d, *color);
             Vector2 text_pos = pos;
             text_pos.y -= 10;
@@ -777,13 +887,52 @@ void ui::draw_planets(const std::shared_ptr<const RenderSnapshot>& snap) {
     }
 }
 
-void ui::draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
+// 2 simple inside_screen() checks aren't sufficient, example case:
+// start is outside on the left, end is outside on the top, and the line connecting them is partially inside the viewport
+// This is really visible when you zoom in very close into an orbit
+bool ui::clip_segment_2d(Vec3& start, Vec3& end) {
+    const Vec3 original_start = start;
+    const Vec3 delta_vec = end - start;
+
+    double t_enter = 0.0;
+    double t_exit = 1.0;
+
+    auto clip_axis = [&](const double origin, const double delta, const double minimum, const double maximum) {
+        if (delta == 0.0) {
+            // Parallel to these boundaries: entirely inside or outside.
+            return origin >= minimum && origin <= maximum;
+        }
+
+        double t1 = (minimum - origin) / delta;
+        double t2 = (maximum - origin) / delta;
+
+        if (t1 > t2) std::swap(t1, t2);
+
+        t_enter = std::max(t_enter, t1);
+        t_exit = std::min(t_exit, t2);
+
+        return t_enter <= t_exit;
+    };
+
+    if (!clip_axis(start.x, delta_vec.x, ui_config::view_offset_m.x - config::SCALING, ui_config::view_offset_m.x + config::SCALING) ||
+        !clip_axis(start.y, delta_vec.y, ui_config::view_offset_m.y - config::SCALING, ui_config::view_offset_m.y + config::SCALING)) {
+        return false;
+    }
+
+    start = original_start + delta_vec * t_enter;
+    end = original_start + delta_vec * t_exit;
+
+    return true;
+
+}
+
+void ui::draw_orbits_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     if (!ui_config::draw_orbits) return;
 
     const std::size_t orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
     for (std::size_t i = 0; i < orbit_max_i; i++) {
         const auto& [points, color] = snap->orbits[i];
-        if (!color.has_value() || points.size() < 2) continue;
+        if (!color.has_value() || points.size() < 2 || !snap->bodies[i].rendering_visible) continue;
 
         const auto segment_count = static_cast<float>(points.size() - 1);
 
@@ -791,14 +940,14 @@ void ui::draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap) {
             const float age = static_cast<float>(j) / segment_count;
             const float alpha = 0.10f + 0.70f * age;
 
-            const Vec3 start = points[j - 1];
-            const Vec3 end = points[j];
+            Vec3 start = points[j - 1];
+            Vec3 end = points[j];
 
             // For smoother edges, it's now enough if only 1 point is inside (aggressive DrawRectangle deals with the rest)
-            if (inside_screen(start) || inside_screen(end)) {
+            if (clip_segment_2d(start, end)) {
                 DrawLineEx(
-                    to_raylib(start),
-                    to_raylib(end),
+                    to_raylib(start, ui_config::view_offset_m),
+                    to_raylib(end, ui_config::view_offset_m),
                     1.5f,
                     Fade(*color, alpha)
                 );
@@ -814,36 +963,41 @@ void ui::draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const
 
     const std::size_t orbit_max_i = ui_config::draw_moon_orbits ? NUM_CELESTIAL_BODIES : NUM_PLANETS + NUM_DWARF_PLANETS;
     for (std::size_t i = 0; i < orbit_max_i; i++) {
-        const auto& [pts, color] = snap->orbits[i];
-        if (!color || pts.size() < 2) continue;
+        const auto& [points, color] = snap->orbits[i];
+        if (!color.has_value() || points.size() < 2 || !snap->bodies[i].rendering_visible) continue;
 
-        const auto segment_count = static_cast<float>(pts.size() - 1);
+        const auto segment_count = static_cast<float>(points.size() - 1);
 
         // GetWorldToScreen doesn't clip points behind the camera
         // it can project them to a wrong on-screen spot, so skip those segments
-        const Vector3 first_world = to_world(pts[0]);
+        const Vector3 first_world = to_world(points[0]);
         bool prev_in_front = Vector3DotProduct(Vector3Subtract(first_world, cam.position), forward) > 0;
-        Vector2 prev_screen = prev_in_front ? GetWorldToScreen(first_world, cam) : Vector2{};
 
-        for (std::size_t j = 1; j < pts.size(); j++) {
-            const Vector3 world = to_world(pts[j]);
+        for (std::size_t j = 1; j < points.size(); j++) {
+            const Vector3 world = to_world(points[j]);
             const bool in_front = Vector3DotProduct(Vector3Subtract(world, cam.position), forward) > 0;
-            const Vector2 screen = in_front ? GetWorldToScreen(world, cam) : Vector2{};
 
             if (prev_in_front && in_front) {
                 const float alpha = 0.10f + 0.70f * (static_cast<float>(j) / segment_count);
-                DrawLineEx(prev_screen, screen, 1.0f, Fade(*color, alpha));
+
+                DrawLine3D(
+                    to_world(points[j - 1]),
+                    to_world(points[j]),
+                    Fade(*color, alpha)
+                );
             }
 
             prev_in_front = in_front;
-            prev_screen = screen;
         }
     }
 }
 
 void ui::draw_planets_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam) {
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        const auto& [name, pos, _radius_2d, _radius_3d, color, planet_visual, _enabled] = snap->bodies[i];
+        const auto& [name, pos, _radius_2d, _radius_3d, color, planet_visual, rendering_visible] = snap->bodies[i];
+
+        if (!rendering_visible) continue;
+
         const float radius_3d = adaptive_body_radius_3d(snap->bodies[i], i, cam);
         if (planet_visual != nullptr && planet_visual->loaded) {
             DrawModel(
@@ -981,9 +1135,9 @@ std::optional<std::size_t> ui::pick_body_at_mouse_2d(const std::shared_ptr<const
         constexpr float MIN_CLICK_RADIUS = 8.0f; // keeps tiny planets clickable
 
         const auto& body = snap->bodies[i];
-        if (!body.color.has_value() || !inside_screen(body.position)) continue;
+        if (!body.rendering_visible || !inside_screen(body.position, ui_config::view_offset_m)) continue;
 
-        const auto [sx, sy] = to_raylib(body.position);
+        const auto [sx, sy] = to_raylib(body.position, ui_config::view_offset_m);
         const float dx = mx - sx;
         const float dy = my - sy;
         const float dist_sq = dx * dx + dy * dy;
@@ -1012,7 +1166,7 @@ std::optional<std::size_t> ui::pick_body_at_mouse_3d(const std::shared_ptr<const
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         constexpr float MIN_CLICK_RADIUS_PX = 12.0f;
         const auto& body = snap->bodies[i];
-        if (!body.color.has_value()) continue;
+        if (!body.rendering_visible) continue;
 
         const Vector3 world = to_world(body.position);
 
@@ -1048,8 +1202,8 @@ void ui::draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap
 
     const Vector3 forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
 
-    const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual, _enabled] = snap->bodies[*hovered_body_i];
-    if (!color.has_value()) return;
+    const auto& [name, pos, _radius_2d, _radius_3d, color, _planet_visual, rendering_visible] = snap->bodies[*hovered_body_i];
+    if (!color.has_value() || !rendering_visible) return;
 
     const Vector3 world = to_world(pos);
     // GetWorldToScreen doesn't clip points behind the camera
@@ -1083,20 +1237,23 @@ void ui::draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
     rlSetClipPlanes(camera_near_plane(cam), far_plane);
 
     BeginMode3D(cam);
-    draw_star_background(cam, far_plane);
+    draw_star_background_3d(cam, far_plane);
     EndMode3D();
 
-    // TODO: Make orbits & planets overlap correctly, according to real perspective
-
-    if (snap) draw_orbits_3d(snap, cam);
-    // draw_grid_3d(cam);
-
-    BeginMode3D(cam);
-    if (snap) draw_planets_3d(snap, cam);
-    EndMode3D();
-
-    // 2D overlays, projected by 3D points
     if (snap) {
+        BeginMode3D(cam);
+        draw_planets_3d(snap, cam);
+
+        rlDrawRenderBatchActive(); // Finish opaque geometry first.
+        rlDisableDepthMask(); // Trails test depth, but don't write it
+
+        draw_orbits_3d(snap, cam);
+
+        rlDrawRenderBatchActive(); // Submit trails before restoring state
+        rlEnableDepthMask();
+        EndMode3D();
+
+        // 2D overlays, projected by 3D points
         draw_planet_labels_3d(snap, cam);
         draw_stats(snap, true);
         draw_planet_info(snap, true);
@@ -1106,15 +1263,18 @@ void ui::draw_3d(const std::shared_ptr<const RenderSnapshot>& snap) {
 
 void ui::draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     if (snap) {
-        draw_orbits(snap);
-        draw_planets(snap);
+        draw_orbits_2d(snap);
+        draw_planets_2d(snap);
+
         draw_imgui_rectangle({0, 0}, {config::WINDOW_MARGIN, config::WINDOW_HEIGHT}, WHITE);
         draw_imgui_rectangle({0, 0}, {config::WINDOW_WIDTH, config::WINDOW_MARGIN}, WHITE);
         draw_imgui_rectangle({0, config::WINDOW_HEIGHT - config::WINDOW_MARGIN}, {config::WINDOW_WIDTH, config::WINDOW_HEIGHT}, WHITE);
         draw_imgui_rectangle({config::WINDOW_WIDTH - config::WINDOW_MARGIN, 0}, {config::WINDOW_WIDTH, config::WINDOW_HEIGHT}, WHITE);
+
         draw_stats(snap, false);
-        draw_ui();
-        if (ui_config::view_legend) draw_legend(snap);
+        draw_ui_2d();
+        draw_viewport_borders_2d();
+        if (ui_config::view_legend) draw_legend_2d(snap);
         draw_planet_info(snap, false);
     }
 }
@@ -1126,23 +1286,34 @@ void ui::UpdateDrawFrame() {
         snap = config::latest_snapshot;
     }
 
-    std::optional<std::size_t> new_center_i;
+    if (!ImGui::GetIO().WantCaptureKeyboard) {
+        std::optional<std::size_t> new_center_i;
 
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_ZERO)) { new_center_i=0; }
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_ONE)) { new_center_i=1; }
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_TWO)) { new_center_i=2; }
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_THREE)) { new_center_i=3; }
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_FOUR)) { new_center_i=4; }
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_FIVE)) { new_center_i=5; }
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_SIX)) { new_center_i=6; }
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_SEVEN)) { new_center_i=7; }
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_EIGHT)) { new_center_i=8; }
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_NINE)) { new_center_i=9; }
+        if (IsKeyPressed(KEY_ZERO)) { new_center_i=0; }
+        if (IsKeyPressed(KEY_ONE)) { new_center_i=1; }
+        if (IsKeyPressed(KEY_TWO)) { new_center_i=2; }
+        if (IsKeyPressed(KEY_THREE)) { new_center_i=3; }
+        if (IsKeyPressed(KEY_FOUR)) { new_center_i=4; }
+        if (IsKeyPressed(KEY_FIVE)) { new_center_i=5; }
+        if (IsKeyPressed(KEY_SIX)) { new_center_i=6; }
+        if (IsKeyPressed(KEY_SEVEN)) { new_center_i=7; }
+        if (IsKeyPressed(KEY_EIGHT)) { new_center_i=8; }
+        if (IsKeyPressed(KEY_NINE)) { new_center_i=9; }
+        if (IsKeyPressed(config::KEY_FOLLOW_NONE)) { new_center_i=config::NO_BODY_SELECTED;}
 
-    if (new_center_i.has_value()) {
-        config::center_celestial_body_index.store(*new_center_i);
-        fit_camera_to_planetary_system(snap, *new_center_i);
-        config::republish_needed = true;
+        // Don't allow bodies that are invisible in rendering
+        if (new_center_i.has_value() && (*new_center_i == config::NO_BODY_SELECTED ||
+            (snap && *new_center_i < snap->bodies.size() && snap->bodies[*new_center_i].rendering_visible))) {
+            config::center_celestial_body_index.store(*new_center_i);
+
+            if (*new_center_i != config::NO_BODY_SELECTED) {
+                fit_camera_to_planetary_system(snap, *new_center_i);
+            }
+
+            ui_config::view_offset_m = {};
+            ui_config::panning_2d = false;
+            config::republish_needed = true;
+        }
     }
 
     if (!ImGui::GetIO().WantCaptureMouse && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -1167,12 +1338,14 @@ void ui::UpdateDrawFrame() {
         }
     }
 
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_R)) {
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_RESET)) {
         config::SCALING = config::ORIGINAL_SCALING;
         config::AXIS_SCALING = config::ORIGINAL_AXIS_SCALING;
+        ui_config::view_offset_m = {};
+        ui_config::panning_2d = false;
     }
 
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_SPACE)) {
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_RESUME_AND_PAUSE)) {
         if (config::timer.is_running()) {
             config::timer.pause();
             config::republish_needed = true;
@@ -1184,37 +1357,42 @@ void ui::UpdateDrawFrame() {
 
     }
 
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_T)) {
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_3D_2D_TOGGLE)) {
         ui_config::view_3d = !ui_config::view_3d;
-        if (ui_config::view_3d) {
+        if (ui_config::view_3d && config::center_celestial_body_index.load() != config::NO_BODY_SELECTED) {
             fit_camera_to_planetary_system(snap, config::center_celestial_body_index.load());
         }
     }
-    if (!ui_config::view_3d && !ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_L)) ui_config::view_legend = !ui_config::view_legend;
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_O)) ui_config::draw_orbits = !ui_config::draw_orbits;
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_M)) ui_config::draw_moon_orbits = !ui_config::draw_moon_orbits;
+    if (!ui_config::view_3d && !ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_LEGEND_TOGGLE)) ui_config::view_legend = !ui_config::view_legend;
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_ORBIT_TOGGLE)) ui_config::draw_orbits = !ui_config::draw_orbits;
+    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_MOON_ORBIT_RENDERING_TOGGLE)) ui_config::draw_moon_orbits = !ui_config::draw_moon_orbits;
 
     const float scroll = ImGui::GetIO().WantCaptureMouse ? 0.0f : GetMouseWheelMove();
+    const auto [mx, my] = GetMousePosition();
+
+    if (ui_config::panning_2d && (!IsWindowFocused() || !IsMouseButtonDown(MOUSE_BUTTON_LEFT) || ui_config::view_3d)) {
+        ui_config::panning_2d = false;
+    }
 
     if (ui_config::view_3d) {
         bool cam_turned = false;
 
         if (!ImGui::GetIO().WantCaptureKeyboard) {
-            const float drag_summand = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? config::DRAG_SENSITIVITY * 5 : config::DRAG_SENSITIVITY * 2;
+            const float drag_summand = std::ranges::any_of(config::KEYS_AMPLIFY_ZOOM_AND_DRAG, IsKeyDown) ? config::DRAG_SENSITIVITY * 5 : config::DRAG_SENSITIVITY * 2;
 
-            if (IsKeyDown(KEY_LEFT) || IsKeyDown(KEY_A)) {
+            if (std::ranges::any_of(config::KEYS_DRAG_LEFT, IsKeyDown)) {
                 ui_config::cam_azimuth += drag_summand;
                 cam_turned = true;
             }
-            if (IsKeyDown(KEY_UP) || IsKeyDown(KEY_W)) {
+            if (std::ranges::any_of(config::KEYS_DRAG_UP, IsKeyDown)) {
                 ui_config::cam_elevation += drag_summand;
                 cam_turned = true;
             }
-            if (IsKeyDown(KEY_RIGHT) || IsKeyDown(KEY_D)) {
+            if (std::ranges::any_of(config::KEYS_DRAG_RIGHT, IsKeyDown)) {
                 ui_config::cam_azimuth -= drag_summand;
                 cam_turned = true;
             }
-            if (IsKeyDown(KEY_DOWN) || IsKeyDown(KEY_S)) {
+            if (std::ranges::any_of(config::KEYS_DRAG_DOWN, IsKeyDown)) {
                 ui_config::cam_elevation -= drag_summand;
                 cam_turned = true;
             }
@@ -1234,26 +1412,48 @@ void ui::UpdateDrawFrame() {
         }
 
         if (!ImGui::GetIO().WantCaptureKeyboard) {
-            const float zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR : config::ZOOM_3D_FACTOR;
+            const float zoom_factor = std::ranges::any_of(config::KEYS_AMPLIFY_ZOOM_AND_DRAG, IsKeyDown) ? config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR : config::ZOOM_3D_FACTOR;
 
-            if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
+            if (scroll > 0 || IsKeyDown(config::KEY_ZOOM_IN)) {
                 ui_config::cam_distance *= 1/zoom_factor;
-            } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
+            } else if (scroll < 0 || IsKeyDown(config::KEY_ZOOM_OUT)) {
                 ui_config::cam_distance *= zoom_factor;
             }
         }
 
         ui_config::cam_distance = std::clamp(ui_config::cam_distance, MIN_CAM_DISTANCE, MAX_CAM_DISTANCE);
-        if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(KEY_R)) {
+        if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_RESET)) {
             // reset azimuth/elevation/distance to defaults
             ui_config::cam_azimuth = config::DEFAULT_CAM_AZIMUTH;
             ui_config::cam_elevation = config::DEFAULT_CAM_ELEVATION;
             ui_config::cam_distance = config::DEFAULT_CAM_DISTANCE;
         }
     } else {
+        if (!ui_config::panning_2d && !ImGui::GetIO().WantCaptureMouse && // Currently not panning, ImGui doesn't consume mouse
+            IsWindowFocused() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && // Window focused & button is pressed
+            !pick_body_at_mouse_2d(snap).has_value() && // Drag doesn't start on a celestial body
+            config::WINDOW_MARGIN <= mx && mx <= config::WINDOW_WIDTH - config::WINDOW_MARGIN && // Mouse is in viewport (x & y)
+            config::WINDOW_MARGIN <= my && my <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN) {
+            ui_config::panning_2d = true;
+        }
+
+        if (ui_config::panning_2d) {
+            auto [dx, dy] = GetMouseDelta();
+
+            ui_config::view_offset_m.x -= dx  * (2.0 * config::SCALING) / (config::WINDOW_WIDTH - 2.0 * config::WINDOW_MARGIN);
+            ui_config::view_offset_m.y -= dy  * (2.0 * config::SCALING) / (config::WINDOW_HEIGHT - 2.0 * config::WINDOW_MARGIN);
+        }
+
         if (!ImGui::GetIO().WantCaptureKeyboard) {
-            const double zoom_factor = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT) ? config::ZOOM_FACTOR*config::ZOOM_FACTOR : config::ZOOM_FACTOR;
-            if (scroll > 0 || IsKeyDown(KEY_RIGHT_BRACKET)) { // "+" on QWERTZ
+            const bool anchor_at_mouse = (scroll > 0 || IsKeyDown(config::KEY_ZOOM_IN) || scroll < 0 || IsKeyDown(config::KEY_ZOOM_OUT)) &&
+                config::WINDOW_MARGIN <= mx && mx <= config::WINDOW_WIDTH - config::WINDOW_MARGIN &&
+                config::WINDOW_MARGIN <= my && my <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN;
+
+            const Vec2 before = screen_to_meters({mx, my}, ui_config::view_offset_m);
+
+            const double zoom_factor = std::ranges::any_of(config::KEYS_AMPLIFY_ZOOM_AND_DRAG, IsKeyDown) ? config::ZOOM_FACTOR*config::ZOOM_FACTOR : config::ZOOM_FACTOR;
+
+            if (scroll > 0 || IsKeyDown(config::KEY_ZOOM_IN)) {
                 // scrolled up (=> in)
                 if (config::AXIS_SCALING / zoom_factor < 4.0/3) {
                     config::AXIS_SCALING *= 10;
@@ -1263,7 +1463,7 @@ void ui::UpdateDrawFrame() {
                     config::AXIS_SCALING /= zoom_factor;
                     config::SCALING /= zoom_factor;
                 }
-            } else if (scroll < 0 || IsKeyDown(KEY_SLASH)) { // "-" on QWERTZ
+            } else if (scroll < 0 || IsKeyDown(config::KEY_ZOOM_OUT)) {
                 // scrolled down (=> out)
                 if (config::AXIS_SCALING * zoom_factor > 10 * 4.0/3) {
                     config::AXIS_SCALING /= 10;
@@ -1273,6 +1473,13 @@ void ui::UpdateDrawFrame() {
                     config::AXIS_SCALING *= zoom_factor;
                     config::SCALING *= zoom_factor;
                 }
+            }
+
+            if (anchor_at_mouse) {
+                const Vec2 after = screen_to_meters({mx, my}, ui_config::view_offset_m);
+
+                ui_config::view_offset_m.x += before.x - after.x;
+                ui_config::view_offset_m.y += before.y - after.y;
             }
         }
     }

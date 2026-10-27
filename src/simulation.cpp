@@ -538,71 +538,19 @@ void simulation::simulate_step() {
 void simulation::publish_snapshot() {
     auto snap = std::make_shared<ui::RenderSnapshot>();
 
+    const std::size_t center_index = config::center_celestial_body_index.load();
+    const bool follows_body = center_index != config::NO_BODY_SELECTED;
+
     const std::size_t current_step = config::steps_simulated.load();
-    const std::size_t center_index = config::center_celestial_body_index;
-    const Vec3 center = celestial_bodies.position(center_index);
-    const auto& center_history = orbit_history[center_index];
-    const std::size_t center_cadence = orbit_sample_every_steps[center_index];
-    const std::size_t center_last_step = current_step / center_cadence * center_cadence;
-    // Oldest high-resolution center sample. Local planet/moon-family trails stop here; older
-    // distant trails may continue through the coarse center-reference history below.
-    const std::size_t center_first_step = center_history.empty()
-        ? current_step
-        : center_last_step - (center_history.size() - 1) * center_cadence;
-
-    const auto& center_reference_history = orbit_center_reference_history[center_index];
-    const std::size_t center_reference_cadence = orbit_center_reference_sample_every_steps;
-    const std::size_t center_reference_last_step =
-        current_step / center_reference_cadence * center_reference_cadence;
-    const std::size_t center_reference_first_step = center_reference_history.empty()
-        ? current_step
-        : center_reference_last_step
-            - (center_reference_history.size() - 1) * center_reference_cadence;
-
-    // Per-body cadences are not index-aligned across bodies, so the center position belonging to a
-    // body sample is interpolated between the center's own samples by step number
-    auto center_position_at_step = [&](const std::size_t step, const bool allow_coarse_history) -> std::optional<Vec3> {
-        if (!center_history.empty() && step >= center_first_step) {
-            if (step == center_first_step) return center_history.front();
-
-            if (step < center_last_step) {
-                const std::size_t offset = step - center_first_step;
-                const std::size_t k = offset / center_cadence;
-                const double t = static_cast<double>(offset - k * center_cadence)
-                    / static_cast<double>(center_cadence);
-                return center_history[k] + (center_history[k + 1] - center_history[k]) * t;
-            }
-
-            // Between the center's newest sample and its current position
-            if (current_step == center_last_step) return center_history.back();
-            const double t = static_cast<double>(step - center_last_step)
-                / static_cast<double>(current_step - center_last_step);
-            return center_history.back() + (center - center_history.back()) * t;
-        }
-
-        if (!allow_coarse_history || center_reference_history.empty()
-            || step < center_reference_first_step || step > center_reference_last_step) {
-            return std::nullopt;
-        }
-
-        if (step == center_reference_last_step) return center_reference_history.back();
-
-        const std::size_t offset = step - center_reference_first_step;
-        const std::size_t k = offset / center_reference_cadence;
-        const double t = static_cast<double>(offset - k * center_reference_cadence)
-            / static_cast<double>(center_reference_cadence);
-        return center_reference_history[k]
-            + (center_reference_history[k + 1] - center_reference_history[k]) * t;
-    };
+    const Vec3 center = follows_body ? celestial_bodies.position(center_index) : Vec3{0, 0, 0};
 
     std::size_t max_used = 0;
 
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies.enabled[i]) continue;
+
         Vec3 pos = celestial_bodies.position(i);
-        if (config::RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
-            pos -= center;
-        }
+        pos -= center;
         snap->bodies[i] = {
             celestial_bodies.names[i],
             pos,
@@ -610,19 +558,81 @@ void simulation::publish_snapshot() {
             celestial_bodies.draw_radii_3d[i],
             celestial_bodies.colors[i],
             &celestial_bodies.planet_visuals[i],
-            celestial_bodies.enabled[i]
+            celestial_bodies.rendering_visible[i]
         };
 
         const auto& history = orbit_history[i];
         max_used = std::max(max_used, history.size());
 
         // Don't include center in snapshot
-        if constexpr (config::RENDERING_COORDINATES_RELATIVE_TO_OBJECT) {
-            if (i == center_index) continue;
-        }
+        if (i == center_index) continue;
         if (history.size() < 2 || !celestial_bodies.colors[i].has_value()) continue;
 
         snap->orbits[i].color = celestial_bodies.colors[i];
+
+        if (!follows_body) {
+            auto& points = snap->orbits[i].points;
+
+            points.reserve(history.size() + 1);
+            points.assign(history.begin(), history.end());
+            points.push_back(celestial_bodies.position(i));
+
+            continue;
+        }
+
+        const auto& center_history = orbit_history[center_index];
+        const std::size_t center_cadence = orbit_sample_every_steps[center_index];
+        const std::size_t center_last_step = current_step / center_cadence * center_cadence;
+        // Oldest high-resolution center sample. Local planet/moon-family trails stop here; older
+        // distant trails may continue through the coarse center-reference history below.
+        const std::size_t center_first_step = center_history.empty()
+            ? current_step
+            : center_last_step - (center_history.size() - 1) * center_cadence;
+
+        const auto& center_reference_history = orbit_center_reference_history[center_index];
+        const std::size_t center_reference_cadence = orbit_center_reference_sample_every_steps;
+        const std::size_t center_reference_last_step =
+            current_step / center_reference_cadence * center_reference_cadence;
+        const std::size_t center_reference_first_step = center_reference_history.empty()
+            ? current_step
+            : center_reference_last_step
+                - (center_reference_history.size() - 1) * center_reference_cadence;
+
+        // Per-body cadences are not index-aligned across bodies, so the center position belonging to a
+        // body sample is interpolated between the center's own samples by step number
+        auto center_position_at_step = [&](const std::size_t step, const bool allow_coarse_history) -> std::optional<Vec3> {
+            if (!center_history.empty() && step >= center_first_step) {
+                if (step == center_first_step) return center_history.front();
+
+                if (step < center_last_step) {
+                    const std::size_t offset = step - center_first_step;
+                    const std::size_t k = offset / center_cadence;
+                    const double t = static_cast<double>(offset - k * center_cadence)
+                        / static_cast<double>(center_cadence);
+                    return center_history[k] + (center_history[k + 1] - center_history[k]) * t;
+                }
+
+                // Between the center's newest sample and its current position
+                if (current_step == center_last_step) return center_history.back();
+                const double t = static_cast<double>(step - center_last_step)
+                    / static_cast<double>(current_step - center_last_step);
+                return center_history.back() + (center - center_history.back()) * t;
+            }
+
+            if (!allow_coarse_history || center_reference_history.empty()
+                || step < center_reference_first_step || step > center_reference_last_step) {
+                return std::nullopt;
+            }
+
+            if (step == center_reference_last_step) return center_reference_history.back();
+
+            const std::size_t offset = step - center_reference_first_step;
+            const std::size_t k = offset / center_reference_cadence;
+            const double t = static_cast<double>(offset - k * center_reference_cadence)
+                / static_cast<double>(center_reference_cadence);
+            return center_reference_history[k]
+                + (center_reference_history[k + 1] - center_reference_history[k]) * t;
+        };
 
         const std::size_t cadence = orbit_sample_every_steps[i];
         const std::size_t last_step = current_step / cadence * cadence;
@@ -700,10 +710,10 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
         constexpr std::size_t MAX_STEPS_PER_BATCH = 4096;
         constexpr double MAX_CATCH_UP_SECONDS = 0.25;
 
-        const bool queue_was_empty = ui::update_body_command_queue.is_empty();
+        bool processed_command = false;
 
-        while (!ui::update_body_command_queue.is_empty()) {
-            const auto cmd = ui::update_body_command_queue.try_pop();
+        while (const auto cmd = ui::update_body_command_queue.try_pop()) {
+            processed_command = true;
 
             if (cmd->mass.has_value()) celestial_bodies.gravitational_masses[cmd->i] = *cmd->mass * config::GRAVITATIONAL_CONSTANT;
             if (cmd->px.has_value()) celestial_bodies.pos_x[cmd->i] = *cmd->px;
@@ -712,10 +722,15 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             if (cmd->vx.has_value()) celestial_bodies.vel_x[cmd->i] = *cmd->vx;
             if (cmd->vy.has_value()) celestial_bodies.vel_y[cmd->i] = *cmd->vy;
             if (cmd->vz.has_value()) celestial_bodies.vel_z[cmd->i] = *cmd->vz;
+            if (cmd->disable_rendering) celestial_bodies.rendering_visible[cmd->i] = false;
+            if (cmd->enable_rendering) celestial_bodies.rendering_visible[cmd->i] = true;
         }
 
-        if (!queue_was_empty) {
+        if (processed_command) {
+            accelerations_at_current_positions.reset(); // Reset stale accelerations
+
             // Publish
+            config::republish_needed = false;
             publish_snapshot();
             last_publish = std::chrono::steady_clock::now();
         }

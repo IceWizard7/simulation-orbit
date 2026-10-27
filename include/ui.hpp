@@ -27,7 +27,7 @@ namespace ui {
             float radius_3d = 0;
             std::optional<Color> color;
             const PlanetVisual* planet_visual = nullptr;
-            bool enabled = false;
+            bool rendering_visible = false;
         };
         struct DetailedBody {
             str name;
@@ -52,6 +52,8 @@ namespace ui {
         std::optional<double> mass;
         std::optional<double> px, py, pz;
         std::optional<double> vx, vy, vz;
+        bool disable_rendering = false;
+        bool enable_rendering = false;
     };
 
     struct EditableDouble {
@@ -75,11 +77,6 @@ namespace ui {
         std::mutex mtx;
 
     public:
-        bool is_empty() {
-            std::lock_guard lock(mtx);
-            return queue.empty();
-        }
-
         void push(const UpdateBodyCommand &cmd) {
             std::lock_guard lock(mtx);
             queue.push(cmd);
@@ -151,9 +148,11 @@ namespace ui {
 
     void draw_imgui_outlined_text(const str& text, const Vector2& pos, float font_size, const Color& fill, const Color& outline);
 
-    void draw_ui();
+    void draw_ui_2d();
 
-    void draw_legend(const std::shared_ptr<const RenderSnapshot>& snap);
+    void draw_viewport_borders_2d();
+
+    void draw_legend_2d(const std::shared_ptr<const RenderSnapshot>& snap);
 
     inline std::pair<Vec2, Vec2> center_button_coordinates() {
         return {{config::WINDOW_MARGIN + 4 * config::GRID_SPACING, config::WINDOW_MARGIN + 10}, {config::WINDOW_MARGIN + 5.5 * config::GRID_SPACING, config::WINDOW_MARGIN + 30}};
@@ -171,9 +170,11 @@ namespace ui {
 
     void draw_stats(const std::shared_ptr<const RenderSnapshot>& snap, bool dark_mode);
 
-    void draw_planets(const std::shared_ptr<const RenderSnapshot>& snap);
+    void draw_planets_2d(const std::shared_ptr<const RenderSnapshot>& snap);
 
-    void draw_orbits(const std::shared_ptr<const RenderSnapshot>& snap);
+    bool clip_segment_2d(Vec3& start, Vec3& end);
+
+    void draw_orbits_2d(const std::shared_ptr<const RenderSnapshot>& snap);
 
     void draw_orbits_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam);
 

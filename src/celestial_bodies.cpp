@@ -24,6 +24,7 @@ CelestialBodies<NUM_CELESTIAL_BODIES>::CelestialBodies(std::array<CelestialBodyI
         orbital_period_seconds[i] = bodies[i].orbital_period_seconds;
 
         enabled[i] = true;
+        rendering_visible[i] = true;
 
         j2[i] = bodies[i].j2;
         equatorial_radii[i] = bodies[i].equatorial_radius;

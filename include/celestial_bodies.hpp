@@ -35,6 +35,7 @@ struct CelestialBodies {
     alignas(16) double vel_z[NUM_CELESTIAL_BODIES]{};
 
     bool enabled[NUM_CELESTIAL_BODIES]{};
+    bool rendering_visible[NUM_CELESTIAL_BODIES]{};
 
     double original_gravitational_masses[NUM_CELESTIAL_BODIES]{}; // immutable GM
     double gravitational_masses[NUM_CELESTIAL_BODIES]{}; // effective GM; combined system GM in planet-systems mode

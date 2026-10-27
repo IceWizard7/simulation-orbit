@@ -6,11 +6,11 @@ set(CMAKE_CXX_STANDARD 20)
 option(USE_SYSTEM_RAYLIB "Use an installed raylib package" OFF)
 set(RAYLIB_VERSION 6.0)
 
+include(FetchContent)
+
 if (USE_SYSTEM_RAYLIB)
     find_package(raylib ${RAYLIB_VERSION} CONFIG REQUIRED)
 else()
-    include(FetchContent)
-
     FetchContent_Declare(
             raylib
             URL https://github.com/raysan5/raylib/archive/refs/tags/${RAYLIB_VERSION}.tar.gz
