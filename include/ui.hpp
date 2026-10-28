@@ -23,6 +23,7 @@ namespace ui {
         struct Body {
             str name;
             Vec3 position;
+            double physical_radius_m = 0.0;
             float radius_2d = 0;
             float radius_3d = 0;
             std::optional<Color> color;
@@ -117,30 +118,9 @@ namespace ui {
 
     void draw_imgui_centered_text(const str& text, Vec2 center, float angle, float font_size, Color color);
 
-    inline void draw_imgui_circle(const Vec2& pos, const float radius, const Color color) {
-        ImGui::GetBackgroundDrawList()->AddCircleFilled(
-            ImVec2(
-                static_cast<float>(pos.x),
-                static_cast<float>(pos.y)
-            ),
-            radius,
-            to_imgui_color(color)
-        );
-    }
+    void draw_imgui_circle(const Vec2& pos, float radius, Color color);
 
-    inline void draw_imgui_rectangle(const Vec2& a, const Vec2& b, const Color color) {
-        ImGui::GetBackgroundDrawList()->AddRectFilled(
-            ImVec2(
-                static_cast<float>(std::min(a.x, b.x)),
-                static_cast<float>(std::min(a.y, b.y))
-            ),
-            ImVec2(
-                static_cast<float>(std::max(a.x, b.x)),
-                static_cast<float>(std::max(a.y, b.y))
-            ),
-            to_imgui_color(color)
-        );
-    }
+    void draw_imgui_rectangle(const Vec2& a, const Vec2& b, Color color);
 
     inline void DrawLine(const Vec2& start_pos, const Vec2& end_pos, const float thick, const Color color) {
         DrawLineEx(Vector2(static_cast<float>(start_pos.x), static_cast<float>(start_pos.y)), Vector2(static_cast<float>(end_pos.x), static_cast<float>(end_pos.y)), thick, color);
@@ -148,7 +128,7 @@ namespace ui {
 
     void draw_imgui_outlined_text(const str& text, const Vector2& pos, float font_size, const Color& fill, const Color& outline);
 
-    void draw_ui_2d();
+    void draw_ui_2d(const std::shared_ptr<const RenderSnapshot>& snap);
 
     void draw_viewport_borders_2d();
 
@@ -172,7 +152,7 @@ namespace ui {
 
     void draw_planets_2d(const std::shared_ptr<const RenderSnapshot>& snap);
 
-    bool clip_segment_2d(Vec3& start, Vec3& end);
+    bool clip_segment_2d(Vec3& start, Vec3& end, const std::shared_ptr<const RenderSnapshot>& snap);
 
     void draw_orbits_2d(const std::shared_ptr<const RenderSnapshot>& snap);
 
@@ -191,7 +171,7 @@ namespace ui {
 
     void draw_planet_labels_3d(const std::shared_ptr<const RenderSnapshot>& snap, const Camera3D& cam);
 
-    Camera3D make_camera();
+    Camera3D make_camera(const std::shared_ptr<const RenderSnapshot>& snap);
 
     void draw_3d(const std::shared_ptr<const RenderSnapshot>& snap);
 

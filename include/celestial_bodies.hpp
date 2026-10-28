@@ -12,6 +12,7 @@ struct CelestialBodyInit {
     const Vec3& position;
     const Vec3& velocity;
     double gravitational_mass;
+    double physical_radius_m;
     float radius_2d;
     float radius_3d;
     const std::optional<Color>& color;
@@ -34,6 +35,7 @@ struct CelestialBodies {
     alignas(16) double vel_y[NUM_CELESTIAL_BODIES]{};
     alignas(16) double vel_z[NUM_CELESTIAL_BODIES]{};
 
+    double physical_radius_m[NUM_CELESTIAL_BODIES]{};
     bool enabled[NUM_CELESTIAL_BODIES]{};
     bool rendering_visible[NUM_CELESTIAL_BODIES]{};
 

@@ -28,7 +28,7 @@ namespace config {
     constexpr auto KEY_LEGEND_TOGGLE = KEY_L;
     constexpr auto KEY_ORBIT_TOGGLE = KEY_O;
     constexpr auto KEY_MOON_ORBIT_RENDERING_TOGGLE = KEY_M;
-    constexpr std::array KEYS_AMPLIFY_ZOOM_AND_DRAG = {KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT};
+    constexpr std::array KEYS_SHIFT = {KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT};
     constexpr std::array KEYS_DRAG_LEFT = {KEY_LEFT, KEY_A};
     constexpr std::array KEYS_DRAG_UP = {KEY_UP, KEY_W};
     constexpr std::array KEYS_DRAG_RIGHT = {KEY_RIGHT, KEY_D};
@@ -54,6 +54,7 @@ namespace config {
     // available without retaining every moon's high-frequency history for centuries
     constexpr int ORBIT_CENTER_REFERENCE_POINTS_PER_YEAR = 64;
     constexpr double ORBIT_CENTER_REFERENCE_LONGEST_REVOLUTIONS = 1.05;
+    constexpr bool CLEAR_ORBITS_AFTER_PHYSICAL_EDIT = true;
 
     constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2) // TODO: Make this changeable
 
@@ -93,7 +94,7 @@ namespace config {
 
     inline constexpr std::size_t NO_BODY_SELECTED = NUM_CELESTIAL_BODIES;
 
-    inline std::atomic<std::size_t> center_celestial_body_index = 0; // 0 -> sun; 3 -> earth
+    inline std::atomic<std::size_t> center_celestial_body_index = 0; // 0 -> sun
     inline std::array<std::atomic<bool>, NUM_CELESTIAL_BODIES> planet_info_display_index{};
 
     [[nodiscard]] inline bool is_planet_info_selected(const std::size_t i) {

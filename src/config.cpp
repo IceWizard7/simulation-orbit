@@ -440,19 +440,19 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
         if (use_j2) {
             std::cerr << "Error: --simd cannot be combined with --j2; "
              "the SIMD optimization is not implemented for j2 yet.\n";
-            // TODO Update!
+            // TODO: Implement SIMD for this.
             return 1;
         }
 
         if (interaction_set != InteractionSet::full) {
             std::cerr << "Error: --simd cannot be combined with a non-full --interaction-set.\n";
-            // TODO Update!
+            // TODO: Implement SIMD for this.
             return 1;
         }
 
         if (enabled_celestial_bodies != NUM_CELESTIAL_BODIES) {
             std::cerr << "Error: --simd requires all celestial bodies to be enabled.\n";
-            // TODO Update!
+            // TODO: Implement SIMD for this.
             return 1;
         }
 

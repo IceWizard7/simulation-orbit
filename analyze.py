@@ -514,6 +514,64 @@ def read_program_output(path_index: int) -> str:
 def analysis_invocation_command() -> str:
     return "python3 " + shlex.join(sys.argv)
 
+def parse_physical_radius_m(physical: str) -> float:
+    """Representative spherical radius in meters from Horizons' physical-data block."""
+    # JPL Horizons physical data, checked for all 38 planet_to_horizon_id entries on 2026-10-28:
+    # https://ssd.jpl.nasa.gov/api/horizons.api?format=text&COMMAND=10&MAKE_EPHEM=NO&OBJ_DATA=YES
+    # Replace COMMAND with the body's ID from planet_to_horizon_id.
+    # Prefer Vol. mean radius, then Mean radius, then the unqualified Radius field.
+    # This is a spherical rendering radius, separate from the J2 equatorial radius.
+    # Formats observed (case-insensitive; retain central values, not uncertainties):
+    # - Sun/Moon: "Vol. mean radius, km = 695700" / "1737.53+-0.03"
+    # - Mercury through Pluto: "Vol. Mean Radius (km) = 2439.4+-0.1", etc.
+    #   Prefer these over equatorial/polar, core, gravity, IAU or photospheric radii.
+    # - Io, Europa, Ganymede, Callisto, Mimas, Enceladus, Tethys, Dione, Rhea,
+    #   Titan, Hyperion, Triton, Nereid, Proteus: "Mean radius (km) = ... +- ..."
+    # - Iapetus, Phoebe, Umbriel, Titania, Oberon, Nix, Hydra, Kerberos:
+    #   "Radius (km) = ... +- ..." (a single radius).
+    # - Charon: "Radius (km, IAU2015) = 606 +- 0.5".
+    # - Phobos: "Radius (km) = 13.1 x11.1 x9.3"; Deimos: "7.8 x 6.0 x 5.1";
+    #   Ariel: "581.1x577.9x577.7"; Miranda: "240x234.2x232.9".
+    #   These are radii (ellipsoid semiaxes), NOT diameters. Use cbrt(a*b*c):
+    #   (4/3)*pi*R^3 = (4/3)*pi*a*b*c. This preserves volume, not the body's shape.
+    # No hardcoded radius fallbacks are needed for the current 38 bodies.
+    # Fail explicitly on missing/unsupported data rather than emitting a zero-sized body.
+    number = r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eEdD][+-]?\d+)?"
+    label = re.compile(
+        r"^\s*(?P<kind>Vol\.\s*mean\s+radius|Mean\s+radius|Radius)\s*"
+        r"(?:\(\s*km\s*(?:,\s*IAU2015\s*)?\)|,\s*km)\s*=\s*(?P<value>.*)$",
+        re.IGNORECASE | re.MULTILINE,
+    )
+    # Physical-data columns can have only one separating space (Venus). Stop at
+    # the next multi-letter field label, not an x separator between numeric axes.
+    candidates = sorted(label.finditer(physical), key=lambda match:
+                        0 if match['kind'].lower().startswith('vol.') else
+                        1 if match['kind'].lower().startswith('mean') else 2)
+    for match in candidates:
+        value = re.split(r"\s+(?=[A-Za-z]{2})", match['value'].strip(), maxsplit=1)[0]
+        scalar = re.fullmatch(rf"(?P<radius>{number})(?:\s*\+\-\s*{number})?\s*", value)
+        axes = re.fullmatch(rf"({number})\s*[x×]\s*({number})\s*[x×]\s*({number})\s*", value)
+
+        def convert_num(num: str) -> float:
+            return float(num.replace('D', 'E').replace('d', 'e'))
+
+        if scalar:
+            radius_km = convert_num(scalar['radius'])
+        elif axes:
+            radii = [convert_num(axis) for axis in axes.groups()]
+            if not all(math.isfinite(radius) and radius > 0.0 for radius in radii):
+                raise ValueError(f"Invalid physical radius axes: {value!r}")
+            radius_km = math.cbrt(math.prod(radii))
+        else:
+            raise ValueError(f"Unsupported physical radius format: {value!r}")
+
+        radius_m = radius_km * 1000.0
+        if not math.isfinite(radius_m) or radius_m <= 0.0:
+            raise ValueError(f"Invalid physical radius: {value!r}")
+        return radius_m
+
+    raise ValueError("No supported physical radius found in Horizons physical data")
+
 def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
     res: list[str] = []
     positions: list[Vec3] = []
@@ -671,6 +729,7 @@ def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
             if vz_match: vz = convert_num(vz_match.group(1), 3)
 
             gm = parse_gm(physical_part)
+            physical_radius_m = parse_physical_radius_m(physical_part)
             if gm is None:
                 gm = hardcoded_gm.get(horizon_id)
 
@@ -699,7 +758,7 @@ def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
             ))
 
             planet_to_code[planet_name] = (
-                f"{{\"{planet_name}\", {{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {gm}, "
+                f"{{\"{planet_name}\", {{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {gm}, {physical_radius_m}, "
                 f"{fix_code[planet_name]}{oblateness_code(planet_name)}}},"
             )
         except Exception as e:

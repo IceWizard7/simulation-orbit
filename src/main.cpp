@@ -5,16 +5,14 @@
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
-#include <raylib.h>
 #include <imgui.h>
+#include <raylib.h>
 #include <rlImGui.h>
 
 #include "config.hpp"
 #include "force_pairs.hpp"
 #include "simulation.hpp"
 #include "ui.hpp"
-
-// TODO: Internal planet rotation
 
 int main(const int argc, char* argv[]) {
     const int err = runtime_config::parse_cli_args(argc, argv, simulation::celestial_bodies);
@@ -56,7 +54,10 @@ int main(const int argc, char* argv[]) {
     SetTargetFPS(config::TARGET_FPS);
 
     rlImGuiSetup(true);
-    // TODO: ImGui::GetIO().ConfigFlags |= ImGuiConfigFlags_DockingEnable;
+    // Keep global directional keyboard (ImGuiConfigFlags_NavEnableKeyboard) navigation disabled (causes weird behavior)
+    // (ex. ImGui still wants keyboard & mice inputs for no reason)
+    // Relevant tab selection (ex. between input fields) still works without this config flag.
+    // We do sacrifice some functionality (ex. arrow keys in ImGui::Combo), but that's the better trade for now.
 
     // Loading begin
     ui::load_star_background();

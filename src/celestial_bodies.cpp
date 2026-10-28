@@ -17,6 +17,8 @@ CelestialBodies<NUM_CELESTIAL_BODIES>::CelestialBodies(std::array<CelestialBodyI
         vel_y[i] = bodies[i].velocity.y;
         vel_z[i] = bodies[i].velocity.z;
 
+        physical_radius_m[i] = bodies[i].physical_radius_m;
+
         draw_radii_2d[i] = bodies[i].radius_2d;
         draw_radii_3d[i] = bodies[i].radius_3d;
         colors[i] = bodies[i].color;
@@ -93,7 +95,7 @@ Vec3 CelestialBodies<NUM_CELESTIAL_BODIES>::j2_acceleration_at(
     // i.e. extra inward pull -> prograde apsidal precession, as expected.
     if (j2[i] == 0.0) return {};
 
-    // TODO: We may need to optimize this for SIMD too? Idk.
+    // TODO: Implement SIMD for this.
 
     const double u = source_to_target_direction.dot(pole_axes[i]);
     const double coefficient = -1.5 * j2[i] * gravitational_masses[i]

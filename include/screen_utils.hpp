@@ -5,7 +5,6 @@
 #include "config.hpp"
 #include "vectors.hpp"
 
-
 inline Vector2 to_raylib(const Vec3& v, const Vec2& offset_m) {
     // x in interval [0, WINDOW_WIDTH]
     // y in interval [0, WINDOW_HEIGHT]
@@ -31,11 +30,26 @@ inline Vec2 screen_to_meters(const Vector2& screen, const Vec2& offset_m) {
     };
 }
 
-static bool inside_screen(const Vec3& v, const Vec2& offset_m) {
+inline bool inside_screen(const Vec3& v, const Vec2& offset_m) {
     auto [x, y] = to_raylib(v, offset_m);
 
     return config::WINDOW_MARGIN <= x && x <= config::WINDOW_WIDTH - config::WINDOW_MARGIN
            && config::WINDOW_MARGIN <= y && y <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN;
+}
+
+inline bool circle_intersects_viewport(const Vector2 center, const double radius) {
+    const double closest_x = std::clamp(
+        static_cast<double>(center.x),
+        static_cast<double>(config::WINDOW_MARGIN),
+        static_cast<double>(config::WINDOW_WIDTH - config::WINDOW_MARGIN)
+    );
+    const double closest_y = std::clamp(
+        static_cast<double>(center.y),
+        static_cast<double>(config::WINDOW_MARGIN),
+        static_cast<double>(config::WINDOW_HEIGHT - config::WINDOW_MARGIN)
+    );
+
+    return std::hypot(center.x - closest_x, center.y - closest_y) <= radius;
 }
 
 inline Vector3 to_world(const Vec3& m) { // meters
