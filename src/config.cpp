@@ -33,8 +33,11 @@ namespace runtime_config {
 
     bool use_simd = false;
 
-    auto body_set = BodySet::dwarf;
-    auto interaction_set = InteractionSet::full;
+    // ReSharper disable once CppUseAuto
+    BodySet body_set = BodySet::dwarf; // Needs explicit type (like in config.hpp defined)
+
+    // ReSharper disable once CppUseAuto
+    InteractionSet interaction_set = InteractionSet::full; // Needs explicit type (like in config.hpp defined)
 
     std::size_t enabled_celestial_bodies;
 }
