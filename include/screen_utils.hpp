@@ -59,3 +59,8 @@ inline Vector3 to_world(const Vec3& m) { // meters
         static_cast<float>(m.y / config::WORLD_UNIT_METERS), // physics y -> raylib z
     };
 }
+
+inline Vector3 to_world(const Vec3& position, const Vec3& origin) {
+    // Subtraction happens in double precision (Vec3)
+    return to_world(position - origin);
+}

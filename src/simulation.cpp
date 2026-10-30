@@ -536,13 +536,13 @@ void simulation::simulate_step() {
 // Builds a render snapshot from the simulation-owned state (no lock needed: the simulation thread is the only owner
 // of celestial_bodies and both orbit histories) and publishes it atomically
 void simulation::publish_snapshot() {
-    auto snap = std::make_shared<ui::RenderSnapshot>();
+    auto snap = std::make_shared<ui_data::RenderSnapshot>();
 
     const std::size_t center_index = config::center_celestial_body_index.load();
-    const bool follows_body = center_index != config::NO_BODY_SELECTED;
+    const bool has_center_body = center_index != config::NO_BODY_SELECTED;
 
     const std::size_t current_step = config::steps_simulated.load();
-    const Vec3 center = follows_body ? celestial_bodies.position(center_index) : Vec3{0, 0, 0};
+    const Vec3 center = has_center_body ? celestial_bodies.position(center_index) : Vec3{0, 0, 0};
 
     std::size_t max_used = 0;
 
@@ -554,6 +554,9 @@ void simulation::publish_snapshot() {
         snap->bodies[i] = {
             celestial_bodies.names[i],
             pos,
+            celestial_bodies.position(i),
+            celestial_bodies.velocity(i),
+            celestial_bodies.get_mass(i),
             celestial_bodies.physical_radius_m[i],
             celestial_bodies.draw_radii_2d[i],
             celestial_bodies.draw_radii_3d[i],
@@ -571,7 +574,7 @@ void simulation::publish_snapshot() {
 
         snap->orbits[i].color = celestial_bodies.colors[i];
 
-        if (!follows_body) {
+        if (!has_center_body) {
             auto& points = snap->orbits[i].points;
 
             points.reserve(history.size() + 1);
@@ -672,18 +675,6 @@ void simulation::publish_snapshot() {
 
     snap->max_orbit_points_used = max_used;
 
-    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (config::is_planet_info_selected(i)) {
-            snap->detailed_body_display[i] = {
-                celestial_bodies.names[i],
-                celestial_bodies.position(i),
-                celestial_bodies.velocity(i),
-                celestial_bodies.get_mass(i),
-                celestial_bodies.colors[i],
-            };
-        }
-    }
-
     {
         std::lock_guard lock(config::snapshot_lock);
         config::latest_snapshot = std::move(snap);
@@ -714,16 +705,39 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
         bool processed_command = false;
         bool physical_edit = false;
 
-        while (const auto cmd = ui::update_body_command_queue.try_pop()) {
+        while (const auto cmd = ui_data::update_body_command_queue.try_pop()) {
             const auto valid = [](const std::optional<double>& value) {
                 return !value || std::isfinite(*value);
             };
 
             if (cmd->i >= NUM_CELESTIAL_BODIES) continue;
 
-            if (!valid(cmd->mass) ||
-                !valid(cmd->px) || !valid(cmd->py) || !valid(cmd->pz) ||
-                !valid(cmd->vx) || !valid(cmd->vy) || !valid(cmd->vz)) {
+            if (cmd->reference_index) {
+                if (*cmd->reference_index >= NUM_CELESTIAL_BODIES || *cmd->reference_index == cmd->i ||
+                    !celestial_bodies.enabled[*cmd->reference_index]) {
+                    continue;
+                }
+            }
+
+            auto absolute = *cmd;
+
+            if (cmd->reference_index) {
+                const Vec3 position = celestial_bodies.position(*cmd->reference_index);
+                const Vec3 velocity = celestial_bodies.velocity(*cmd->reference_index);
+
+                if (absolute.px) *absolute.px += position.x;
+                if (absolute.py) *absolute.py += position.y;
+                if (absolute.pz) *absolute.pz += position.z;
+
+                if (absolute.vx) *absolute.vx += velocity.x;
+                if (absolute.vy) *absolute.vy += velocity.y;
+                if (absolute.vz) *absolute.vz += velocity.z;
+            }
+
+
+            if (!valid(absolute.mass) ||
+                !valid(absolute.px) || !valid(absolute.py) || !valid(absolute.pz) ||
+                !valid(absolute.vx) || !valid(absolute.vy) || !valid(absolute.vz)) {
                 continue;
             }
 
@@ -731,12 +745,12 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             physical_edit |= cmd->mass || cmd-> px || cmd->py || cmd->pz || cmd->vx || cmd->vy || cmd->vz;
 
             if (cmd->mass) celestial_bodies.gravitational_masses[cmd->i] = *cmd->mass * config::GRAVITATIONAL_CONSTANT;
-            if (cmd->px) celestial_bodies.pos_x[cmd->i] = *cmd->px;
-            if (cmd->py) celestial_bodies.pos_y[cmd->i] = *cmd->py;
-            if (cmd->pz) celestial_bodies.pos_z[cmd->i] = *cmd->pz;
-            if (cmd->vx) celestial_bodies.vel_x[cmd->i] = *cmd->vx;
-            if (cmd->vy) celestial_bodies.vel_y[cmd->i] = *cmd->vy;
-            if (cmd->vz) celestial_bodies.vel_z[cmd->i] = *cmd->vz;
+            if (absolute.px) celestial_bodies.pos_x[cmd->i] = *absolute.px;
+            if (absolute.py) celestial_bodies.pos_y[cmd->i] = *absolute.py;
+            if (absolute.pz) celestial_bodies.pos_z[cmd->i] = *absolute.pz;
+            if (absolute.vx) celestial_bodies.vel_x[cmd->i] = *absolute.vx;
+            if (absolute.vy) celestial_bodies.vel_y[cmd->i] = *absolute.vy;
+            if (absolute.vz) celestial_bodies.vel_z[cmd->i] = *absolute.vz;
             if (cmd->disable_rendering) celestial_bodies.rendering_visible[cmd->i] = false;
             if (cmd->enable_rendering) celestial_bodies.rendering_visible[cmd->i] = true;
         }
@@ -876,9 +890,9 @@ bool simulation::finalize_csv_output() {
 void simulation::print_final_state() {
     const double seconds = config::timer.seconds();
 
-    std::cout << std::format("Simulated years per second: {:.9f}\n", seconds > 0.0 ? ui::simulated_years() / seconds : 0);
+    std::cout << std::format("Simulated years per second: {:.9f}\n", seconds > 0.0 ? ui_helpers::simulated_years() / seconds : 0);
     std::cout << std::format("Computation time: {:.9f} seconds\n", seconds);
-    std::cout << std::format("Simulation time: {:.9f} years (@ 365 days)\n", ui::simulated_years());
+    std::cout << std::format("Simulation time: {:.9f} years (@ 365 days)\n", ui_helpers::simulated_years());
 
     std::cout << std::format("Interaction set: {}\n", runtime_config::interaction_set_name());
     std::cout << std::format("Active force pairs: {}\n", force_pairs::active_pair_count());

@@ -1,13 +1,13 @@
 #include <cstddef>
+#include <imgui.h>
 #include <iostream>
+#include <raylib.h>
+#include <rlImGui.h>
 #include <thread>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
 #endif
-#include <imgui.h>
-#include <raylib.h>
-#include <rlImGui.h>
 
 #include "config.hpp"
 #include "force_pairs.hpp"
@@ -51,6 +51,7 @@ int main(const int argc, char* argv[]) {
 
     SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
     InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "simulation-orbit");
+    SetExitKey(KEY_NULL); // So ESC doesn't close the window, but rather dismisses other UI actions (ImGui)
     SetTargetFPS(config::TARGET_FPS);
 
     rlImGuiSetup(true);
@@ -60,7 +61,7 @@ int main(const int argc, char* argv[]) {
     // We do sacrifice some functionality (ex. arrow keys in ImGui::Combo), but that's the better trade for now.
 
     // Loading begin
-    ui::load_star_background();
+    ui_helpers::load_star_background();
 
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (simulation::celestial_bodies.enabled[i]) simulation::celestial_bodies.planet_visuals[i].load_planet_visual();
@@ -89,7 +90,7 @@ int main(const int argc, char* argv[]) {
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
     #else
     while (!WindowShouldClose()) {
-        ui::UpdateDrawFrame();
+        ui_helpers::UpdateDrawFrame();
     }
     #endif
 
@@ -103,7 +104,7 @@ int main(const int argc, char* argv[]) {
         if (simulation::celestial_bodies.enabled[i]) simulation::celestial_bodies.planet_visuals[i].unload_planet_visual();
     }
 
-    ui::unload_star_background();
+    ui_helpers::unload_star_background();
 
     // Unloading done
 

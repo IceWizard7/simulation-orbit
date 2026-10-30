@@ -74,10 +74,16 @@ add_executable(simulation-orbit
         src/utils.cpp
         src/planet_visual.cpp
         src/celestial_bodies.cpp
-        src/ui.cpp
         src/simulation.cpp
         src/config.cpp
         src/force_pairs.cpp
+
+        src/ui/2d.cpp
+        src/ui/3d.cpp
+        src/ui/imgui_helpers.cpp
+        src/ui/windows.cpp
+        src/ui/generic_helpers.cpp
+        src/ui/ui.cpp
 )
 
 target_link_libraries(simulation-orbit PRIVATE

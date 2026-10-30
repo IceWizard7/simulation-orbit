@@ -17,7 +17,7 @@ inline constexpr std::size_t NUM_CELESTIAL_BODIES = 38;
 inline constexpr std::size_t NUM_PLANETS = 9; // Sun + 8 planets, indices 0-8
 inline constexpr std::size_t NUM_DWARF_PLANETS = 1; // Amount of dwarf planets
 
-namespace ui {
+namespace ui_data {
     struct RenderSnapshot;
 }
 
@@ -28,6 +28,7 @@ namespace config {
     constexpr auto KEY_LEGEND_TOGGLE = KEY_L;
     constexpr auto KEY_ORBIT_TOGGLE = KEY_O;
     constexpr auto KEY_MOON_ORBIT_RENDERING_TOGGLE = KEY_M;
+    constexpr auto KEY_DEBUG_TOGGLE = KEY_F3;
     constexpr std::array KEYS_SHIFT = {KEY_LEFT_SHIFT, KEY_RIGHT_SHIFT};
     constexpr std::array KEYS_DRAG_LEFT = {KEY_LEFT, KEY_A};
     constexpr std::array KEYS_DRAG_UP = {KEY_UP, KEY_W};
@@ -83,7 +84,7 @@ namespace config {
 
     // Shared
     inline std::mutex snapshot_lock; // held only for the pointer swap (nanoseconds)
-    inline std::shared_ptr<const ui::RenderSnapshot> latest_snapshot; // produced by simulation thread, read by render thread
+    inline std::shared_ptr<const ui_data::RenderSnapshot> latest_snapshot; // produced by simulation thread, read by render thread
 
     inline PausableTimer timer;
     inline std::atomic<std::size_t> steps_simulated = 0;
