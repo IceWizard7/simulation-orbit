@@ -235,6 +235,7 @@ void ui_helpers::UpdateDrawFrame() {
     if (ui_config::view_debug) draw_debug_overlay(snap);
 
     draw_checkpoint_window(snap, ui_config::view_3d);
+    draw_diagnostics_window(snap, ui_config::view_3d);
 
     rlImGuiEnd();
     EndDrawing();

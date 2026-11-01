@@ -828,7 +828,138 @@ bool simulation::rename_checkpoint(const std::size_t id, const str& new_label) {
 
     return true;
 }
- 
+
+Vec3 simulation::calculate_linear_momentum() {
+    Vec3 momentum_times_g{};
+
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies.enabled[i]) continue;
+
+        momentum_times_g += celestial_bodies.velocity(i) * celestial_bodies.gravitational_masses[i];
+    }
+
+    return momentum_times_g / config::GRAVITATIONAL_CONSTANT;
+}
+
+double simulation::calculate_total_energy() {
+    // Definitions:
+    // µ_i = G * m_i
+
+    // Kinetic energy:
+    // K = sum_i 1/2 * m_i * |v_i|^2
+    //   = 1/2 sum_i µ_i / G * |v_i|^2
+    //   = 1/(2 * G) sum_i µ_i * |v_i|^2
+    //   = 1/(2 * G) sum_i µ_i * (v_i dot v_i)
+    // These formations improve the performance, because instead of diving by 2*G for every body, we only compute it once.
+
+    double kinetic_energy_times_2g = 0;
+
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies.enabled[i]) continue;
+
+        kinetic_energy_times_2g += celestial_bodies.gravitational_masses[i] * celestial_bodies.velocity(i).dot(celestial_bodies.velocity(i));
+    }
+
+    const double kinetic_energy = kinetic_energy_times_2g / (config::GRAVITATIONAL_CONSTANT * 2);
+
+    // Definitions:
+    // r = |r_j - r_i|, n = (r_j - r_i) / r
+    // R_i = equatorial radius, k_i = unit pole axis
+    // u_i = n dot k_i, P2(u) = (3*u^2 - 1) / 2
+
+    // Newtonian potential energy:
+    // U_N = -sum_(active pairs i < j) G*m_i*m_j / r
+    //     = -(1/G) * sum_(active pairs i < j) µ_i*µ_j / r
+
+    // J2 potential energy correction:
+    // U_J2 = sum_(active pairs i < j)
+    //          G*m_i*m_j / r^3
+    //          * [J2_i*R_i^2*P2(u_i) + J2_j*R_j^2*P2(u_j)]
+    //      = (1/G) * sum_(active pairs i < j)
+    //          µ_i*µ_j / r
+    //          * [J2_i*(R_i/r)^2*P2(u_i) + J2_j*(R_j/r)^2*P2(u_j)]
+
+    // Combined potential energy:
+    // U = (1/G) * sum_(active pairs i < j)
+    //               µ_i*µ_j / r
+    //               * [-1 + J2_i*(R_i/r)^2*P2(u_i) + J2_j*(R_j/r)^2*P2(u_j)]
+
+    double potential_energy_times_g = 0;
+
+    for (const auto& [i, j] : force_pairs::active_pairs) {
+        const Vec3 separation = celestial_bodies.position(i) - celestial_bodies.position(j);
+        const double distance = separation.length();
+
+        double j2_correction = 0.0;
+
+        if (runtime_config::use_j2) {
+            const Vec3 direction = separation / distance;
+
+            for (const std::size_t source : {i, j}) {
+                if (celestial_bodies.j2[source] == 0.0 || celestial_bodies.gravitational_masses[source] == 0.0) {
+                    continue;
+                }
+
+                const double u = direction.dot(celestial_bodies.pole_axes[source]);
+                const double p2 = 0.5 * (3.0 * u * u - 1.0);
+                const double radius_ratio = celestial_bodies.equatorial_radii[source] / distance;
+
+                j2_correction += celestial_bodies.j2[source] * radius_ratio * radius_ratio * p2;
+            }
+        }
+
+        potential_energy_times_g += celestial_bodies.gravitational_masses[i] * celestial_bodies.gravitational_masses[j] / distance * (-1.0 + j2_correction);
+    }
+
+    const double potential_energy = potential_energy_times_g / config::GRAVITATIONAL_CONSTANT;
+
+    return kinetic_energy + potential_energy;
+}
+
+double simulation::calculate_total_mass() {
+    double total_gravitation_masses = 0;
+
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies.enabled[i]) continue;
+
+        total_gravitation_masses += celestial_bodies.gravitational_masses[i];
+    }
+
+    return total_gravitation_masses / config::GRAVITATIONAL_CONSTANT;
+}
+
+Vec3 simulation::calculate_barycenter(const double total_mass) {
+    // Barycenter:
+    // R = (sum_i m_i * r_i) / (sum_i m_i)
+    //   = (sum_i µ_i / G * r_i) / (sum_i m_i * G / G)
+    //   = (sum_i µ_i * r_i) / (sum_i m_i * G)
+
+    Vec3 weighted_positions{};
+
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies.enabled[i]) continue;
+
+        weighted_positions += celestial_bodies.position(i) * celestial_bodies.gravitational_masses[i];
+    }
+
+    return weighted_positions / (total_mass * config::GRAVITATIONAL_CONSTANT);
+}
+
+Vec3 simulation::calculate_expected_barycenter(const Vec3 &baseline_barycenter, const Vec3 &initial_linear_momentum, const double total_mass, const std::size_t baseline_steps_simulated) {
+    const double elapsed_seconds = (static_cast<double>(config::steps_simulated.load()) - static_cast<double>(baseline_steps_simulated)) * runtime_config::time_step;
+    return baseline_barycenter + (initial_linear_momentum / total_mass) * elapsed_seconds;
+}
+
+void simulation::reset_diagnostics_baseline() {
+    const double total_mass = calculate_total_mass();
+    diagnostics_baseline = {
+        .total_energy = calculate_total_energy(),
+        .linear_momentum = calculate_linear_momentum(),
+        .barycenter = std::isfinite(total_mass) && total_mass != 0.0 ? calculate_barycenter(total_mass) : Vec3{},
+        .steps_simulated = config::steps_simulated.load()
+    };
+}
+
 void simulation::simulate_cpu(const std::stop_token& stop_token) {
     auto last_publish = std::chrono::steady_clock::now();
     auto last_budget_update = std::chrono::steady_clock::now();

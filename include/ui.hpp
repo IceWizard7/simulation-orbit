@@ -17,6 +17,13 @@
 #include "vectors.hpp"
 
 namespace ui_data {
+    struct DiagnosticsBaseline {
+        double total_energy = 0.0;
+        Vec3 linear_momentum{};
+        Vec3 barycenter{};
+        std::size_t steps_simulated = 0;
+    };
+
     struct CheckpointInfo {
         std::size_t id = 0;
         double simulated_seconds = 0;
@@ -33,7 +40,7 @@ namespace ui_data {
             Vec3 absolute_position;
             Vec3 velocity;
             double mass;
-            double physical_radius_m = 0.0;
+            double physical_radius_m = 0;
             float radius_2d = 0;
             float radius_3d = 0;
             std::optional<Color> color;
@@ -50,15 +57,18 @@ namespace ui_data {
         std::vector<CheckpointInfo> checkpoints;
         bool checkpoint_restore_allowed = false;
 
-    struct UpdateBodyCommand {
-        std::size_t i;
-        std::optional<std::size_t> reference_index;
+        Vec3 linear_momentum{};
+        Vec3 baseline_linear_momentum{};
+        Vec3 momentum_drift{};
 
-        std::optional<double> mass;
-        std::optional<double> px, py, pz;
-        std::optional<double> vx, vy, vz;
-        bool disable_rendering = false;
-        bool enable_rendering = false;
+        double total_energy = 0;
+        double baseline_energy = 0.0;
+        double energy_drift = 0.0;
+
+        Vec3 barycenter{};
+        Vec3 expected_barycenter{};
+        Vec3 barycenter_drift{};
+        bool barycenter_valid = false;
     };
 
     struct EditableDouble {
@@ -75,22 +85,50 @@ namespace ui_data {
         std::optional<std::size_t> reference_index;
     };
 
+    struct UpdateBodyCommand {
+        std::size_t i;
+        std::optional<std::size_t> reference_index;
+
+        std::optional<double> mass;
+        std::optional<double> px, py, pz;
+        std::optional<double> vx, vy, vz;
+        bool disable_rendering = false;
+        bool enable_rendering = false;
+    };
+
+    struct CaptureCheckpoint {};
+
+    struct RestoreCheckpoint {
+        std::size_t id;
+    };
+
+    struct DeleteCheckpoint {
+        std::size_t id;
+    };
+
+    struct RenameCheckpoint {
+        std::size_t id;
+        str new_label;
+    };
+
+    using SimulationCommand = std::variant<UpdateBodyCommand, CaptureCheckpoint, RestoreCheckpoint, DeleteCheckpoint, RenameCheckpoint>;
+
     inline std::array<BodyEditState, NUM_CELESTIAL_BODIES> edit_states{};
     inline std::array<bool, NUM_CELESTIAL_BODIES> was_open{};
     inline std::size_t next_window_slot = 0;
 
-    struct UpdateBodyCommandQueue {
+    struct SimulationCommandQueue {
     private:
-        std::queue<UpdateBodyCommand> queue;
+        std::queue<SimulationCommand> queue;
         std::mutex mtx;
 
     public:
-        void push(const UpdateBodyCommand &cmd) {
+        void push(const SimulationCommand &cmd) {
             std::lock_guard lock(mtx);
             queue.push(cmd);
         }
 
-        std::optional<UpdateBodyCommand> try_pop() {
+            std::optional<SimulationCommand> try_pop() {
             std::lock_guard lock(mtx);
 
             if (queue.empty()) return std::nullopt;
@@ -102,7 +140,7 @@ namespace ui_data {
         }
     };
 
-    inline UpdateBodyCommandQueue update_body_command_queue;
+    inline SimulationCommandQueue simulation_command_queue;
 }
 
 namespace ui_config {
@@ -130,6 +168,7 @@ namespace ui_config {
     inline std::size_t trail_segments_submitted_2d = 0;
 
     inline bool show_checkpoints = false;
+    inline bool show_diagnostics = false;
 
     enum class BodySizeMode {
         schematic, // fixed celestial body size (schematic, radius_2d)
@@ -241,6 +280,8 @@ namespace ui_helpers {
     void draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
 
     void draw_checkpoint_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
+
+    void draw_diagnostics_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
 
     // Generic helpers
 

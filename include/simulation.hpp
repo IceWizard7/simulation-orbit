@@ -76,6 +76,8 @@ namespace simulation {
     inline std::size_t next_checkpoint_id = 0;
     inline std::vector<SimulationCheckpoint> checkpoints;
 
+    inline ui_data::DiagnosticsBaseline diagnostics_baseline;
+
     // Must run after CLI parsing (needs the final time step) and before the first simulate_step
     void initialize_orbit_sampling();
 
@@ -107,7 +109,21 @@ namespace simulation {
     bool load_checkpoint(std::size_t id);
 
     bool rename_checkpoint(std::size_t id, const str& new_label);
- 
+
+    // Physical metrics (diagnostics)
+    Vec3 calculate_linear_momentum();
+
+    double calculate_total_energy();
+
+    double calculate_total_mass();
+
+    Vec3 calculate_barycenter(double total_mass);
+
+    Vec3 calculate_expected_barycenter(const Vec3 &barycenter, const Vec3 &initial_linear_momentum, double total_mass, std::size_t baseline_steps_simulated);
+
+    void reset_diagnostics_baseline();
+
+    // Simulation
     void simulate_cpu(const std::stop_token& stop_token);
 
     void print_final_state();

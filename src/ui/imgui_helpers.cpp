@@ -396,6 +396,13 @@ void ui_helpers::imgui_style_setup(const bool dark_mode) {
     // Checkmarks
     ImGui::PushStyleColor(ImGuiCol_CheckMark, text_color);
 
+    // Tables
+    ImGui::PushStyleColor(ImGuiCol_TableHeaderBg, button_color);
+    ImGui::PushStyleColor(ImGuiCol_TableBorderStrong, seperator_color);
+    ImGui::PushStyleColor(ImGuiCol_TableBorderLight, dark_mode ? IM_COL32(55, 55, 55, 255) : IM_COL32(215, 215, 215, 255));
+    ImGui::PushStyleColor(ImGuiCol_TableRowBg, IM_COL32(0, 0, 0, 0));
+    ImGui::PushStyleColor(ImGuiCol_TableRowBgAlt, dark_mode ? IM_COL32(26, 26, 26, 255) : IM_COL32(238, 238, 238, 255));
+
     // Font
     ImGui::PushFont(config::imgui_ui_font);
 }
@@ -403,7 +410,7 @@ void ui_helpers::imgui_style_setup(const bool dark_mode) {
 void ui_helpers::imgui_style_cleanup() {
     ImGui::PopFont();
     ImGui::PopStyleVar(4);
-    ImGui::PopStyleColor(24);
+    ImGui::PopStyleColor(29);
 }
 
 bool ui_helpers::reset_icon_button(const str& id) {

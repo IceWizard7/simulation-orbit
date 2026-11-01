@@ -1129,6 +1129,139 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
     ImGui::End();
     imgui_style_cleanup();
 }
- 
+
+void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const bool dark_mode) {
+    if (!ui_config::show_diagnostics || !snap) return;
+
+    imgui_style_setup(dark_mode);
+
+    ImGui::SetNextWindowSize(ImVec2(660.0f, 0.0f), ImGuiCond_Always);
+
+    if (ImGui::Begin("Diagnostics", &ui_config::show_diagnostics, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::TextDisabled("Stored inertial frame");
+
+        constexpr ImGuiTableFlags flags =
+           ImGuiTableFlags_SizingStretchProp |
+           ImGuiTableFlags_BordersInnerH |
+           ImGuiTableFlags_RowBg |
+           ImGuiTableFlags_NoSavedSettings;
+
+        // Left-align numbers within their table cells
+        const auto number = [](const double value) {
+            const str text = std::isfinite(value) ? std::format("{:.6e}", value) : "N/A";
+
+            // Right-alignment:
+            // ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(text.c_str()).x));
+
+            ImGui::TextUnformatted(text.c_str());
+        };
+
+        const auto vector_table = [&](const char* id, const char* reference_label, const Vec3& current, const Vec3& reference, const Vec3& drift) {
+            if (!ImGui::BeginTable(id, 4, flags)) return;
+
+            ImGui::TableSetupColumn("Component", ImGuiTableColumnFlags_WidthFixed, 90.0f);
+            ImGui::TableSetupColumn("Current");
+            ImGui::TableSetupColumn(reference_label);
+            ImGui::TableSetupColumn("Drift");
+            ImGui::TableHeadersRow();
+
+            const auto row = [&](const char* label, const double value, const double reference_value, const double difference) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(label);
+                ImGui::TableSetColumnIndex(1);
+                number(value);
+                ImGui::TableSetColumnIndex(2);
+                number(reference_value);
+                ImGui::TableSetColumnIndex(3);
+                number(difference);
+            };
+
+            row("x", current.x, reference.x, drift.x);
+            row("y", current.y, reference.y, drift.y);
+            row("z", current.z, reference.z, drift.z);
+            row("Magnitude", current.length(), reference.length(), drift.length());
+
+            ImGui::EndTable();
+        };
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Energy");
+
+        const double magnitude = std::abs(snap->total_energy);
+        const double resolution = std::nextafter(
+            magnitude,
+            std::numeric_limits<double>::infinity()
+        ) - magnitude;
+
+        if (ImGui::BeginTable("##diagnostics_energy", 3, flags)) {
+            ImGui::TableSetupColumn("Quantity", ImGuiTableColumnFlags_WidthStretch, 1.5f);
+            ImGui::TableSetupColumn("Value");
+            ImGui::TableSetupColumn("Unit", ImGuiTableColumnFlags_WidthFixed, 40.0f);
+            ImGui::TableHeadersRow();
+
+            const auto row = [&](const char* label, const double value, const char* tooltip = nullptr) {
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::TextUnformatted(label);
+
+                if (tooltip && ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%s", tooltip);
+                }
+
+                ImGui::TableSetColumnIndex(1);
+                number(value);
+                ImGui::TableSetColumnIndex(2);
+                ImGui::TextDisabled("J");
+            };
+
+            row("Total energy", snap->total_energy);
+            row("Baseline", snap->baseline_energy);
+            row("Drift", snap->energy_drift);
+            row(
+                "Resolution (double)", resolution,
+                "Spacing between representable energy values.\n"
+                "Does not estimate accumulated simulation error."
+            );
+
+            ImGui::EndTable();
+        }
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Linear momentum (kg m/s)");
+
+        vector_table(
+            "##diagnostics_momentum",
+            "Baseline",
+            snap->linear_momentum,
+            snap->baseline_linear_momentum,
+            snap->momentum_drift
+        );
+
+        ImGui::Spacing();
+        ImGui::SeparatorText("Barycenter (m)");
+
+        if (snap->barycenter_valid) {
+            vector_table(
+                "##diagnostics_barycenter",
+                "Expected",
+                snap->barycenter,
+                snap->expected_barycenter,
+                snap->barycenter_drift
+            );
+        } else {
+            ImGui::TextDisabled("Barycenter unavailable for this state.");
+        }
+
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::TextDisabled("Independent of camera and editor reference");
+        ImGui::TextDisabled("Baselines reset after physical edits and restores.");
+    }
+
+    ImGui::End();
+    imgui_style_cleanup();
+}
+
 // TODO: Add graphs similar to Algodoo (also: for time/steps and energy/momentum)
 // TODO: macOS snapping latency

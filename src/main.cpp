@@ -28,6 +28,7 @@ int main(const int argc, char* argv[]) {
 
     if (!simulation::initialize_csv_output()) return 1;
     simulation::initialize_orbit_sampling();
+    simulation::reset_diagnostics_baseline();
 
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
         if (simulation::celestial_bodies.enabled[i]) {
