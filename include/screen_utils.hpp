@@ -1,52 +1,68 @@
 #pragma once
 
+#include <algorithm>
+#include <cmath>
 #include <raylib.h>
 
 #include "config.hpp"
 #include "vectors.hpp"
 
+struct Viewport2D {
+    double width;
+    double height;
+    double pixels_per_meter;
+};
+
+inline Viewport2D get_viewport_2d() {
+    const double width = std::max(
+        1.0, GetScreenWidth() - 2.0 * config::WINDOW_MARGIN
+    );
+    const double height = std::max(
+        1.0, GetScreenHeight() - 2.0 * config::WINDOW_MARGIN
+    );
+
+    return {width, height, std::min(width, height) / (2.0 * config::SCALING)};
+}
+
 inline Vector2 to_raylib(const Vec3& v, const Vec2& offset_m) {
-    // x in interval [0, WINDOW_WIDTH]
-    // y in interval [0, WINDOW_HEIGHT]
+    const auto [width, height, pixels_per_meter] = get_viewport_2d();
 
     return {
-        config::WINDOW_MARGIN + static_cast<float>((v.x - offset_m.x) / config::SCALING / 2.0 + 0.5) * (config::WINDOW_WIDTH - 2 * config::WINDOW_MARGIN),
-        config::WINDOW_MARGIN + static_cast<float>((v.y - offset_m.y) / config::SCALING / 2.0 + 0.5) * (config::WINDOW_HEIGHT - 2 * config::WINDOW_MARGIN)
+        static_cast<float>(config::WINDOW_MARGIN + width * 0.5 + (v.x - offset_m.x) * pixels_per_meter),
+        static_cast<float>(config::WINDOW_MARGIN + height * 0.5 + (v.y - offset_m.y) * pixels_per_meter),
     };
 }
 
 inline Vec2 screen_to_meters(const Vector2& screen, const Vec2& offset_m) {
-    constexpr double width = config::WINDOW_WIDTH - 2.0 * config::WINDOW_MARGIN;
-    constexpr double height = config::WINDOW_HEIGHT - 2.0 * config::WINDOW_MARGIN;
+    const auto [width, height, pixels_per_meter] = get_viewport_2d();
 
     return {
         offset_m.x + (
-            (screen.x - config::WINDOW_MARGIN) / width - 0.5
-        ) * 2.0 * config::SCALING,
-
+            screen.x - config::WINDOW_MARGIN - width * 0.5
+        ) / pixels_per_meter,
         offset_m.y + (
-            (screen.y - config::WINDOW_MARGIN) / height - 0.5
-        ) * 2.0 * config::SCALING
+            screen.y - config::WINDOW_MARGIN - height * 0.5
+        ) / pixels_per_meter
     };
 }
 
 inline bool inside_screen(const Vec3& v, const Vec2& offset_m) {
     auto [x, y] = to_raylib(v, offset_m);
 
-    return config::WINDOW_MARGIN <= x && x <= config::WINDOW_WIDTH - config::WINDOW_MARGIN
-           && config::WINDOW_MARGIN <= y && y <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN;
+    return config::WINDOW_MARGIN <= x && x <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN
+           && config::WINDOW_MARGIN <= y && y <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN;
 }
 
 inline bool circle_intersects_viewport(const Vector2 center, const double radius) {
     const double closest_x = std::clamp(
         static_cast<double>(center.x),
         static_cast<double>(config::WINDOW_MARGIN),
-        static_cast<double>(config::WINDOW_WIDTH - config::WINDOW_MARGIN)
+        static_cast<double>(GetScreenWidth() - config::WINDOW_MARGIN)
     );
     const double closest_y = std::clamp(
         static_cast<double>(center.y),
         static_cast<double>(config::WINDOW_MARGIN),
-        static_cast<double>(config::WINDOW_HEIGHT - config::WINDOW_MARGIN)
+        static_cast<double>(GetScreenHeight() - config::WINDOW_MARGIN)
     );
 
     return std::hypot(center.x - closest_x, center.y - closest_y) <= radius;

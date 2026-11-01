@@ -16,9 +16,7 @@ namespace {
 
         if (ui_config::body_size_mode == ui_config::BodySizeMode::schematic) return marker_radius;
 
-        // TODO: What if the screen isn't square?
-        constexpr double viewport_width = config::WINDOW_WIDTH - 2.0 * config::WINDOW_MARGIN;
-        const double pixels_per_meter = viewport_width / (2.0 * config::SCALING);
+        const double pixels_per_meter = get_viewport_2d().pixels_per_meter;
 
         switch (ui_config::body_size_mode) {
             case ui_config::BodySizeMode::physical:
@@ -33,17 +31,22 @@ namespace {
     }
 
     void draw_ui_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
-        constexpr double viewport_width = config::WINDOW_WIDTH - 2.0 * config::WINDOW_MARGIN;
-        constexpr double viewport_height = config::WINDOW_HEIGHT - 2.0 * config::WINDOW_MARGIN;
+        const auto [viewport_width, viewport_height, pixels_per_meter] = get_viewport_2d();
 
-        // Distance in meters represented by one grid interval
-        const double step_x = config::GRID_SPACING * (2.0 * config::SCALING) / viewport_width;
-        const double step_y = config::GRID_SPACING * (2.0 * config::SCALING) / viewport_height;
+        const Vec2 offset = ui_config::get_2d_offset(snap);
 
-        const double min_x = ui_config::get_2d_offset(snap).x - config::SCALING;
-        const double max_x = ui_config::get_2d_offset(snap).x + config::SCALING;
-        const double min_y = ui_config::get_2d_offset(snap).y - config::SCALING;
-        const double max_y = ui_config::get_2d_offset(snap).y + config::SCALING;
+        // Both axes use the same number of meters per grid interval.
+        const double step_x = config::GRID_SPACING / pixels_per_meter;
+        const double step_y = step_x;
+
+        const double half_width_m = viewport_width / (2.0 * pixels_per_meter);
+
+        const double half_height_m = viewport_height / (2.0 * pixels_per_meter);
+
+        const double min_x = offset.x - half_width_m;
+        const double max_x = offset.x + half_width_m;
+        const double min_y = offset.y - half_height_m;
+        const double max_y = offset.y + half_height_m;
 
         const double largest_coordinate = std::max({
             std::abs(min_x), std::abs(max_x),
@@ -78,7 +81,7 @@ namespace {
 
             DrawLine(
                 Vec2{screen_x, config::WINDOW_MARGIN},
-                Vec2{screen_x, config::WINDOW_HEIGHT - config::WINDOW_MARGIN},
+                Vec2{screen_x, static_cast<double>(GetScreenHeight() - config::WINDOW_MARGIN)},
                 thick,
                 color
             );
@@ -87,10 +90,10 @@ namespace {
 
             // Keep labels away from the viewport corners
             if (screen_x > config::WINDOW_MARGIN + 20 &&
-                screen_x < config::WINDOW_WIDTH - config::WINDOW_MARGIN - 20) {
+                screen_x < static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN - 20) {
                 draw_imgui_centered_text(
                     round_to_hundreds(label_value),
-                    Vec2{screen_x, config::WINDOW_HEIGHT - config::WINDOW_MARGIN + 25},
+                    Vec2{screen_x, static_cast<double>(GetScreenHeight() - config::WINDOW_MARGIN + 25)},
                     0,
                     20,
                     BLACK
@@ -108,7 +111,7 @@ namespace {
 
             DrawLine(
                 Vec2{config::WINDOW_MARGIN, screen_y},
-                Vec2{config::WINDOW_WIDTH - config::WINDOW_MARGIN, screen_y},
+                Vec2{static_cast<double>(GetScreenWidth() - config::WINDOW_MARGIN), screen_y},
                 thick,
                 color
             );
@@ -117,7 +120,7 @@ namespace {
 
             // Keep labels away from the viewport corners
             if (screen_y > config::WINDOW_MARGIN + 20 &&
-                screen_y < config::WINDOW_HEIGHT - config::WINDOW_MARGIN - 20) {
+                screen_y < static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN - 20) {
                 draw_imgui_centered_text(
                     round_to_hundreds(label_value),
                     Vec2{config::WINDOW_MARGIN - 25, screen_y},
@@ -130,7 +133,7 @@ namespace {
 
         draw_imgui_centered_text(
             std::format("Y Position ({} m)", scaling_string),
-            {static_cast<double>(config::WINDOW_MARGIN) / 2 - 20, static_cast<double>(config::WINDOW_HEIGHT) / 2},
+            {static_cast<double>(config::WINDOW_MARGIN) / 2 - 20, static_cast<double>(GetScreenHeight()) / 2},
             270,
             24,
             BLACK
@@ -138,7 +141,7 @@ namespace {
 
         draw_imgui_centered_text(
             std::format("X Position ({} m)", scaling_string),
-            {static_cast<double>(config::WINDOW_WIDTH) / 2, config::WINDOW_HEIGHT - static_cast<double>(config::WINDOW_MARGIN) / 2 + 20},
+            {static_cast<double>(GetScreenWidth()) / 2, GetScreenHeight() - static_cast<double>(config::WINDOW_MARGIN) / 2 + 20},
             0,
             24,
             BLACK
@@ -151,8 +154,8 @@ namespace {
         ImGui::GetBackgroundDrawList()->AddRect(
             {margin, margin},
             {
-                static_cast<float>(config::WINDOW_WIDTH) - margin,
-                static_cast<float>(config::WINDOW_HEIGHT) - margin
+                static_cast<float>(GetScreenWidth()) - margin,
+                static_cast<float>(GetScreenHeight()) - margin
             },
             to_imgui_color(BLACK),
             0.0f,
@@ -217,10 +220,16 @@ namespace {
             return t_enter <= t_exit;
         };
 
-        if (!clip_axis(start.x, delta_vec.x, ui_config::get_2d_offset(snap).x - config::SCALING, ui_config::get_2d_offset(snap).x + config::SCALING) ||
-            !clip_axis(start.y, delta_vec.y, ui_config::get_2d_offset(snap).y - config::SCALING, ui_config::get_2d_offset(snap).y + config::SCALING)) {
+        const auto [width, height, pixels_per_meter] = get_viewport_2d();
+        const Vec2 offset = ui_config::get_2d_offset(snap);
+
+        const double half_width_m = width / (2.0 * pixels_per_meter);
+        const double half_height_m = height / (2.0 * pixels_per_meter);
+
+        if (!clip_axis(start.x, delta_vec.x, offset.x - half_width_m, offset.x + half_width_m) ||
+            !clip_axis(start.y, delta_vec.y, offset.y - half_height_m, offset.y + half_height_m)) {
             return false;
-            }
+        }
 
         start = original_start + delta_vec * t_enter;
         end = original_start + delta_vec * t_exit;
@@ -235,18 +244,20 @@ namespace {
 
         if (!ui_config::draw_orbits) return;
 
+        const double pixels_per_meter = get_viewport_2d().pixels_per_meter;
+
         struct Cache {
             std::shared_ptr<const RenderSnapshot> snapshot;
-            double scaling = 0.0;
+            double pixels_per_meter = 0.0;
             std::array<std::vector<std::size_t>, NUM_CELESTIAL_BODIES> indices;
         };
 
         static Cache cache;
 
-        // Regenerate cache when snap/scaling changes
-        if (cache.snapshot != snap || cache.scaling != config::SCALING) {
+        // Resizing or zooming can change the projected point spacing.
+        if (cache.snapshot != snap || cache.pixels_per_meter != pixels_per_meter) {
             cache.snapshot = snap;
-            cache.scaling = config::SCALING;
+            cache.pixels_per_meter = pixels_per_meter;
 
             for (auto& indices : cache.indices) {
                 indices.clear();
@@ -255,9 +266,6 @@ namespace {
 
         constexpr double minimum_distance_px = 1.0;
         constexpr double minimum_distance_squared = minimum_distance_px * minimum_distance_px;
-
-        const double pixels_per_meter = (config::WINDOW_WIDTH - 2.0 * config::WINDOW_MARGIN) / (2.0 * config::SCALING);
-
         const Vec2 offset = ui_config::get_2d_offset(snap);
 
         const std::size_t orbit_limit = ui_config::draw_moon_orbits
@@ -376,10 +384,13 @@ void ui_helpers::draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
         draw_orbits_2d(snap);
         draw_planets_2d(snap);
 
-        draw_imgui_rectangle({0, 0}, {config::WINDOW_MARGIN, config::WINDOW_HEIGHT}, WHITE);
-        draw_imgui_rectangle({0, 0}, {config::WINDOW_WIDTH, config::WINDOW_MARGIN}, WHITE);
-        draw_imgui_rectangle({0, config::WINDOW_HEIGHT - config::WINDOW_MARGIN}, {config::WINDOW_WIDTH, config::WINDOW_HEIGHT}, WHITE);
-        draw_imgui_rectangle({config::WINDOW_WIDTH - config::WINDOW_MARGIN, 0}, {config::WINDOW_WIDTH, config::WINDOW_HEIGHT}, WHITE);
+        double screen_width = GetScreenWidth();
+        double screen_height = GetScreenHeight();
+
+        draw_imgui_rectangle({0, 0}, {config::WINDOW_MARGIN, screen_height}, WHITE);
+        draw_imgui_rectangle({0, 0}, {screen_width, config::WINDOW_MARGIN}, WHITE);
+        draw_imgui_rectangle({0, screen_height - config::WINDOW_MARGIN}, {screen_width, screen_height}, WHITE);
+        draw_imgui_rectangle({screen_width - config::WINDOW_MARGIN, 0}, {screen_width, screen_height}, WHITE);
 
         draw_toolbar(snap, false);
         draw_ui_2d(snap);

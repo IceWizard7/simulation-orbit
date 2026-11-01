@@ -59,8 +59,11 @@ namespace config {
 
     constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2) // TODO: Make this changeable
 
-    constexpr int WINDOW_HEIGHT = 900;
-    constexpr int WINDOW_WIDTH = 900;
+    constexpr int INITIAL_WINDOW_HEIGHT = 900;
+    constexpr int INITIAL_WINDOW_WIDTH = 900;
+
+    constexpr int MIN_WINDOW_HEIGHT = 600;
+    constexpr int MIN_WINDOW_WIDTH = 800;
 
     constexpr int GRID_SPACING = 90;
     constexpr int WINDOW_MARGIN = 1 * GRID_SPACING;

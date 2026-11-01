@@ -19,6 +19,11 @@ else()
 
     FetchContent_MakeAvailable(raylib)
 
+    if(APPLE)
+        include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_raylib_macos.cmake")
+        patch_raylib_macos()
+    endif()
+
     target_compile_definitions(raylib PRIVATE
             SUPPORT_FILEFORMAT_JPG=1
     )

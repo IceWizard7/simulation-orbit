@@ -169,16 +169,17 @@ void ui_helpers::UpdateDrawFrame() {
         if (!ui_config::panning_2d && !ImGui::GetIO().WantCaptureMouse && // Currently not panning, ImGui doesn't consume mouse
             IsWindowFocused() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && // Window focused & button is pressed
             !pick_body_at_mouse_2d(snap) && // Drag doesn't start on a celestial body
-            config::WINDOW_MARGIN <= mx && mx <= config::WINDOW_WIDTH - config::WINDOW_MARGIN && // Mouse is in viewport (x & y)
-            config::WINDOW_MARGIN <= my && my <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN) {
+            config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN && // Mouse is in viewport (x & y)
+            config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN) {
             ui_config::panning_2d = true;
         }
 
         if (ui_config::panning_2d) {
-            auto [dx, dy] = GetMouseDelta();
+            const auto [dx, dy] = GetMouseDelta();
+            const double pixels_per_meter = get_viewport_2d().pixels_per_meter;
 
-            ui_config::view_offset_2d_m.x -= dx  * (2.0 * config::SCALING) / (config::WINDOW_WIDTH - 2.0 * config::WINDOW_MARGIN);
-            ui_config::view_offset_2d_m.y -= dy  * (2.0 * config::SCALING) / (config::WINDOW_HEIGHT - 2.0 * config::WINDOW_MARGIN);
+            ui_config::view_offset_2d_m.x -= dx / pixels_per_meter;
+            ui_config::view_offset_2d_m.y -= dy / pixels_per_meter;
         }
 
 
@@ -186,7 +187,8 @@ void ui_helpers::UpdateDrawFrame() {
         const bool zoom_out = scroll < 0 || (!ImGui::GetIO().WantCaptureKeyboard && IsKeyDown(config::KEY_ZOOM_OUT));
 
         if (zoom_in || zoom_out) {
-            const bool anchor_at_mouse = config::WINDOW_MARGIN <= mx && mx <= config::WINDOW_WIDTH - config::WINDOW_MARGIN && config::WINDOW_MARGIN <= my && my <= config::WINDOW_HEIGHT - config::WINDOW_MARGIN;
+            const bool anchor_at_mouse = config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN
+                && config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN;
             const Vec2 before = screen_to_meters({mx, my}, ui_config::get_2d_offset(snap));
             const double zoom_factor = std::ranges::any_of(config::KEYS_SHIFT, IsKeyDown) ? config::ZOOM_FACTOR*config::ZOOM_FACTOR : config::ZOOM_FACTOR;
 
