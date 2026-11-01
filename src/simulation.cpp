@@ -675,12 +675,160 @@ void simulation::publish_snapshot() {
 
     snap->max_orbit_points_used = max_used;
 
+    snap->checkpoints.reserve(checkpoints.size());
+
+    for (const auto& checkpoint : checkpoints) {
+        const double simulated_seconds = static_cast<double>(checkpoint.steps_simulated) * checkpoint.time_step;
+
+        snap->checkpoints.push_back({checkpoint.id, simulated_seconds, checkpoint.label});
+    }
+
+    snap->checkpoint_restore_allowed = !runtime_config::csv_path.has_value();
+
+    snap->linear_momentum = calculate_linear_momentum();
+    snap->baseline_linear_momentum = diagnostics_baseline.linear_momentum;
+    snap->momentum_drift = snap->linear_momentum - diagnostics_baseline.linear_momentum;
+
+    snap->total_energy = calculate_total_energy();
+    snap->baseline_energy = diagnostics_baseline.total_energy;
+    snap->energy_drift = snap->total_energy - diagnostics_baseline.total_energy;
+
+    const double total_mass = calculate_total_mass();
+
+    if (std::isfinite(total_mass) && total_mass != 0.0) {
+        snap->barycenter = calculate_barycenter(total_mass);
+        snap->expected_barycenter = calculate_expected_barycenter(
+            diagnostics_baseline.barycenter,
+            snap->baseline_linear_momentum,
+            total_mass,
+            diagnostics_baseline.steps_simulated
+        );
+
+        snap->barycenter_drift = snap->barycenter - snap->expected_barycenter;
+        const auto finite = [](const Vec3& value) {
+            return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+        };
+        snap->barycenter_valid = finite(snap->barycenter) && finite(snap->expected_barycenter) && finite(snap->barycenter_drift);
+    }
+
     {
         std::lock_guard lock(config::snapshot_lock);
         config::latest_snapshot = std::move(snap);
     }
 }
 
+void simulation::save_checkpoint() {
+    auto& state = checkpoints.emplace_back();
+
+    state.id = next_checkpoint_id++;
+
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        state.px[i] = celestial_bodies.pos_x[i];
+        state.py[i] = celestial_bodies.pos_y[i];
+        state.pz[i] = celestial_bodies.pos_z[i];
+
+        state.vx[i] = celestial_bodies.vel_x[i];
+        state.vy[i] = celestial_bodies.vel_y[i];
+        state.vz[i] = celestial_bodies.vel_z[i];
+
+        state.enabled[i] = celestial_bodies.enabled[i];
+        state.gravitational_masses[i] = celestial_bodies.gravitational_masses[i];
+    }
+
+    // TODO: Add "Include trail history” checkbox when saving
+    state.steps_simulated = config::steps_simulated;
+    state.time_step = runtime_config::time_step;
+
+    state.body_set = runtime_config::body_set;
+    state.interaction_set = runtime_config::interaction_set;
+    state.use_j2 = runtime_config::use_j2;
+    state.use_simd = runtime_config::use_simd;
+
+    state.label = std::format(
+        "{}",
+        state.id == 0 ? "Initial state" : std::format("Checkpoint {}", state.id) // "Initial state" / "Checkpoint [id]"
+    );
+}
+
+bool simulation::delete_checkpoint(const std::size_t id) {
+    // Preserve the initial scenario for Reset simulation
+    if (id == 0) return false;
+
+    const auto it = std::ranges::find(checkpoints, id, &SimulationCheckpoint::id);
+
+    if (it == checkpoints.end()) return false;
+
+    checkpoints.erase(it);
+    return true;
+}
+
+bool simulation::load_checkpoint(const std::size_t id) {
+    if (runtime_config::csv_path) return false; // TODO: For now.
+
+    const auto it = std::ranges::find(checkpoints, id, &SimulationCheckpoint::id);
+
+    if (it == checkpoints.end()) return false;
+
+    const auto& checkpoint = *it;
+
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+         celestial_bodies.pos_x[i] = checkpoint.px[i];
+         celestial_bodies.pos_y[i] = checkpoint.py[i];
+         celestial_bodies.pos_z[i] = checkpoint.pz[i];
+
+         celestial_bodies.vel_x[i] = checkpoint.vx[i];
+         celestial_bodies.vel_y[i] = checkpoint.vy[i];
+         celestial_bodies.vel_z[i] = checkpoint.vz[i];
+
+         celestial_bodies.enabled[i] = checkpoint.enabled[i];
+         celestial_bodies.gravitational_masses[i] = checkpoint.gravitational_masses[i];
+    }
+
+    config::steps_simulated = checkpoint.steps_simulated;
+    // TODO Make these changeable in the UI (-> then restoring here is actually needed)
+    // runtime_config::time_step = checkpoint.time_step;
+    // runtime_config::half_dt = 0.5 * checkpoint.time_step;
+    // runtime_config::half_dt_squared = 0.5 * checkpoint.time_step * checkpoint.time_step;
+
+    // runtime_config::body_set = checkpoint.body_set;
+    // runtime_config::interaction_set = checkpoint.interaction_set;
+    // runtime_config::use_j2 = checkpoint.use_j2;
+    // runtime_config::use_simd = checkpoint.use_simd;
+
+    accelerations_at_current_positions.reset(); // Reset stale accelerations
+
+    for (auto& history : orbit_history) {
+        history.clear();
+    }
+    for (auto& history : orbit_center_reference_history) {
+        history.clear();
+    }
+
+    force_pairs::initialize_all_pairs(celestial_bodies);
+    force_pairs::set_interaction_set(planetary_systems);
+
+    config::timer.pause();
+    return true;
+}
+
+bool simulation::rename_checkpoint(const std::size_t id, const str& new_label) {
+    // Preserve the initial scenario for Reset simulation
+    if (id == 0) return false;
+
+    const bool valid = std::string_view(new_label).find_first_not_of(" \t\r\n") != std::string_view::npos;
+    if (!valid) return false;
+
+    const auto it = std::ranges::find(checkpoints, id, &SimulationCheckpoint::id);
+
+    if (it == checkpoints.end()) return false;
+
+    auto& checkpoint = *it;
+
+    checkpoint.label = new_label;
+
+    return true;
+}
+ 
 void simulation::simulate_cpu(const std::stop_token& stop_token) {
     auto last_publish = std::chrono::steady_clock::now();
     auto last_budget_update = std::chrono::steady_clock::now();
@@ -702,60 +850,84 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
         constexpr std::size_t MAX_STEPS_PER_BATCH = 4096;
         constexpr double MAX_CATCH_UP_SECONDS = 0.25;
 
-        bool processed_command = false;
         bool physical_edit = false;
+        bool restored_checkpoint = false;
+        bool processed_update_body_command = false;
+        bool processed_checkpoint_command = false;
 
-        while (const auto cmd = ui_data::update_body_command_queue.try_pop()) {
-            const auto valid = [](const std::optional<double>& value) {
-                return !value || std::isfinite(*value);
-            };
+        while (const auto cmd = ui_data::simulation_command_queue.try_pop()) {
+            if (const ui_data::UpdateBodyCommand* update_body_cmd = std::get_if<ui_data::UpdateBodyCommand>(&*cmd)) {
+                const auto valid = [](const std::optional<double>& value) {
+                    return !value || std::isfinite(*value);
+                };
 
-            if (cmd->i >= NUM_CELESTIAL_BODIES) continue;
+                if (update_body_cmd->i >= NUM_CELESTIAL_BODIES) continue;
 
-            if (cmd->reference_index) {
-                if (*cmd->reference_index >= NUM_CELESTIAL_BODIES || *cmd->reference_index == cmd->i ||
-                    !celestial_bodies.enabled[*cmd->reference_index]) {
-                    continue;
+                if (update_body_cmd->reference_index) {
+                    if (*update_body_cmd->reference_index >= NUM_CELESTIAL_BODIES || *update_body_cmd->reference_index == update_body_cmd->i ||
+                        !celestial_bodies.enabled[*update_body_cmd->reference_index]) {
+                        continue;
+                    }
                 }
+
+                auto absolute = *update_body_cmd;
+
+                if (update_body_cmd->reference_index) {
+                    const Vec3 position = celestial_bodies.position(*update_body_cmd->reference_index);
+                    const Vec3 velocity = celestial_bodies.velocity(*update_body_cmd->reference_index);
+
+                    if (absolute.px) *absolute.px += position.x;
+                    if (absolute.py) *absolute.py += position.y;
+                    if (absolute.pz) *absolute.pz += position.z;
+
+                    if (absolute.vx) *absolute.vx += velocity.x;
+                    if (absolute.vy) *absolute.vy += velocity.y;
+                    if (absolute.vz) *absolute.vz += velocity.z;
+                }
+
+
+                if (!valid(absolute.mass) ||
+                    !valid(absolute.px) || !valid(absolute.py) || !valid(absolute.pz) ||
+                    !valid(absolute.vx) || !valid(absolute.vy) || !valid(absolute.vz)) {
+                    continue;
+                    }
+
+                processed_update_body_command = true;
+                physical_edit |= update_body_cmd->mass || update_body_cmd-> px || update_body_cmd->py || update_body_cmd->pz || update_body_cmd->vx || update_body_cmd->vy || update_body_cmd->vz;
+
+                if (update_body_cmd->mass) celestial_bodies.gravitational_masses[update_body_cmd->i] = *update_body_cmd->mass * config::GRAVITATIONAL_CONSTANT;
+                if (absolute.px) celestial_bodies.pos_x[update_body_cmd->i] = *absolute.px;
+                if (absolute.py) celestial_bodies.pos_y[update_body_cmd->i] = *absolute.py;
+                if (absolute.pz) celestial_bodies.pos_z[update_body_cmd->i] = *absolute.pz;
+                if (absolute.vx) celestial_bodies.vel_x[update_body_cmd->i] = *absolute.vx;
+                if (absolute.vy) celestial_bodies.vel_y[update_body_cmd->i] = *absolute.vy;
+                if (absolute.vz) celestial_bodies.vel_z[update_body_cmd->i] = *absolute.vz;
+                if (update_body_cmd->disable_rendering) celestial_bodies.rendering_visible[update_body_cmd->i] = false;
+                if (update_body_cmd->enable_rendering) celestial_bodies.rendering_visible[update_body_cmd->i] = true;
+            } else if (std::holds_alternative<ui_data::CaptureCheckpoint>(*cmd)) {
+                processed_checkpoint_command = true;
+                save_checkpoint();
+            } else if (const ui_data::RestoreCheckpoint* restore_cmd = std::get_if<ui_data::RestoreCheckpoint>(&*cmd)) {
+                if (load_checkpoint(restore_cmd->id)) {
+                    processed_checkpoint_command = true;
+                    restored_checkpoint = true;
+
+                    step_budget = 0.0;
+                    since_check = 0;
+                    last_budget_update = std::chrono::steady_clock::now();
+                }
+            } else if (const ui_data::DeleteCheckpoint* delete_cmd = std::get_if<ui_data::DeleteCheckpoint>(&*cmd)) {
+                processed_checkpoint_command |= delete_checkpoint(delete_cmd->id);
+            } else if (const ui_data::RenameCheckpoint* rename_cmd = std::get_if<ui_data::RenameCheckpoint>(&*cmd)) {
+                processed_checkpoint_command |= rename_checkpoint(rename_cmd->id, rename_cmd->new_label);
             }
-
-            auto absolute = *cmd;
-
-            if (cmd->reference_index) {
-                const Vec3 position = celestial_bodies.position(*cmd->reference_index);
-                const Vec3 velocity = celestial_bodies.velocity(*cmd->reference_index);
-
-                if (absolute.px) *absolute.px += position.x;
-                if (absolute.py) *absolute.py += position.y;
-                if (absolute.pz) *absolute.pz += position.z;
-
-                if (absolute.vx) *absolute.vx += velocity.x;
-                if (absolute.vy) *absolute.vy += velocity.y;
-                if (absolute.vz) *absolute.vz += velocity.z;
-            }
-
-
-            if (!valid(absolute.mass) ||
-                !valid(absolute.px) || !valid(absolute.py) || !valid(absolute.pz) ||
-                !valid(absolute.vx) || !valid(absolute.vy) || !valid(absolute.vz)) {
-                continue;
-            }
-
-            processed_command = true;
-            physical_edit |= cmd->mass || cmd-> px || cmd->py || cmd->pz || cmd->vx || cmd->vy || cmd->vz;
-
-            if (cmd->mass) celestial_bodies.gravitational_masses[cmd->i] = *cmd->mass * config::GRAVITATIONAL_CONSTANT;
-            if (absolute.px) celestial_bodies.pos_x[cmd->i] = *absolute.px;
-            if (absolute.py) celestial_bodies.pos_y[cmd->i] = *absolute.py;
-            if (absolute.pz) celestial_bodies.pos_z[cmd->i] = *absolute.pz;
-            if (absolute.vx) celestial_bodies.vel_x[cmd->i] = *absolute.vx;
-            if (absolute.vy) celestial_bodies.vel_y[cmd->i] = *absolute.vy;
-            if (absolute.vz) celestial_bodies.vel_z[cmd->i] = *absolute.vz;
-            if (cmd->disable_rendering) celestial_bodies.rendering_visible[cmd->i] = false;
-            if (cmd->enable_rendering) celestial_bodies.rendering_visible[cmd->i] = true;
         }
 
-        if (processed_command) {
+        if (physical_edit || restored_checkpoint) {
+            reset_diagnostics_baseline();
+        }
+
+        if (processed_update_body_command) {
             accelerations_at_current_positions.reset(); // Reset stale accelerations
 
             // If a physical edit happened: Clear all orbits
@@ -768,6 +940,13 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
                 }
             }
 
+            // Publish
+            config::republish_needed = false;
+            publish_snapshot();
+            last_publish = std::chrono::steady_clock::now();
+        }
+
+        if (processed_checkpoint_command) {
             // Publish
             config::republish_needed = false;
             publish_snapshot();

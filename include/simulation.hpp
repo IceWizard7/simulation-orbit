@@ -31,6 +31,33 @@ struct Accelerations {
     alignas(16) double z[NUM_CELESTIAL_BODIES];
 };
 
+struct SimulationCheckpoint {
+    std::size_t id = 0;
+    str label;
+
+    // Per body
+    alignas(16) double px[NUM_CELESTIAL_BODIES];
+    alignas(16) double py[NUM_CELESTIAL_BODIES];
+    alignas(16) double pz[NUM_CELESTIAL_BODIES];
+
+    alignas(16) double vx[NUM_CELESTIAL_BODIES];
+    alignas(16) double vy[NUM_CELESTIAL_BODIES];
+    alignas(16) double vz[NUM_CELESTIAL_BODIES];
+
+    bool enabled[NUM_CELESTIAL_BODIES];
+    double gravitational_masses[NUM_CELESTIAL_BODIES];
+
+    // Simulation
+    std::size_t steps_simulated;
+    int time_step;
+
+    // Model
+    runtime_config::BodySet body_set;
+    runtime_config::InteractionSet interaction_set;
+    bool use_j2;
+    bool use_simd;
+};
+
 namespace simulation {
     extern CelestialBodies<NUM_CELESTIAL_BODIES> celestial_bodies;
     extern const std::array<PlanetarySystem, 7> planetary_systems;
@@ -45,6 +72,9 @@ namespace simulation {
     inline std::array<std::size_t, NUM_CELESTIAL_BODIES> orbit_max_points;
     inline std::size_t orbit_center_reference_sample_every_steps;
     inline std::size_t orbit_center_reference_max_points;
+
+    inline std::size_t next_checkpoint_id = 0;
+    inline std::vector<SimulationCheckpoint> checkpoints;
 
     // Must run after CLI parsing (needs the final time step) and before the first simulate_step
     void initialize_orbit_sampling();
@@ -69,6 +99,15 @@ namespace simulation {
     // of celestial_bodies and both orbit histories) and publishes it atomically
     void publish_snapshot();
 
+    // Checkpoints
+    void save_checkpoint();
+
+    bool delete_checkpoint(std::size_t id);
+
+    bool load_checkpoint(std::size_t id);
+
+    bool rename_checkpoint(std::size_t id, const str& new_label);
+ 
     void simulate_cpu(const std::stop_token& stop_token);
 
     void print_final_state();

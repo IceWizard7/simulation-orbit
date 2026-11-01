@@ -49,8 +49,12 @@ int main(const int argc, char* argv[]) {
         return csv_output_succeeded ? 0 : 1;
     }
 
-    SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT);
-    InitWindow(config::WINDOW_WIDTH, config::WINDOW_HEIGHT, "simulation-orbit");
+    // Save initial checkpoint (0)
+    simulation::save_checkpoint();
+
+    SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
+    InitWindow(config::INITIAL_WINDOW_WIDTH, config::INITIAL_WINDOW_HEIGHT, "simulation-orbit");
+    SetWindowMinSize(config::MIN_WINDOW_WIDTH, config::MIN_WINDOW_HEIGHT);
     SetExitKey(KEY_NULL); // So ESC doesn't close the window, but rather dismisses other UI actions (ImGui)
     SetTargetFPS(config::TARGET_FPS);
 
@@ -67,7 +71,7 @@ int main(const int argc, char* argv[]) {
         if (simulation::celestial_bodies.enabled[i]) simulation::celestial_bodies.planet_visuals[i].load_planet_visual();
     }
 
-    const ImGuiIO& io = ImGui::GetIO();
+    ImGuiIO& io = ImGui::GetIO();
 
     config::imgui_ui_font = io.Fonts->AddFontFromFileTTF(
         "resources/JetBrainsMono-Regular.ttf",
@@ -79,6 +83,8 @@ int main(const int argc, char* argv[]) {
         11.0f
     );
 
+    // io.IniFilename = nullptr;
+
     // Loading done
 
     config::timer.resume();
@@ -89,6 +95,7 @@ int main(const int argc, char* argv[]) {
     #ifdef __EMSCRIPTEN__
     emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
     #else
+
     while (!WindowShouldClose()) {
         ui_helpers::UpdateDrawFrame();
     }

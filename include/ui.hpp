@@ -9,6 +9,7 @@
 #include <queue>
 #include <raylib.h>
 #include <utility>
+#include <variant>
 #include <vector>
 
 #include "config.hpp"
@@ -16,6 +17,12 @@
 #include "vectors.hpp"
 
 namespace ui_data {
+    struct CheckpointInfo {
+        std::size_t id = 0;
+        double simulated_seconds = 0;
+        str label;
+    };
+
     // Immutable, render-ready view of the system
     // Producer: simulation thread, Consumer: render thread
     // Positions & orbit points: relative to the center body => render thread can re-project them under the current zoom every frame
@@ -40,7 +47,8 @@ namespace ui_data {
         std::array<std::optional<Body>,  NUM_CELESTIAL_BODIES> bodies;
         std::array<Orbit, NUM_CELESTIAL_BODIES> orbits;
         std::size_t max_orbit_points_used = 0;
-    };
+        std::vector<CheckpointInfo> checkpoints;
+        bool checkpoint_restore_allowed = false;
 
     struct UpdateBodyCommand {
         std::size_t i;
@@ -120,6 +128,8 @@ namespace ui_config {
 
     inline std::size_t trail_segments_reduced_2d = 0;
     inline std::size_t trail_segments_submitted_2d = 0;
+
+    inline bool show_checkpoints = false;
 
     enum class BodySizeMode {
         schematic, // fixed celestial body size (schematic, radius_2d)
@@ -229,6 +239,8 @@ namespace ui_helpers {
     void draw_planet_info(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
 
     void draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
+
+    void draw_checkpoint_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
 
     // Generic helpers
 

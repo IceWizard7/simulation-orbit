@@ -2,12 +2,30 @@
 #include <cfloat>
 #include <chrono>
 #include <cstddef>
+#include <cstdio>
 #include <ctime>
 #include <format>
 #include <imgui.h>
 #include <raylib.h>
+#include <string_view>
 
 #include "ui.hpp"
+
+namespace {
+    void request_checkpoint_restore(const std::size_t index) {
+        ui_data::simulation_command_queue.push(
+            ui_data::RestoreCheckpoint{index}
+        );
+
+        for (auto& edit : ui_data::edit_states) {
+            const auto reference = edit.reference_index;
+            edit = {};
+            edit.reference_index = reference;
+        }
+
+        ui_helpers::cancel_camera_drag();
+    }
+}
 
 // 2d & 3d
 
@@ -67,14 +85,7 @@ void ui_helpers::draw_debug_overlay(const std::shared_ptr<const ui_data::RenderS
     });
     ImGui::SetNextWindowBgAlpha(0.85f);
 
-    constexpr ImGuiWindowFlags flags =
-        ImGuiWindowFlags_NoDecoration |
-        ImGuiWindowFlags_AlwaysAutoResize |
-        ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoFocusOnAppearing |
-        ImGuiWindowFlags_NoInputs;
-
-    if (ImGui::Begin("##DebugOverlay", nullptr, flags)) {
+    if (ImGui::Begin("##DebugOverlay", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoInputs)) {
         ImGui::Text(
             "%s | %s | Trails %s",
             ui_config::view_3d ? "3D" : "2D",
@@ -99,7 +110,7 @@ void ui_helpers::draw_debug_overlay(const std::shared_ptr<const ui_data::RenderS
                 "Value", ImGuiTableColumnFlags_WidthStretch
             );
 
-            const auto row = [](const char* label, const std::string& value) {
+            const auto row = [](const char* label, const str& value) {
                 ImGui::TableNextRow();
 
                 ImGui::TableSetColumnIndex(0);
@@ -194,15 +205,10 @@ void ui_helpers::draw_legend(const std::shared_ptr<const ui_data::RenderSnapshot
         if (body && body->color) visible_count++;
     }
 
-    constexpr ImGuiWindowFlags flags = ImGuiWindowFlags_NoFocusOnAppearing |
-        ImGuiWindowFlags_NoMove |
-        ImGuiWindowFlags_NoSavedSettings |
-        ImGuiWindowFlags_NoResize;
-
     constexpr auto margin = static_cast<float>(config::WINDOW_MARGIN);
 
     constexpr float width = margin * 0.25f + config::GRID_SPACING;
-    constexpr float available_height = config::WINDOW_HEIGHT - 2.0f * margin;
+    const float available_height = static_cast<float>(GetScreenHeight()) - 2.0f * margin;
 
     const float rows_height = visible_count == 0
         ? 0.0f
@@ -213,7 +219,7 @@ void ui_helpers::draw_legend(const std::shared_ptr<const ui_data::RenderSnapshot
     // Position & size
     ImGui::SetNextWindowPos(
         {
-            static_cast<float>(config::WINDOW_WIDTH) - margin,
+            static_cast<float>(GetScreenWidth()) - margin,
             margin
         },
         ImGuiCond_Always,
@@ -228,7 +234,7 @@ void ui_helpers::draw_legend(const std::shared_ptr<const ui_data::RenderSnapshot
         ui_config::legend_collapse_requested = false;
     }
 
-    const bool window_expanded = ImGui::Begin("Legend", nullptr, flags);
+    const bool window_expanded = ImGui::Begin("Legend", nullptr, ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoResize);
 
     // Changes made through the title bar
     ui_config::legend_collapsed = ImGui::IsWindowCollapsed();
@@ -269,9 +275,9 @@ void ui_helpers::draw_legend(const std::shared_ptr<const ui_data::RenderSnapshot
             if (dx * dx + dy * dy <= radius * radius) {
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                     if (body->rendering_visible) {
-                        ui_data::update_body_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .disable_rendering = true});
+                        ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .disable_rendering = true});
                     } else {
-                        ui_data::update_body_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .enable_rendering = true});
+                        ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .enable_rendering = true});
                     }
                 }
 
@@ -437,18 +443,27 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                     ImGui::TableNextColumn();
                     ImGui::TextUnformatted("Position");
                     ImGui::Indent(15.0f);
-                    if (imgui_input(px, displayed_position.x, i, "x", "x##position", 4, "m")) ui_data::update_body_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .px = px.val});
-                    if (imgui_input(py, displayed_position.y, i, "y", "y##position", 4, "m")) ui_data::update_body_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .py = py.val});
-                    if (imgui_input(pz, displayed_position.z, i, "z", "z##position", 4, "m")) ui_data::update_body_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .pz = pz.val});
+
+                    if (imgui_input(px, displayed_position.x, i, "x", "x##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .px = px.val});
+                    if (imgui_input(py, displayed_position.y, i, "y", "y##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .py = py.val});
+                    if (imgui_input(pz, displayed_position.z, i, "z", "z##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .pz = pz.val});
+
+                    ImGui::Spacing();
+                    ImGui::Text("Distance: %.4e m", displayed_position.length());
+
                     ImGui::Unindent(15.0f);
 
                     ImGui::TableNextColumn();
                     ImGui::TextUnformatted("Velocity");
                     ImGui::Indent(15.0f);
 
-                    if (imgui_input(vx, displayed_velocity.x, i, "x", "x##velocity", 4, "m/s")) ui_data::update_body_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vx = vx.val});
-                    if (imgui_input(vy, displayed_velocity.y, i, "y", "y##velocity", 4, "m/s")) ui_data::update_body_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vy = vy.val});
-                    if (imgui_input(vz, displayed_velocity.z, i, "z", "z##velocity", 4, "m/s")) ui_data::update_body_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vz = vz.val});
+                    if (imgui_input(vx, displayed_velocity.x, i, "x", "x##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vx = vx.val});
+                    if (imgui_input(vy, displayed_velocity.y, i, "y", "y##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vy = vy.val});
+                    if (imgui_input(vz, displayed_velocity.z, i, "z", "z##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vz = vz.val});
+
+                    ImGui::Spacing();
+                    ImGui::Text("Speed: %.4e m/s", displayed_velocity.length());
+
                     ImGui::Unindent(15.0f);
 
                     ImGui::EndTable();
@@ -456,7 +471,7 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                 ImGui::Spacing();
 
-                if (imgui_input(mass, body->mass, i, "Mass", "mass", 6, "kg")) ui_data::update_body_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .mass = mass.val});
+                if (imgui_input(mass, body->mass, i, "Mass", "mass", 6, "kg")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .mass = mass.val});
 
                 ImGui::SameLine();
 
@@ -493,7 +508,7 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                 ImGui::Separator();
                 ImGui::Spacing();
 
-                ImGui::Text("Camera");
+                ImGui::TextUnformatted("Camera");
 
                 ImGui::SameLine();
 
@@ -542,7 +557,7 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                 ImGui::EndGroup();
 
-                ImGui::Text("Coordinates");
+                ImGui::TextUnformatted("Coordinates");
 
                 ImGui::SameLine();
 
@@ -601,12 +616,14 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
     ImGui::PushStyleColor(ImGuiCol_TextDisabled, dark_mode ? IM_COL32(170, 170, 170, 255) : IM_COL32(100, 100, 100, 255));
 
     constexpr float toolbar_height = config::WINDOW_MARGIN - 16.0f;
-    constexpr float toolbar_width = config::WINDOW_WIDTH - 2.0f * config::WINDOW_MARGIN;
+    const float toolbar_width = static_cast<float>(GetScreenWidth()) - 2.0f * config::WINDOW_MARGIN;
 
     ImGui::SetNextWindowPos(ImVec2(config::WINDOW_MARGIN, 10.0f), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(toolbar_width, toolbar_height), ImGuiCond_Always);
 
-    if (ImGui::Begin("##SimulationStats", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing)) {
+    ImGui::SetNextWindowScroll(ImVec2(0.0f, 0.0f));
+
+    if (ImGui::Begin("##SimulationStats", nullptr, ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoScrollWithMouse)) {
         // Center text within the current table column
         auto centered_text = [](const char* text, const bool disabled) {
             const float available_width = ImGui::GetContentRegionAvail().x;
@@ -640,18 +657,18 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
         const float table_width = std::max(1.0f, ImGui::GetContentRegionAvail().x - buttons_width - table_gap);
 
         if (ImGui::BeginTable("##StatsTable", 3, ImGuiTableFlags_SizingStretchSame, ImVec2(table_width, 0.0f))) {
-            ImGui::TableNextRow(ImGuiTableRowFlags_None, toolbar_height / 2);
+            ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
             stat("TIME", std::format("{:.2f} yr", years));
 
             ImGui::TableSetColumnIndex(1);
-            stat("AVERAGE SPEED", std::format("{:.2f} yr/s", speed));
+            stat("AVERAGE SPEED", std::format("{:.3f} yr/s", speed));
 
             ImGui::TableSetColumnIndex(2);
             stat("STEP", runtime_config::time_step_string);
 
-            ImGui::TableNextRow(ImGuiTableRowFlags_None, toolbar_height / 2);
+            ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
             stat("RUN TIME", std::format("{:.2f} s", seconds));
@@ -818,29 +835,29 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
             // Trail toggles
             ImGui::SetCursorPosY(ImGui::GetCursorPosY() + slider_gap);
 
-            if (ImGui::Button("Trails", ImVec2(-1.0f, 0.0f))) {
-                ImGui::OpenPopup("##TrailOptions");
+            if (ImGui::Button("Tools", ImVec2(-1.0f, 0.0f))) {
+                ImGui::OpenPopup("##ToolOptions");
             }
 
             if (ImGui::IsItemHovered()) {
-                ImGui::SetTooltip(
-                    "Trails: %s\nMoon trails: %s",
-                    ui_config::draw_orbits ? "shown" : "hidden",
-                    ui_config::draw_orbits && ui_config::draw_moon_orbits
-                        ? "shown" : "hidden"
-                );
+                ImGui::SetTooltip("Various Tools");
             }
 
             // Override the toolbar's zero vertical item spacing for this popup
             ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(8.0f, 6.0f));
             ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(10.0f, 8.0f));
 
-            if (ImGui::BeginPopup("##TrailOptions")) {
+            if (ImGui::BeginPopup("##ToolOptions")) {
                 ImGui::Checkbox("Show orbits (O)", &ui_config::draw_orbits);
 
                 ImGui::BeginDisabled(!ui_config::draw_orbits);
                 ImGui::Checkbox("Include moons (M)", &ui_config::draw_moon_orbits);
                 ImGui::EndDisabled();
+
+                ImGui::Separator();
+
+                ImGui::MenuItem("Checkpoints...", nullptr, &ui_config::show_checkpoints);
+                ImGui::MenuItem("Diagnostics...", nullptr, &ui_config::show_diagnostics);
 
                 ImGui::EndPopup();
             }
@@ -871,6 +888,10 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 "##pause_resume",
                 ImVec2(button_width, button_height)
             );
+
+            if (ImGui::IsItemHovered()) {
+                ImGui::SetTooltip(running ? "Pause" : "Resume");
+            }
 
             ImGui::EndDisabled();
 
@@ -944,3 +965,170 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
     imgui_style_cleanup();
 }
+
+void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const bool dark_mode) {
+    if (!ui_config::show_checkpoints || !snap) return;
+
+    imgui_style_setup(dark_mode);
+
+    ImGui::SetNextWindowSize(ImVec2(420.0f, 325.0f), ImGuiCond_Always);
+
+    if (ImGui::Begin("Checkpoints", &ui_config::show_checkpoints, ImGuiWindowFlags_NoResize)) {
+        static std::size_t selected_id = 0;
+        static std::size_t rename_id = 0;
+        static char rename_buffer[256]{};
+
+        bool open_rename_popup = false;
+
+        const bool has_checkpoints = !snap->checkpoints.empty();
+        const bool can_restore = has_checkpoints && snap->checkpoint_restore_allowed;
+
+        if (std::ranges::none_of(
+            snap->checkpoints,
+            [&](const auto& checkpoint) {
+                return checkpoint.id == selected_id;
+            }
+        )) {
+            selected_id = 0;
+        }
+
+        if (ImGui::Button("Save checkpoint")) {
+            ui_data::simulation_command_queue.push(
+                ui_data::CaptureCheckpoint{}
+            );
+        }
+
+        ImGui::SameLine();
+
+        ImGui::BeginDisabled(!can_restore);
+
+        if (ImGui::Button("Reset simulation")) {
+            request_checkpoint_restore(0);
+        }
+
+        ImGui::EndDisabled();
+
+        ImGui::Separator();
+
+        if (ImGui::BeginChild(
+            "##checkpoint_list",
+            ImVec2(0.0f, 200.0f),
+            ImGuiChildFlags_Borders
+        )) {
+            for (const auto& checkpoint : snap->checkpoints) {
+                ImGui::PushID(std::format("checkpoint_{}", checkpoint.id).c_str());
+
+                // The fixed suffix keeps the widget ID stable when its label changes.
+                const str row_label = std::format(
+                    "{}###entry",
+                    checkpoint.label
+                );
+
+                if (ImGui::Selectable(row_label.c_str(), selected_id == checkpoint.id)) {
+                    selected_id = checkpoint.id;
+                }
+
+                if (ImGui::IsItemHovered()) {
+                    ImGui::SetTooltip("%.6f years", static_cast<double>(checkpoint.simulated_seconds) / config::SECONDS_PER_YEAR
+                    );
+                }
+
+                if (ImGui::BeginPopupContextItem("##checkpoint_actions")) {
+                    if (ImGui::MenuItem("Rename...", nullptr, false, checkpoint.id != 0)) {
+                        selected_id = checkpoint.id;
+                        rename_id = checkpoint.id;
+
+                        std::snprintf(
+                            rename_buffer,
+                            sizeof(rename_buffer),
+                            "%s",
+                            checkpoint.label.c_str()
+                        );
+
+                        open_rename_popup = true;
+                    }
+
+                    ImGui::EndPopup();
+                }
+
+                ImGui::PopID();
+            }
+        }
+
+        ImGui::EndChild();
+
+        if (open_rename_popup) {
+            ImGui::OpenPopup("Rename checkpoint");
+        }
+
+        if (ImGui::BeginPopupModal("Rename checkpoint", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+            if (ImGui::IsWindowAppearing()) {
+                ImGui::SetKeyboardFocusHere();
+            }
+
+            ImGui::SetNextItemWidth(320.0f);
+
+            const bool enter = ImGui::InputText(
+                "Label",
+                rename_buffer,
+                sizeof(rename_buffer),
+                ImGuiInputTextFlags_EnterReturnsTrue
+            );
+
+            const bool valid = std::string_view(rename_buffer).find_first_not_of(" \t\r\n") != std::string_view::npos;
+
+            ImGui::BeginDisabled(!valid);
+            const bool save = ImGui::Button("Save");
+            ImGui::EndDisabled();
+
+            ImGui::SameLine();
+
+            const bool cancel = ImGui::Button("Cancel");
+            const bool escape = ImGui::IsKeyPressed(ImGuiKey_Escape);
+
+            if (valid && (enter || save)) {
+                ui_data::simulation_command_queue.push(ui_data::RenameCheckpoint{rename_id, str(rename_buffer)});
+
+                ImGui::CloseCurrentPopup();
+            } else if (cancel || escape) {
+                ImGui::CloseCurrentPopup();
+            }
+
+            ImGui::EndPopup();
+        }
+
+        ImGui::BeginDisabled(!can_restore);
+
+        if (ImGui::Button("Restore selected")) {
+            request_checkpoint_restore(selected_id);
+        }
+
+        ImGui::EndDisabled();
+
+        ImGui::SameLine();
+
+        ImGui::BeginDisabled(!has_checkpoints || selected_id == 0);
+
+        if (ImGui::Button("Delete selected")) {
+            ui_data::simulation_command_queue.push(ui_data::DeleteCheckpoint{selected_id});
+
+            selected_id = 0;
+        }
+
+        ImGui::EndDisabled();
+
+        if (!snap->checkpoint_restore_allowed) {
+            ImGui::TextDisabled(
+                "Restoration is unavailable during CSV export."
+            );
+        }
+
+        ImGui::TextDisabled("Restoring pauses the simulation.");
+    }
+
+    ImGui::End();
+    imgui_style_cleanup();
+}
+ 
+// TODO: Add graphs similar to Algodoo (also: for time/steps and energy/momentum)
+// TODO: macOS snapping latency
