@@ -6,19 +6,19 @@
 class PausableTimer {
     using Clock = std::chrono::steady_clock;
 
-    mutable std::mutex mutex_;
+    mutable std::mutex mtx;
     Clock::time_point last_start = Clock::now();
     Clock::duration elapsed{};
     bool running = false;
 
 public:
     bool is_running() const {
-        std::lock_guard lock(mutex_);
+        std::lock_guard lock(mtx);
         return running;
     }
 
     void pause() {
-        std::lock_guard lock(mutex_);
+        std::lock_guard lock(mtx);
         if (!running) return;
 
         elapsed += Clock::now() - last_start;
@@ -26,14 +26,14 @@ public:
     }
 
     void resume() {
-        std::lock_guard lock(mutex_);
+        std::lock_guard lock(mtx);
         if (running) return;
         last_start = Clock::now();
         running = true;
     }
 
     void resume_or_pause() {
-        std::lock_guard lock(mutex_);
+        std::lock_guard lock(mtx);
         if (running) {
             elapsed += Clock::now() - last_start;
             running = false;
@@ -44,7 +44,7 @@ public:
     }
 
     double seconds() const {
-        std::lock_guard lock(mutex_);
+        std::lock_guard lock(mtx);
         auto total = elapsed;
 
         if (running) total += Clock::now() - last_start;
