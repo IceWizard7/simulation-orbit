@@ -1,5 +1,6 @@
 #include <algorithm>
 #include <cfloat>
+#include <charconv>
 #include <chrono>
 #include <cstddef>
 #include <cstdio>
@@ -132,6 +133,7 @@ void ui_helpers::draw_debug_overlay(const std::shared_ptr<const ui_data::RenderS
             row("Process CPU", std::format("{:.1f}%", cpu_percent));
             row("FPS", std::format("{:.1f} / {}", fps, config::TARGET_FPS));
             row("Frame interval", std::format("{:.2f} ms", frame_ms));
+            row("Steps", std::format("{}", config::steps_simulated.load()));
 
             section("Trails / frame");
 
@@ -439,14 +441,16 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                     vz = {displayed_velocity.z, false};
                 }
 
+                ImGui::BeginDisabled(ui_data::get_step_progress().busy);
+
                 if (ImGui::BeginTable("PositionVelocity", 2)) {
                     ImGui::TableNextColumn();
                     ImGui::TextUnformatted("Position");
                     ImGui::Indent(15.0f);
 
-                    if (imgui_input(px, displayed_position.x, i, "x", "x##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .px = px.val});
-                    if (imgui_input(py, displayed_position.y, i, "y", "y##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .py = py.val});
-                    if (imgui_input(pz, displayed_position.z, i, "z", "z##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .pz = pz.val});
+                    if (imgui_double_input(px, displayed_position.x, i, "x", "x##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .px = px.val});
+                    if (imgui_double_input(py, displayed_position.y, i, "y", "y##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .py = py.val});
+                    if (imgui_double_input(pz, displayed_position.z, i, "z", "z##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .pz = pz.val});
 
                     ImGui::Spacing();
                     ImGui::Text("Distance: %.4e m", displayed_position.length());
@@ -457,9 +461,9 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                     ImGui::TextUnformatted("Velocity");
                     ImGui::Indent(15.0f);
 
-                    if (imgui_input(vx, displayed_velocity.x, i, "x", "x##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vx = vx.val});
-                    if (imgui_input(vy, displayed_velocity.y, i, "y", "y##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vy = vy.val});
-                    if (imgui_input(vz, displayed_velocity.z, i, "z", "z##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vz = vz.val});
+                    if (imgui_double_input(vx, displayed_velocity.x, i, "x", "x##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vx = vx.val});
+                    if (imgui_double_input(vy, displayed_velocity.y, i, "y", "y##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vy = vy.val});
+                    if (imgui_double_input(vz, displayed_velocity.z, i, "z", "z##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vz = vz.val});
 
                     ImGui::Spacing();
                     ImGui::Text("Speed: %.4e m/s", displayed_velocity.length());
@@ -471,7 +475,9 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                 ImGui::Spacing();
 
-                if (imgui_input(mass, body->mass, i, "Mass", "mass", 6, "kg")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .mass = mass.val});
+                if (imgui_double_input(mass, body->mass, i, "Mass", "mass", 6, "kg")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .mass = mass.val});
+
+                ImGui::EndDisabled();
 
                 ImGui::SameLine();
 
@@ -606,6 +612,9 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
     const bool running = config::timer.is_running();
     const bool can_resume = runtime_config::target_total_simulation_time < 0.0 || runtime_config::target_total_simulation_time > simulated_years();
 
+    const auto progress = ui_data::get_step_progress();
+    const bool can_step = !progress.busy && !running && can_resume;
+
     imgui_style_setup(dark_mode);
 
     ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, 3.0f);
@@ -674,7 +683,19 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
             stat("RUN TIME", std::format("{:.2f} s", seconds));
 
             ImGui::TableSetColumnIndex(1);
-            stat("TARGET", target_speed);
+
+            if (progress.busy) {
+                stat(
+                    "SIMULATING",
+                    std::format(
+                        "{} / {} steps",
+                        progress.completed,
+                        progress.total
+                    )
+                );
+            } else {
+                stat("TARGET", target_speed);
+            }
 
             ImGui::TableSetColumnIndex(2);
             // Center
@@ -691,7 +712,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
             // Give the popup more room than the narrow toolbar column
             ImGui::SetNextWindowSizeConstraints(
-                ImVec2(190.0f, 0.0f),
+                ImVec2(100.0f, 0.0f),
                 ImVec2(FLT_MAX, FLT_MAX)
             );
 
@@ -859,6 +880,43 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 ImGui::MenuItem("Checkpoints...", nullptr, &ui_config::show_checkpoints);
                 ImGui::MenuItem("Diagnostics...", nullptr, &ui_config::show_diagnostics);
 
+                if (ImGui::MenuItem("Step once", nullptr, false, can_step)) {
+                    ui_data::request_steps(1);
+                }
+
+                static char step_count_text[32] = "1000";
+
+                ImGui::SetNextItemWidth(150.0f);
+
+                ImGui::BeginDisabled(!can_step);
+
+                const bool enter = ImGui::InputText(
+                    "Steps##manual_step_count",
+                    step_count_text,
+                    sizeof(step_count_text),
+                    ImGuiInputTextFlags_CharsDecimal |
+                    ImGuiInputTextFlags_EnterReturnsTrue
+                );
+
+                ImGui::EndDisabled();
+
+                const std::string_view text(step_count_text);
+                std::size_t step_count = 0;
+
+                const auto [end, error] = std::from_chars(
+                    text.data(), text.data() + text.size(), step_count
+                );
+
+                const bool valid = error == std::errc{} && end == text.data() + text.size() && step_count > 0;
+
+                ImGui::BeginDisabled(!can_step || !valid);
+
+                if ((ImGui::Button("Run steps") || enter) && valid && can_step) {
+                    ui_data::request_steps(step_count);
+                }
+
+                ImGui::EndDisabled();
+
                 ImGui::EndPopup();
             }
 
@@ -882,7 +940,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
             const float button_width = button_size;
             const float button_height = button_size;
 
-            ImGui::BeginDisabled(!running && !can_resume);
+            ImGui::BeginDisabled(progress.busy || (!running && !can_resume));
 
             const bool clicked = ImGui::InvisibleButton(
                 "##pause_resume",
@@ -895,7 +953,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
             ImGui::EndDisabled();
 
-            if (clicked) {
+            if (clicked && !ui_data::get_step_progress().busy) {
                 if (running) {
                     config::timer.pause();
 
@@ -974,6 +1032,10 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
     ImGui::SetNextWindowSize(ImVec2(420.0f, 325.0f), ImGuiCond_Always);
 
     if (ImGui::Begin("Checkpoints", &ui_config::show_checkpoints, ImGuiWindowFlags_NoResize)) {
+        const bool busy = ui_data::get_step_progress().busy;
+
+        ImGui::BeginDisabled(busy);
+
         static std::size_t selected_id = 0;
         static std::size_t rename_id = 0;
         static char rename_buffer[256]{};
@@ -1086,7 +1148,7 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
             const bool cancel = ImGui::Button("Cancel");
             const bool escape = ImGui::IsKeyPressed(ImGuiKey_Escape);
 
-            if (valid && (enter || save)) {
+            if (!busy && valid && (enter || save)) {
                 ui_data::simulation_command_queue.push(ui_data::RenameCheckpoint{rename_id, str(rename_buffer)});
 
                 ImGui::CloseCurrentPopup();
@@ -1124,6 +1186,8 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
         }
 
         ImGui::TextDisabled("Restoring pauses the simulation.");
+
+        ImGui::EndDisabled();
     }
 
     ImGui::End();

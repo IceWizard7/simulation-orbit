@@ -45,7 +45,13 @@ FetchContent_Declare(
         GIT_SHALLOW TRUE
 )
 
-FetchContent_MakeAvailable(imgui rlimgui)
+FetchContent_Declare(
+        implot
+        GIT_REPOSITORY https://github.com/epezent/implot.git
+        GIT_TAG 72de27832d1e6299bcc930ce01073d899d420392
+)
+
+FetchContent_MakeAvailable(imgui rlimgui implot)
 
 # Compile Dear ImGui as a static library
 add_library(imgui STATIC
@@ -56,23 +62,27 @@ add_library(imgui STATIC
         ${imgui_SOURCE_DIR}/imgui_demo.cpp
 )
 
-target_include_directories(imgui PUBLIC
-        ${imgui_SOURCE_DIR}
+target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
+
+# Compile ImPlot as a static library
+add_library(implot STATIC
+        ${implot_SOURCE_DIR}/implot.cpp
+        ${implot_SOURCE_DIR}/implot_items.cpp
+        ${implot_SOURCE_DIR}/implot_demo.cpp
 )
 
-# Compile the raylib ImGui backend
+target_include_directories(implot PUBLIC ${implot_SOURCE_DIR})
+
+target_link_libraries(implot PUBLIC imgui)
+
+# Compile the raylib ImGui backend as a static library
 add_library(rlimgui STATIC
         ${rlimgui_SOURCE_DIR}/rlImGui.cpp
 )
 
-target_include_directories(rlimgui PUBLIC
-        ${rlimgui_SOURCE_DIR}
-)
+target_include_directories(rlimgui PUBLIC ${rlimgui_SOURCE_DIR})
 
-target_link_libraries(rlimgui PUBLIC
-        imgui
-        raylib
-)
+target_link_libraries(rlimgui PUBLIC imgui raylib)
 
 add_executable(simulation-orbit
         src/main.cpp
@@ -94,6 +104,7 @@ add_executable(simulation-orbit
 target_link_libraries(simulation-orbit PRIVATE
         raylib
         rlimgui
+        implot
 )
 
 target_include_directories(simulation-orbit PRIVATE include)

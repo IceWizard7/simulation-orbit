@@ -7,7 +7,7 @@
 
 #include "ui.hpp"
 
-bool ui_helpers::imgui_input(ui_data::EditableDouble& edit, const double current_value, std::size_t i, const str& label, const str& id, int precision, const str& unit) {
+bool ui_helpers::imgui_double_input(ui_data::EditableDouble& edit, const double current_value, std::size_t i, const str& label, const str& id, int precision, const str& unit) {
     // Accepted values:
     // - All finite negative & positive values (& 0)
 

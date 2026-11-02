@@ -111,7 +111,11 @@ namespace ui_data {
         str new_label;
     };
 
-    using SimulationCommand = std::variant<UpdateBodyCommand, CaptureCheckpoint, RestoreCheckpoint, DeleteCheckpoint, RenameCheckpoint>;
+    struct StepN {
+        std::size_t n;
+    };
+
+    using SimulationCommand = std::variant<UpdateBodyCommand, CaptureCheckpoint, RestoreCheckpoint, DeleteCheckpoint, RenameCheckpoint, StepN>;
 
     inline std::array<BodyEditState, NUM_CELESTIAL_BODIES> edit_states{};
     inline std::array<bool, NUM_CELESTIAL_BODIES> was_open{};
@@ -128,7 +132,7 @@ namespace ui_data {
             queue.push(cmd);
         }
 
-            std::optional<SimulationCommand> try_pop() {
+        std::optional<SimulationCommand> try_pop() {
             std::lock_guard lock(mtx);
 
             if (queue.empty()) return std::nullopt;
@@ -141,6 +145,42 @@ namespace ui_data {
     };
 
     inline SimulationCommandQueue simulation_command_queue;
+
+    struct StepProgress {
+        bool busy = false;
+        std::size_t completed = 0;
+        std::size_t total = 0;
+    };
+
+    inline std::mutex step_progress_mutex;
+    inline StepProgress step_progress;
+
+    inline StepProgress get_step_progress() {
+        std::lock_guard lock(step_progress_mutex);
+        return step_progress;
+    }
+
+    inline void set_step_progress(const StepProgress& progress) {
+        std::lock_guard lock(step_progress_mutex);
+        step_progress = progress;
+    }
+
+    inline bool request_steps(const std::size_t count) {
+        std::lock_guard lock(step_progress_mutex);
+
+        if (count == 0 || step_progress.busy || config::timer.is_running()) {
+            return false;
+        }
+
+        step_progress = {
+            .busy = true,
+            .completed = 0,
+            .total = count
+        };
+
+        simulation_command_queue.push(StepN{.n = count});
+        return true;
+    }
 }
 
 namespace ui_config {
@@ -247,7 +287,7 @@ namespace ui_helpers {
 
     // ImGui helpers
 
-    bool imgui_input(ui_data::EditableDouble& edit,double current_value, std::size_t i, const str& label, const str& id, int precision, const str& unit);
+    bool imgui_double_input(ui_data::EditableDouble& edit,double current_value, std::size_t i, const str& label, const str& id, int precision, const str& unit);
 
     bool begin_labeled_combo(const str &label, const str &id, const str &preview, float width, const std::optional<Color>& color);
 

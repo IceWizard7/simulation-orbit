@@ -985,6 +985,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
         bool restored_checkpoint = false;
         bool processed_update_body_command = false;
         bool processed_checkpoint_command = false;
+        std::optional<std::size_t> requested_step_count = std::nullopt;
 
         while (const auto cmd = ui_data::simulation_command_queue.try_pop()) {
             if (const ui_data::UpdateBodyCommand* update_body_cmd = std::get_if<ui_data::UpdateBodyCommand>(&*cmd)) {
@@ -1051,6 +1052,16 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
                 processed_checkpoint_command |= delete_checkpoint(delete_cmd->id);
             } else if (const ui_data::RenameCheckpoint* rename_cmd = std::get_if<ui_data::RenameCheckpoint>(&*cmd)) {
                 processed_checkpoint_command |= rename_checkpoint(rename_cmd->id, rename_cmd->new_label);
+            } else if (const ui_data::StepN* step_cmd = std::get_if<ui_data::StepN>(&*cmd)) {
+                if (!config::timer.is_running() && step_cmd->n > 0) {
+                    requested_step_count = step_cmd->n;
+                } else {
+                    ui_data::set_step_progress({});
+                }
+
+                // Because the queue is FIFO, after processing a step command (which happens here), we stop processing
+                // all other commands until the step happened
+                break;
             }
         }
 
@@ -1088,10 +1099,65 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             step_budget = 0.0;
             last_budget_update = std::chrono::steady_clock::now();
 
+
+            if (requested_step_count) {
+                const std::size_t current = config::steps_simulated.load();
+
+                const std::size_t remaining = runtime_config::target_steps
+                    ? (current < *runtime_config::target_steps
+                        ? *runtime_config::target_steps - current
+                        : 0)
+                    : *requested_step_count;
+
+                const std::size_t steps_to_simulate = std::min(remaining, *requested_step_count);
+
+                ui_data::set_step_progress({
+                    .busy = true,
+                    .completed = 0,
+                    .total = steps_to_simulate
+                });
+
+                std::size_t completed = 0;
+
+                config::timer.resume();
+
+                while (completed < steps_to_simulate && !stop_token.stop_requested()) {
+                    simulate_step();
+                    completed++;
+
+                    if (completed % MAX_STEPS_PER_BATCH == 0) {
+                        ui_data::set_step_progress({
+                            .busy = true,
+                            .completed = completed,
+                            .total = steps_to_simulate
+                        });
+
+                        publish_if_due();
+                    }
+                }
+
+                config::timer.pause();
+
+                ui_data::set_step_progress({
+                    .busy = true,
+                    .completed = completed,
+                    .total = steps_to_simulate
+                });
+
+                config::republish_needed = true;
+            }
+
             if (config::republish_needed) {
                 config::republish_needed = false;
                 publish_snapshot();
                 last_publish = std::chrono::steady_clock::now();
+            }
+
+            if (requested_step_count) {
+                since_check = 0;
+                last_budget_update = std::chrono::steady_clock::now();
+
+                ui_data::set_step_progress({});
             }
 
             std::this_thread::sleep_for(std::chrono::milliseconds(1000 / config::TARGET_FPS));
@@ -1131,13 +1197,10 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             max_budget
         );
 
-        const auto steps_to_run = static_cast<std::size_t>(
-            std::min(step_budget, static_cast<double>(MAX_STEPS_PER_BATCH))
-        );
+        const auto steps_to_run = static_cast<std::size_t>(std::min(step_budget, static_cast<double>(MAX_STEPS_PER_BATCH)));
 
         if (steps_to_run == 0) {
-            const double seconds_to_next_step =
-                (1.0 - step_budget) / runtime_config::target_steps_per_second;
+            const double seconds_to_next_step = (1.0 - step_budget) / runtime_config::target_steps_per_second;
 
             std::this_thread::sleep_for(std::chrono::duration<double>(
                 std::min(seconds_to_next_step, 1.0 / config::TARGET_FPS)

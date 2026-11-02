@@ -77,7 +77,7 @@ void ui_helpers::UpdateDrawFrame() {
         reset_view();
     }
 
-    if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_RESUME_AND_PAUSE)) {
+    if (!ImGui::GetIO().WantCaptureKeyboard && !ui_data::get_step_progress().busy && IsKeyPressed(config::KEY_RESUME_AND_PAUSE)) {
         if (config::timer.is_running()) {
             config::timer.pause();
 
