@@ -11,6 +11,7 @@
 
 #include "celestial_bodies.hpp"
 #include "config.hpp"
+#include "graph_history.hpp"
 #include "ui.hpp"
 
 struct CSVEntry {
@@ -50,6 +51,7 @@ struct SimulationCheckpoint {
     // Simulation
     std::size_t steps_simulated;
     int time_step;
+    double run_time_seconds = 0.0;
 
     // Model
     runtime_config::BodySet body_set;
@@ -77,6 +79,8 @@ namespace simulation {
     inline std::vector<SimulationCheckpoint> checkpoints;
 
     inline ui_data::DiagnosticsBaseline diagnostics_baseline;
+
+    inline GraphHistory graph_history;
 
     // Must run after CLI parsing (needs the final time step) and before the first simulate_step
     void initialize_orbit_sampling();
@@ -113,6 +117,8 @@ namespace simulation {
     // Physical metrics (diagnostics)
     Vec3 calculate_linear_momentum();
 
+    double calculate_kinetic_energy();
+
     double calculate_total_energy();
 
     double calculate_total_mass();
@@ -122,6 +128,10 @@ namespace simulation {
     Vec3 calculate_expected_barycenter(const Vec3 &barycenter, const Vec3 &initial_linear_momentum, double total_mass, std::size_t baseline_steps_simulated);
 
     void reset_diagnostics_baseline();
+
+    // Graphs
+
+    GraphSample make_graph_sample();
 
     // Simulation
     void simulate_cpu(const std::stop_token& stop_token);

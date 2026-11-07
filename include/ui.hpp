@@ -115,7 +115,9 @@ namespace ui_data {
         std::size_t n;
     };
 
-    using SimulationCommand = std::variant<UpdateBodyCommand, CaptureCheckpoint, RestoreCheckpoint, DeleteCheckpoint, RenameCheckpoint, StepN>;
+    struct ClearGraphs {};
+
+    using SimulationCommand = std::variant<UpdateBodyCommand, CaptureCheckpoint, RestoreCheckpoint, DeleteCheckpoint, RenameCheckpoint, StepN, ClearGraphs>;
 
     inline std::array<BodyEditState, NUM_CELESTIAL_BODIES> edit_states{};
     inline std::array<bool, NUM_CELESTIAL_BODIES> was_open{};
@@ -322,6 +324,12 @@ namespace ui_helpers {
     void draw_checkpoint_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
 
     void draw_diagnostics_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
+
+    // Graphs
+
+    void open_graph_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, std::optional<std::size_t> body = std::nullopt, std::optional<std::size_t> reference = std::nullopt);
+
+    void draw_graph_windows(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
 
     // Generic helpers
 

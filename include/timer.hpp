@@ -43,6 +43,12 @@ public:
         }
     }
 
+    void set_seconds(const double seconds) {
+        std::lock_guard lock(mtx);
+        elapsed = std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(seconds));
+        last_start = Clock::now();
+    }
+
     double seconds() const {
         std::lock_guard lock(mtx);
         auto total = elapsed;

@@ -238,6 +238,7 @@ void ui_helpers::UpdateDrawFrame() {
 
     draw_checkpoint_window(snap, ui_config::view_3d);
     draw_diagnostics_window(snap, ui_config::view_3d);
+    draw_graph_windows(snap, ui_config::view_3d);
 
     rlImGuiEnd();
     EndDrawing();

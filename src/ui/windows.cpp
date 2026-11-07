@@ -580,6 +580,21 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                     set_coordinate_origin(snap, i);
                 }
 
+                ImGui::TextUnformatted("Data");
+
+                ImGui::SameLine();
+
+                const auto new_graph_label = "New graph";
+                group_width = ImGui::CalcTextSize(new_graph_label).x + 2.0f * style.FramePadding.x;
+
+                ImGui::SetCursorPosX(
+                    ImGui::GetCursorPosX() +
+                    std::max(0.0f, ImGui::GetContentRegionAvail().x - group_width)
+                );
+
+                if (ImGui::Button(new_graph_label)) {
+                    open_graph_window(snap, i, reference_index);
+                }
             }
 
             ImGui::End();
@@ -879,6 +894,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
                 ImGui::MenuItem("Checkpoints...", nullptr, &ui_config::show_checkpoints);
                 ImGui::MenuItem("Diagnostics...", nullptr, &ui_config::show_diagnostics);
+                if (ImGui::MenuItem("New graph...")) open_graph_window(snap); // Allow multiple graph windows
 
                 if (ImGui::MenuItem("Step once", nullptr, false, can_step)) {
                     ui_data::request_steps(1);
@@ -1327,5 +1343,4 @@ void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::Re
     imgui_style_cleanup();
 }
 
-// TODO: Add graphs similar to Algodoo (also: for time/steps and energy/momentum)
 // TODO: macOS snapping latency

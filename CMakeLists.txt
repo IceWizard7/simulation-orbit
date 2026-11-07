@@ -98,6 +98,7 @@ add_executable(simulation-orbit
         src/ui/imgui_helpers.cpp
         src/ui/windows.cpp
         src/ui/generic_helpers.cpp
+        src/ui/graphs.cpp
         src/ui/ui.cpp
 )
 

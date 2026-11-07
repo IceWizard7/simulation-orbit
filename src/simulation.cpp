@@ -531,6 +531,10 @@ void simulation::simulate_step() {
     ++config::steps_simulated;
     save_orbit_points();
     update_csv_data();
+
+    if (!runtime_config::headless && graph_history.due(config::steps_simulated)) {
+        graph_history.record(make_graph_sample());
+    }
 }
 
 // Builds a render snapshot from the simulation-owned state (no lock needed: the simulation thread is the only owner
@@ -718,6 +722,8 @@ void simulation::publish_snapshot() {
 }
 
 void simulation::save_checkpoint() {
+    // TODO: Add "Include trail history” checkbox when saving
+
     auto& state = checkpoints.emplace_back();
 
     state.id = next_checkpoint_id++;
@@ -735,9 +741,9 @@ void simulation::save_checkpoint() {
         state.gravitational_masses[i] = celestial_bodies.gravitational_masses[i];
     }
 
-    // TODO: Add "Include trail history” checkbox when saving
     state.steps_simulated = config::steps_simulated;
     state.time_step = runtime_config::time_step;
+    state.run_time_seconds = config::timer.seconds();
 
     state.body_set = runtime_config::body_set;
     state.interaction_set = runtime_config::interaction_set;
@@ -808,6 +814,7 @@ bool simulation::load_checkpoint(const std::size_t id) {
     force_pairs::set_interaction_set(planetary_systems);
 
     config::timer.pause();
+    config::timer.set_seconds(checkpoint.run_time_seconds);
     return true;
 }
 
@@ -841,7 +848,7 @@ Vec3 simulation::calculate_linear_momentum() {
     return momentum_times_g / config::GRAVITATIONAL_CONSTANT;
 }
 
-double simulation::calculate_total_energy() {
+double simulation::calculate_kinetic_energy() {
     // Definitions:
     // µ_i = G * m_i
 
@@ -860,9 +867,14 @@ double simulation::calculate_total_energy() {
         kinetic_energy_times_2g += celestial_bodies.gravitational_masses[i] * celestial_bodies.velocity(i).dot(celestial_bodies.velocity(i));
     }
 
-    const double kinetic_energy = kinetic_energy_times_2g / (config::GRAVITATIONAL_CONSTANT * 2);
+    return kinetic_energy_times_2g / (config::GRAVITATIONAL_CONSTANT * 2);
+}
+
+double simulation::calculate_total_energy() {
+    const double kinetic_energy = calculate_kinetic_energy();
 
     // Definitions:
+    // µ_i = G * m_i
     // r = |r_j - r_i|, n = (r_j - r_i) / r
     // R_i = equatorial radius, k_i = unit pole axis
     // u_i = n dot k_i, P2(u) = (3*u^2 - 1) / 2
@@ -960,6 +972,53 @@ void simulation::reset_diagnostics_baseline() {
     };
 }
 
+
+GraphSample simulation::make_graph_sample() {
+    GraphSample sample;
+    sample.step = config::steps_simulated.load();
+
+    if (!accelerations_at_current_positions) {
+        // The next simulate_step reuses this cache, so this costs no extra force evaluation
+        accelerations_at_current_positions = compute_accelerations();
+    }
+
+    const auto& accelerations = *accelerations_at_current_positions;
+
+    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+        // Disabled bodies keep stale values, so the UI must only offer populated bodies
+        sample.position[i] = celestial_bodies.position(i);
+        sample.velocity[i] = celestial_bodies.velocity(i);
+        sample.mass[i] = celestial_bodies.gravitational_masses[i] / config::GRAVITATIONAL_CONSTANT;
+        sample.acceleration[i] = {accelerations.x[i], accelerations.y[i], accelerations.z[i]};
+    }
+
+    sample.energy = calculate_total_energy();
+    sample.energy_drift = sample.energy - diagnostics_baseline.total_energy;
+    sample.kinetic_energy = calculate_kinetic_energy();
+
+    sample.momentum = calculate_linear_momentum();
+    sample.momentum_drift = sample.momentum - diagnostics_baseline.linear_momentum;
+
+    const double total_mass = calculate_total_mass();
+
+    if (std::isfinite(total_mass) && total_mass != 0.0) {
+        const Vec3 barycenter = calculate_barycenter(total_mass);
+        const Vec3 expected = calculate_expected_barycenter(
+            diagnostics_baseline.barycenter,
+            diagnostics_baseline.linear_momentum,
+            total_mass,
+            diagnostics_baseline.steps_simulated
+        );
+
+        sample.barycenter_drift = barycenter - expected;
+        sample.barycenter_valid = std::isfinite(sample.barycenter_drift.x)
+                               && std::isfinite(sample.barycenter_drift.y)
+                               && std::isfinite(sample.barycenter_drift.z);
+    }
+
+    return sample;
+}
+
 void simulation::simulate_cpu(const std::stop_token& stop_token) {
     auto last_publish = std::chrono::steady_clock::now();
     auto last_budget_update = std::chrono::steady_clock::now();
@@ -985,6 +1044,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
         bool restored_checkpoint = false;
         bool processed_update_body_command = false;
         bool processed_checkpoint_command = false;
+        bool clear_graphs = false;
         std::optional<std::size_t> requested_step_count = std::nullopt;
 
         while (const auto cmd = ui_data::simulation_command_queue.try_pop()) {
@@ -1062,6 +1122,8 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
                 // Because the queue is FIFO, after processing a step command (which happens here), we stop processing
                 // all other commands until the step happened
                 break;
+            } else if (std::holds_alternative<ui_data::ClearGraphs>(*cmd)) {
+                clear_graphs = true;
             }
         }
 
@@ -1086,6 +1148,16 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             config::republish_needed = false;
             publish_snapshot();
             last_publish = std::chrono::steady_clock::now();
+        }
+
+        // Delete graph history
+        if (restored_checkpoint || clear_graphs) graph_history.clear();
+
+        // Record a new sample
+        if ((physical_edit || restored_checkpoint || clear_graphs) && !runtime_config::headless) {
+            auto sample = make_graph_sample();
+            sample.starts_segment = physical_edit && !restored_checkpoint && !clear_graphs;
+            graph_history.record(sample);
         }
 
         if (processed_checkpoint_command) {

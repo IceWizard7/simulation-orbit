@@ -362,7 +362,7 @@ namespace {
     }
 
     void draw_axes_labels_3d(const Camera3D& cam) {
-        // TODO: Should change percentile when zooming in & out
+        // TODO: Should change scaling when zooming in & out
 
         const auto forward = Vector3Normalize(Vector3Subtract(cam.target, cam.position));
         auto label_axis = [&](auto anchor_of) {

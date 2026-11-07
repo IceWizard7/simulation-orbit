@@ -1,5 +1,6 @@
 #include <cstddef>
 #include <imgui.h>
+#include <implot.h>
 #include <iostream>
 #include <raylib.h>
 #include <rlImGui.h>
@@ -53,6 +54,9 @@ int main(const int argc, char* argv[]) {
     // Save initial checkpoint (0)
     simulation::save_checkpoint();
 
+    // Initial record of graph history
+    simulation::graph_history.record(simulation::make_graph_sample());
+
     SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(config::INITIAL_WINDOW_WIDTH, config::INITIAL_WINDOW_HEIGHT, "simulation-orbit");
     SetWindowMinSize(config::MIN_WINDOW_WIDTH, config::MIN_WINDOW_HEIGHT);
@@ -60,6 +64,7 @@ int main(const int argc, char* argv[]) {
     SetTargetFPS(config::TARGET_FPS);
 
     rlImGuiSetup(true);
+    ImPlot::CreateContext();
     // Keep global directional keyboard (ImGuiConfigFlags_NavEnableKeyboard) navigation disabled (causes weird behavior)
     // (ex. ImGui still wants keyboard & mice inputs for no reason)
     // Relevant tab selection (ex. between input fields) still works without this config flag.
@@ -116,6 +121,7 @@ int main(const int argc, char* argv[]) {
 
     // Unloading done
 
+    ImPlot::DestroyContext();
     rlImGuiShutdown();
     CloseWindow();
     std::cout << '\n';
