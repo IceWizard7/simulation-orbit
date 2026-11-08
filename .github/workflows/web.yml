@@ -20,6 +20,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Downscale textures for the web
+        run: |
+          sudo apt-get install -y -qq imagemagick
+          mogrify -resize '2048x2048>' -quality 85 resources/*.jpg
+          # (optional, sharper sky: resize the star maps from the originals to 4096 instead)
+
       - name: Build with Emscripten
         run: |
           git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
