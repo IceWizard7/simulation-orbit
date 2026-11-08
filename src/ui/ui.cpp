@@ -12,15 +12,6 @@
 #include "screen_utils.hpp"
 
 void ui_helpers::UpdateDrawFrame() {
-#ifdef __EMSCRIPTEN__
-    // raylib reads the canvas/page size before the browser has finished its layout.
-    // A real resize event after the first frame fixes framebuffer size, DPR and ImGui clipping.
-    static int frame = 0;
-    if (frame < 2 && ++frame == 2) {
-        emscripten_run_script("window.dispatchEvent(new Event('resize'));");
-    }
-#endif
-
     std::shared_ptr<const ui_data::RenderSnapshot> snap;
     {
         std::lock_guard lock(config::snapshot_lock);
