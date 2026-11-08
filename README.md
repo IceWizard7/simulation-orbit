@@ -24,12 +24,7 @@
 </div>-->
 <br>
 
-> [!Note]
-> Demo Video
-[![Demo Video](screenshots/3.png)](https://www.youtube.com/watch?v=Ui0IkPfnHJc)
-
-> [!WARNING]
-> This research software is under active development.
+[▶ Try it out yourselves in the browser!](https://icewizard7.github.io/simulation-orbit/)
 
 ## 1. Features
 
