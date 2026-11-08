@@ -132,7 +132,7 @@ if(EMSCRIPTEN)
             "-sINITIAL_MEMORY=256MB"
             "-sMAXIMUM_MEMORY=4GB"
 
-            "-sPTHREAD_POOL_SIZE=8"
+            "-sPTHREAD_POOL_SIZE=2"
     )
 
     add_custom_command(TARGET simulation-orbit POST_BUILD
