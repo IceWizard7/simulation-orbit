@@ -13,6 +13,7 @@
 #include <vector>
 
 #include "config.hpp"
+#include "orbital_elements.hpp"
 #include "planet_visual.hpp"
 #include "vectors.hpp"
 
@@ -206,6 +207,9 @@ namespace ui_config {
     inline bool draw_moon_orbits = true; // default; toggle with keybind / UI
     inline bool draw_orbits = true; // default; toggle with keybind / UI
 
+    // Inspector orbital elements: true = body + its current satellites (-> system barycenter), false = body alone
+    inline bool orbit_use_system_barycenter = true;
+
     inline std::size_t trail_segments_reduced_2d = 0;
     inline std::size_t trail_segments_submitted_2d = 0;
 
@@ -332,6 +336,8 @@ namespace ui_helpers {
     void draw_graph_windows(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, bool dark_mode);
 
     // Generic helpers
+
+    std::array<std::optional<PointMass>, NUM_CELESTIAL_BODIES> to_point_masses(const ui_data::RenderSnapshot& snap);
 
     void cancel_camera_drag();
 

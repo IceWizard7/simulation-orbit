@@ -1,11 +1,26 @@
 #include "ui.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <rlImGui.h>
+
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 
 #include "screen_utils.hpp"
 
 void ui_helpers::UpdateDrawFrame() {
+#ifdef __EMSCRIPTEN__
+    // raylib reads the canvas/page size before the browser has finished its layout.
+    // A real resize event after the first frame fixes framebuffer size, DPR and ImGui clipping.
+    static int frame = 0;
+    if (frame < 2 && ++frame == 2) {
+        emscripten_run_script("window.dispatchEvent(new Event('resize'));");
+    }
+#endif
+
     std::shared_ptr<const ui_data::RenderSnapshot> snap;
     {
         std::lock_guard lock(config::snapshot_lock);
@@ -108,8 +123,24 @@ void ui_helpers::UpdateDrawFrame() {
     if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_MOON_ORBIT_RENDERING_TOGGLE)) ui_config::draw_moon_orbits = !ui_config::draw_moon_orbits;
     if (!ImGui::GetIO().WantCaptureKeyboard && IsKeyPressed(config::KEY_DEBUG_TOGGLE)) ui_config::view_debug = !ui_config::view_debug;
 
-    const float scroll = ImGui::GetIO().WantCaptureMouse ? 0.0f : GetMouseWheelMove();
+#ifdef __EMSCRIPTEN__
+    // Raw browser delta (pixels, + = down), drained every frame
+    const double raw_wheel = EM_ASM_DOUBLE({ const d = Module.wheelDeltaY; Module.wheelDeltaY = 0; return d; });
+    const float wheel = static_cast<float>(-raw_wheel / config::WEB_WHEEL_PIXELS_PER_ZOOM_STEP);
+#else
+    const float wheel = GetMouseWheelMoveV().y;
+#endif
+
+    const float scroll = ImGui::GetIO().WantCaptureMouse ? 0.0f : wheel;
+
     const auto [mx, my] = GetMousePosition();
+
+    // Signed zoom amount this frame: + = in, - = out
+    const bool keys_ok = !ImGui::GetIO().WantCaptureKeyboard;
+    const double zoom_steps = std::clamp(static_cast<double>(scroll), -3.0, 3.0) // limit huge flicks
+        + (keys_ok && IsKeyDown(config::KEY_ZOOM_IN) ? 1.0 : 0.0)
+        - (keys_ok && IsKeyDown(config::KEY_ZOOM_OUT) ? 1.0 : 0.0);
+    const bool shift = std::ranges::any_of(config::KEYS_SHIFT, IsKeyDown);
 
     if (ui_config::panning_2d && (!IsWindowFocused() || !IsMouseButtonDown(MOUSE_BUTTON_LEFT) || ui_config::view_3d)) {
         ui_config::panning_2d = false;
@@ -155,10 +186,10 @@ void ui_helpers::UpdateDrawFrame() {
 
         const float zoom_factor = std::ranges::any_of(config::KEYS_SHIFT, IsKeyDown) ? config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR : config::ZOOM_3D_FACTOR;
 
-        if (scroll > 0 || (IsKeyDown(config::KEY_ZOOM_IN) && !ImGui::GetIO().WantCaptureKeyboard)) {
-            ui_config::cam_distance *= 1/zoom_factor;
-        } else if (scroll < 0 || (IsKeyDown(config::KEY_ZOOM_OUT) && !ImGui::GetIO().WantCaptureKeyboard)) {
-            ui_config::cam_distance *= zoom_factor;
+        if (zoom_steps != 0.0) {
+            const double base = shift ? config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR : config::ZOOM_3D_FACTOR;
+            // zoom_steps > 0 -> closer (divide), < 0 -> farther (multiply)
+            ui_config::cam_distance *= static_cast<float>(std::pow(base, -zoom_steps));
         }
 
         ui_config::cam_distance = std::clamp(ui_config::cam_distance, ui_config::MIN_CAM_DISTANCE, ui_config::MAX_CAM_DISTANCE);
@@ -183,18 +214,18 @@ void ui_helpers::UpdateDrawFrame() {
         }
 
 
-        const bool zoom_in = scroll > 0 || (!ImGui::GetIO().WantCaptureKeyboard && IsKeyDown(config::KEY_ZOOM_IN));
-        const bool zoom_out = scroll < 0 || (!ImGui::GetIO().WantCaptureKeyboard && IsKeyDown(config::KEY_ZOOM_OUT));
-
-        if (zoom_in || zoom_out) {
+        if (zoom_steps != 0.0) {
+            const bool zoom_in = zoom_steps > 0;
+            const bool zoom_out = !zoom_in;
             const bool anchor_at_mouse = config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN
                 && config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN;
             const Vec2 before = screen_to_meters({mx, my}, ui_config::get_2d_offset(snap));
-            const double zoom_factor = std::ranges::any_of(config::KEYS_SHIFT, IsKeyDown) ? config::ZOOM_FACTOR*config::ZOOM_FACTOR : config::ZOOM_FACTOR;
+            const double base = shift ? config::ZOOM_FACTOR * config::ZOOM_FACTOR : config::ZOOM_FACTOR;
+            const double zoom_factor = std::pow(base, std::abs(zoom_steps));
 
             if (zoom_in) {
                 // scrolled up (=> in)
-                if (config::AXIS_SCALING / zoom_factor < 4.0/3) {
+                if (config::AXIS_SCALING / zoom_factor < 4.0 / 3) {
                     config::AXIS_SCALING *= 10;
                     config::AXIS_SCALING /= zoom_factor;
                     config::SCALING /= zoom_factor;
@@ -204,7 +235,7 @@ void ui_helpers::UpdateDrawFrame() {
                 }
             } else if (zoom_out) {
                 // scrolled down (=> out)
-                if (config::AXIS_SCALING * zoom_factor > 10 * 4.0/3) {
+                if (config::AXIS_SCALING * zoom_factor > 10 * 4.0 / 3) {
                     config::AXIS_SCALING /= 10;
                     config::AXIS_SCALING *= zoom_factor;
                     config::SCALING *= zoom_factor;

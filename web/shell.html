@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport"
+          content="width=device-width, initial-scale=1">
+
+    <title>simulation-orbit</title>
+
+    <style>
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background: #101318;
+        }
+
+        #canvas {
+            display: block;
+            width: 100vw;
+            height: 100vh;
+            outline: none;
+            touch-action: none;
+        }
+
+        #fullscreen {
+            position: fixed;
+            right: 12px;
+            bottom: 12px;
+            z-index: 1;
+            opacity: 0.5;
+        }
+        #fullscreen:hover { opacity: 1; }
+        :fullscreen #fullscreen { display: none; }   /* Hide while fullscreen; Esc exits */
+    </style>
+</head>
+<body>
+    <canvas id="canvas"
+            width="900"
+            height="900"
+            tabindex="-1"
+            oncontextmenu="event.preventDefault()">
+    </canvas>
+
+    <button id="fullscreen" title="Fullscreen">⛶</button>
+
+    <script>
+        var Module = {
+            canvas: document.getElementById("canvas"),
+
+            // simulation-orbit.html?--dt&900&--body-set&all -> argv = ["--dt", "900", "--body-set", "all"]
+            arguments: location.search.slice(1).split("&").filter(Boolean).map(decodeURIComponent),
+            print: (...args) => console.log(...args),
+            printErr: (...args) => console.error(...args),
+
+            onAbort: (reason) => {
+                console.error("Simulation aborted:", reason);
+            }
+        };
+
+        Module.wheelDeltaY = 0;
+        Module.canvas.addEventListener("wheel", (e) => {
+            Module.wheelDeltaY += (e.deltaMode === 0) ? e.deltaY : e.deltaY * 33; // lines -> approx. pixels
+        }, { passive: true });
+
+        document.getElementById("fullscreen").addEventListener("click", () => {
+            // documentElement instead of canvas
+            document.documentElement.requestFullscreen?.();
+        });
+
+        // Emscripten's GLFW forces the canvas to screen.width * screen.height when entering fullscreen, which exceeds the visible area on displays with a notc
+        // A follow-up resize applies the real viewport
+        document.addEventListener("fullscreenchange", () => {
+            requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+        });
+    </script>
+
+    <!-- Emscripten placeholder -->
+    {{{ SCRIPT }}}
+</body>
+</html>
+

@@ -3,19 +3,21 @@
 #include <cfloat>
 #include <cmath>
 #include <cstddef>
-#include <cstdint>
 #include <cstdio>
 #include <format>
 #include <imgui.h>
 #include <implot.h>
 #include <limits>
 #include <memory>
+#include <numbers>
 #include <optional>
 #include <span>
 #include <vector>
 
 #include "graph_history.hpp"
+#include "orbital_elements.hpp"
 #include "simulation.hpp"
+#include "time_units.hpp"
 #include "ui.hpp"
 
 namespace {
@@ -25,6 +27,7 @@ namespace {
         velocity_x, velocity_y, velocity_z, speed, radial_speed,
         acceleration_x, acceleration_y, acceleration_z, acceleration,
         mass, body_kinetic_energy, body_momentum, angular_momentum,
+        semi_major_axis, semi_minor_axis, eccentricity, linear_eccentricity, orbital_period, inclination,
         energy, kinetic_energy, potential_energy, energy_drift, relative_energy_drift,
         momentum_x, momentum_y, momentum_z, momentum, momentum_drift,
         barycenter_drift
@@ -57,6 +60,12 @@ namespace {
         QuantityInfo{GraphQuantity::body_kinetic_energy, "Body kinetic energy", "%.4g J", true},
         QuantityInfo{GraphQuantity::body_momentum, "Body momentum", "%.4g kg m/s", true},
         QuantityInfo{GraphQuantity::angular_momentum, "Spec. angular momentum", "%.6g m^2/s", true},
+        QuantityInfo{GraphQuantity::semi_major_axis, "Semi-major axis a", "%.6g m", true},
+        QuantityInfo{GraphQuantity::semi_minor_axis, "Semi-minor axis b", "%.6g m", true},
+        QuantityInfo{GraphQuantity::eccentricity, "Eccentricity e", "%.6g", true},
+        QuantityInfo{GraphQuantity::linear_eccentricity, "Linear eccentricity c", "%.6g m", true},
+        QuantityInfo{GraphQuantity::orbital_period, "Orbital period T", "%.6g s", true},
+        QuantityInfo{GraphQuantity::inclination, "Inclination i", "%.4g deg", true},
         QuantityInfo{GraphQuantity::energy, "Total energy", "%.6g J", false},
         QuantityInfo{GraphQuantity::kinetic_energy, "Total kinetic energy", "%.6g J", false},
         QuantityInfo{GraphQuantity::potential_energy, "Total potential energy", "%.6g J", false},
@@ -70,7 +79,7 @@ namespace {
         QuantityInfo{GraphQuantity::barycenter_drift, "Barycenter drift", "%.4g m", false},
     };
 
-    // Compile time check
+    // Compile time check (correct order and all used in QUANTITIES)
     static_assert([] {
         for (std::size_t i = 0; i < QUANTITIES.size(); i++) {
             if (static_cast<std::size_t>(QUANTITIES[i].quantity) != i) return false;
@@ -90,6 +99,15 @@ namespace {
         const Vec3 position = reference ? s.position[body] - s.position[*reference] : s.position[body];
         const Vec3 velocity = reference ? s.velocity[body] - s.velocity[*reference] : s.velocity[body];
         const Vec3 acceleration = reference ? s.acceleration[body] - s.acceleration[*reference] : s.acceleration[body];
+
+        // Orbital elements need a central body: NaN in the inertial frame
+        const auto orbital_element = [&](double OrbitalElements::* field) {
+            if (!reference) return std::numeric_limits<double>::quiet_NaN();
+
+            const double mu = (s.mass[body] + s.mass[*reference]) * config::GRAVITATIONAL_CONSTANT;
+            const auto orbit = orbital_elements(position, velocity, mu);
+            return orbit ? (*orbit).*field : std::numeric_limits<double>::quiet_NaN();
+        };
 
         switch (quantity) {
             case GraphQuantity::time: return static_cast<double>(s.step) * runtime_config::time_step;
@@ -115,6 +133,12 @@ namespace {
                 position.z * velocity.x - position.x * velocity.z,
                 position.x * velocity.y - position.y * velocity.x
             }.length();
+            case GraphQuantity::semi_major_axis: return orbital_element(&OrbitalElements::semi_major_axis);
+            case GraphQuantity::semi_minor_axis: return orbital_element(&OrbitalElements::semi_minor_axis);
+            case GraphQuantity::eccentricity: return orbital_element(&OrbitalElements::eccentricity);
+            case GraphQuantity::linear_eccentricity: return orbital_element(&OrbitalElements::linear_eccentricity);
+            case GraphQuantity::orbital_period: return orbital_element(&OrbitalElements::orbital_period);
+            case GraphQuantity::inclination: return orbital_element(&OrbitalElements::inclination) * 180.0 / std::numbers::pi;;
             case GraphQuantity::energy: return s.energy;
             case GraphQuantity::kinetic_energy: return s.kinetic_energy;
             case GraphQuantity::potential_energy: return s.energy - s.kinetic_energy;
@@ -228,34 +252,14 @@ namespace {
         return snap->bodies[i] ? snap->bodies[i]->name : "N/A";
     }
 
-
-    struct TimeUnit {
-        const char* suffix;
-        double seconds;
-    };
-
-    constexpr std::array TIME_UNITS{
-        TimeUnit{"s", 1.0},
-        TimeUnit{"min", 60.0},
-        TimeUnit{"h", 3'600.0},
-        TimeUnit{"d", 86'400.0},
-        TimeUnit{"yr", config::SECONDS_PER_YEAR}
-    };
-
-    // Largest unit that still fits at least twice into the span
-    const TimeUnit& choose_time_unit(const double span_seconds) {
-        const TimeUnit* chosen = &TIME_UNITS.front();
-
-        for (const TimeUnit& unit : TIME_UNITS) {
-            if (span_seconds >= 2.0 * unit.seconds) chosen = &unit;
-        }
-
-        return *chosen;
+    int format_time_tick(const double seconds, char* buffer, const int size, void* user_data) {
+        const auto* unit = static_cast<const time_units::TimeUnit*>(user_data);
+        return std::snprintf(buffer, static_cast<std::size_t>(size), "%.6g %s", seconds / unit->seconds, unit->suffix);
     }
 
-    int format_time_tick(const double seconds, char* buffer, const int size, void* user_data) {
-        const auto* unit = static_cast<const TimeUnit*>(user_data);
-        return std::snprintf(buffer, static_cast<std::size_t>(size), "%.6g %s", seconds / unit->seconds, unit->suffix);
+    void setup_duration_axis(const ImAxis axis, const ImPlotRange& visible) {
+        const time_units::TimeUnit& unit = time_units::choose(std::max(std::abs(visible.Min), std::abs(visible.Max)));
+        ImPlot::SetupAxisFormat(axis, format_time_tick, const_cast<void*>(static_cast<const void*>(&unit)));
     }
 
     // ImPlot picks round ticks in seconds (ex. 1e7 s = 115.741 d), so place them at round values of the chosen unit
@@ -267,7 +271,7 @@ namespace {
             return;
         }
 
-        const TimeUnit& unit = choose_time_unit(span);
+        const time_units::TimeUnit& unit = time_units::choose(span);
 
         constexpr double TARGET_TICKS = 5.0;
         const double raw_step = span / unit.seconds / TARGET_TICKS;
@@ -291,14 +295,11 @@ namespace {
     }
 
     str format_value(const GraphQuantity q, const double value) {
-        char buffer[64];
-
-        if (q == GraphQuantity::time) {
-            const TimeUnit& unit = choose_time_unit(std::abs(value));
-            std::snprintf(buffer, sizeof(buffer), "%.6g %s", value / unit.seconds, unit.suffix);
-            return buffer;
+        if (q == GraphQuantity::time || q == GraphQuantity::orbital_period) {
+            return time_units::format_duration(value);
         }
 
+        char buffer[64];
         std::snprintf(buffer, sizeof(buffer), info(q).format, value);
         return buffer;
     }
@@ -502,9 +503,11 @@ namespace {
 
             ImPlot::SetupAxes(x_label.c_str(), y_label.c_str(), axis_flags, axis_flags);
             if (w.x == GraphQuantity::time) setup_time_axis(ImAxis_X1, w.visible_x);
+            else if (w.x == GraphQuantity::orbital_period) setup_duration_axis(ImAxis_X1, w.visible_x);
             else ImPlot::SetupAxisFormat(ImAxis_X1, info(w.x).format);
 
             if (w.y == GraphQuantity::time) setup_time_axis(ImAxis_Y1, w.visible_y);
+            else if (w.y == GraphQuantity::orbital_period) setup_duration_axis(ImAxis_Y1, w.visible_y);
             else ImPlot::SetupAxisFormat(ImAxis_Y1, info(w.y).format);
 
             const ImVec4 color = graph_color(snap, w);

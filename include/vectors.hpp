@@ -73,4 +73,8 @@ public:
     [[nodiscard]] Vec2 to_vec2() const {
         return {x, y};
     }
+
+    [[nodiscard]] Vec3 cross(const Vec3& v) const {
+        return {y * v.z - z * v.y, z * v.x - x * v.z, x * v.y - y * v.x};
+    }
 };

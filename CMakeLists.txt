@@ -8,6 +8,12 @@ set(RAYLIB_VERSION 6.0)
 
 include(FetchContent)
 
+# Emscripten specific definitions
+if(EMSCRIPTEN)
+    add_compile_options(-pthread)
+    add_link_options(-pthread)
+endif()
+
 if (USE_SYSTEM_RAYLIB)
     find_package(raylib ${RAYLIB_VERSION} CONFIG REQUIRED)
 else()
@@ -53,6 +59,11 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(imgui rlimgui implot)
 
+if(EMSCRIPTEN AND NOT USE_SYSTEM_RAYLIB)
+    include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_web_hidpi.cmake")
+    patch_web_hidpi()
+endif()
+
 # Compile Dear ImGui as a static library
 add_library(imgui STATIC
         ${imgui_SOURCE_DIR}/imgui.cpp
@@ -92,6 +103,7 @@ add_executable(simulation-orbit
         src/simulation.cpp
         src/config.cpp
         src/force_pairs.cpp
+        src/orbital_elements.cpp
 
         src/ui/2d.cpp
         src/ui/3d.cpp
@@ -101,6 +113,28 @@ add_executable(simulation-orbit
         src/ui/graphs.cpp
         src/ui/ui.cpp
 )
+
+# Emscripten specific definitions
+if(EMSCRIPTEN)
+    set_target_properties(simulation-orbit PROPERTIES
+            SUFFIX ".html"
+            LINK_DEPENDS "${PROJECT_SOURCE_DIR}/web/shell.html"
+    )
+
+    target_link_options(simulation-orbit PRIVATE
+            "-sMIN_WEBGL_VERSION=2"
+            "-sMAX_WEBGL_VERSION=2"
+
+            "SHELL:--shell-file ${PROJECT_SOURCE_DIR}/web/shell.html"
+            "SHELL:--preload-file ${PROJECT_SOURCE_DIR}/resources@/resources"
+
+            "-sALLOW_MEMORY_GROWTH=1"
+            "-sINITIAL_MEMORY=256MB"
+            "-sMAXIMUM_MEMORY=4GB"
+
+            "-sPTHREAD_POOL_SIZE=8"
+    )
+endif()
 
 target_link_libraries(simulation-orbit PRIVATE
         raylib
@@ -119,9 +153,9 @@ if (APPLE)
     )
 endif()
 
-# Enable the optimizations only for release-like configurations
+# Enable the optimizations only for native release builds (emcc also uses Clang; -mcpu=native is meaningless for wasm)
 target_compile_options(simulation-orbit PRIVATE
-        $<$<AND:$<CONFIG:Release>,$<CXX_COMPILER_ID:AppleClang,Clang>>:
+        $<$<AND:$<CONFIG:Release>,$<CXX_COMPILER_ID:AppleClang,Clang>,$<NOT:$<BOOL:${EMSCRIPTEN}>>>:
         -O3
         -mcpu=native
         >

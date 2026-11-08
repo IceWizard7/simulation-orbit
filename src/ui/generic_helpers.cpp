@@ -2,6 +2,18 @@
 
 #include "ui.hpp"
 
+std::array<std::optional<PointMass>, NUM_CELESTIAL_BODIES> ui_helpers::to_point_masses(const ui_data::RenderSnapshot& snap) {
+    std::array<std::optional<PointMass>, NUM_CELESTIAL_BODIES> result;
+
+    for (std::size_t k = 0; k < snap.bodies.size(); k++) {
+        if (snap.bodies[k]) {
+            result[k] = PointMass{snap.bodies[k]->absolute_position, snap.bodies[k]->velocity, snap.bodies[k]->mass};
+        }
+    }
+
+    return result;
+}
+
 void ui_helpers::cancel_camera_drag() {
     ui_config::panning_2d = false;
     ui_config::panning_3d = false;

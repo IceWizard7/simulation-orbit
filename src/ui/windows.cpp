@@ -7,9 +7,12 @@
 #include <ctime>
 #include <format>
 #include <imgui.h>
+#include <numbers>
 #include <raylib.h>
 #include <string_view>
 
+#include "orbital_elements.hpp"
+#include "time_units.hpp"
 #include "ui.hpp"
 
 namespace {
@@ -471,6 +474,86 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                     ImGui::Unindent(15.0f);
 
                     ImGui::EndTable();
+
+                    if (reference_index && snap->bodies[*reference_index]) {
+                        const auto& reference = *snap->bodies[*reference_index];
+
+                        const auto point_masses = to_point_masses(*snap);
+                        const PointMass& self = *point_masses[i];
+                        const PointMass& ref = *point_masses[*reference_index];
+
+                        // Membership is needed even when merging is off, to decide whether to show the checkbox at all
+                        std::vector<std::size_t> members;
+                        const PointMass with_moons = system_barycenter(point_masses, i, *reference_index, &members);
+                        const bool merged = ui_config::orbit_use_system_barycenter && !members.empty();
+                        const PointMass system = merged ? with_moons : self;
+
+                        const double mu = (system.mass + ref.mass) * config::GRAVITATIONAL_CONSTANT;
+                        const auto orbit = orbital_elements(system.position - ref.position, system.velocity - ref.velocity, mu);
+                        const double hill = hill_radius(self, ref);
+
+                        if (!members.empty()) {
+                            ImGui::Checkbox("Include moons (system barycenter)", &ui_config::orbit_use_system_barycenter);
+
+                            if (ImGui::IsItemHovered()) {
+                                ImGui::SetTooltip(
+                                    "On: orbit of the mass-weighted center of %s and its moons (less wobble).\n"
+                                    "Off: orbit of %s alone.",
+                                    body->name.c_str(), body->name.c_str()
+                                );
+                            }
+
+                            // Collapsed by default: Some celestial bodies may have many moons
+                            if (ImGui::TreeNode("##moons", "Moons (%zu)", members.size())) {
+                                for (const std::size_t m : members) {
+                                    const double fraction = (point_masses[m]->position - self.position).length() / hill;
+                                    ImGui::Text("%s: %.3f r_H", snap->bodies[m]->name.c_str(), fraction);
+                                }
+
+                                ImGui::TreePop();
+                            }
+                        }
+
+                        if (!orbit) {
+                            ImGui::TextDisabled("No orbit (total mass <= 0)");
+                        } else if (orbit->is_finite()) {
+                            if (ImGui::BeginTable("OrbitalElements", 2)) {
+                                ImGui::TableNextColumn();
+                                ImGui::Indent(15.0f);
+
+                                ImGui::TextUnformatted("Orbital elements");
+
+                                ImGui::Text("a: %.6e m", orbit->semi_major_axis);
+                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Semi major axis a"); }
+                                ImGui::Text("c: %.6e m", orbit->linear_eccentricity);
+                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Linear eccentricity c"); }
+                                ImGui::Text("i: %.4f deg", orbit->inclination * 180.0 / std::numbers::pi);
+                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Inclination i"); }
+
+                                ImGui::Unindent(15.0f);
+
+                                ImGui::TableNextColumn();
+                                ImGui::Indent(15.0f);
+
+                                ImGui::Text("b: %.6e m", orbit->semi_minor_axis);
+                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Semi minor axis b"); }
+                                ImGui::Text("e: %.6f", orbit->eccentricity);
+                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Eccentricity e"); }
+                                ImGui::Text("T: %s", time_units::format_duration(orbit->orbital_period).c_str());
+                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Orbital period T"); }
+
+                                ImGui::Unindent(15.0f);
+
+                                ImGui::EndTable();
+                            }
+                        } else if (!std::isfinite(orbit->semi_major_axis)) {
+                            ImGui::TextDisabled("Unbound (e = %.4f)", orbit->eccentricity);
+                        } else {
+                            ImGui::TextDisabled("Orbit undefined");
+                        }
+                    } else {
+                        ImGui::TextDisabled("Choose \"Edit relative to\" to see orbit statistics");
+                    }
                 }
 
                 ImGui::Spacing();
@@ -1229,9 +1312,6 @@ void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::Re
         // Left-align numbers within their table cells
         const auto number = [](const double value) {
             const str text = std::isfinite(value) ? std::format("{:.6e}", value) : "N/A";
-
-            // Right-alignment:
-            // ImGui::SetCursorPosX(ImGui::GetCursorPosX() + std::max(0.0f, ImGui::GetContentRegionAvail().x - ImGui::CalcTextSize(text.c_str()).x));
 
             ImGui::TextUnformatted(text.c_str());
         };

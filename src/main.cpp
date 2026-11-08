@@ -99,7 +99,7 @@ int main(const int argc, char* argv[]) {
     std::jthread cpu_thread(simulation::simulate_cpu);
 
     #ifdef __EMSCRIPTEN__
-    emscripten_set_main_loop(UpdateDrawFrame, 0, 1);
+    emscripten_set_main_loop(ui_helpers::UpdateDrawFrame, 0, 1);
     #else
 
     while (!WindowShouldClose()) {

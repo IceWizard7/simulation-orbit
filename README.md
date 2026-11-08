@@ -178,6 +178,25 @@ Examples runs:
 ./cmake-build-release/simulation-orbit --body-set all --simd  # Enable platform-specific SIMD optimization (only available on some platforms)
 ```
 
+### 2.7 Running in the browser (Emscripten)
+
+Requires an activated [emsdk](https://emscripten.org/docs/getting_started/downloads.html)(`source /path/to/emsdk/emsdk_env.sh`).
+
+```bash
+emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
+cmake --build build-web --parallel
+emrun build-web/simulation-orbit.html
+```
+
+CLI arguments are passed as URL query parameters separated by `&` (or after `--` when using `emrun`):
+
+```bash
+emrun build-web/simulation-orbit.html -- --dt 900 --body-set all
+# equivalent URL: http://localhost:6931/simulation-orbit.html?--dt&900&--body-set&all
+```
+
+`--simd` is unavailable in the browser. `--headless` and `--csv` are not useful there, because files are written to Emscripten's in-memory filesystem.
+
 ## 3. Analysis
 
 List available commands:

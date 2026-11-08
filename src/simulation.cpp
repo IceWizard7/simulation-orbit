@@ -76,6 +76,7 @@ namespace {
     constexpr std::array<std::size_t, 4> pluto_moons{34, 35, 36, 37};
 }
 
+// Used for research models
 const std::array<PlanetarySystem, 7> simulation::planetary_systems{{
     {3, earth_moons},
     {4, mars_moons},

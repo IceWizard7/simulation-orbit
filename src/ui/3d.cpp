@@ -515,30 +515,26 @@ void ui_helpers::fit_camera_to_planetary_system_3d(const std::shared_ptr<const R
 
     if (!snap) return;
 
-    const auto system = std::ranges::find_if(
-        simulation::planetary_systems,
-        [center_index](const PlanetarySystem& candidate) {
-            return candidate.parent_index == center_index;
-        }
-    );
-    if (system == simulation::planetary_systems.end()) return;
+    constexpr std::size_t sun = 0;
 
-    if (!snap->bodies[center_index]) return;
+    // Sun: no parent to fit around (same as before)
+    // Missing Sun: no Hill sphere to measure against
+    if (center_index == sun || center_index >= snap->bodies.size() || !snap->bodies[center_index] || !snap->bodies[sun]) return;
 
-    const Vec3 parent_position = snap->bodies[center_index]->relative_position;
+    // Current satellites, not the original moon list (moved-away moons would otherwise zoom far out)
+    std::vector<std::size_t> satellites;
+    system_barycenter(to_point_masses(*snap), center_index, sun, &satellites);
+
+    const Vec3 parent_position = snap->bodies[center_index]->absolute_position;
     double system_radius_meters = 0.0;
-    for (const std::size_t moon_index : system->moon_indices) {
-        const auto& moon = snap->bodies[moon_index];
-        if (!moon) continue;
 
-        system_radius_meters = std::max(
-            system_radius_meters,
-            (moon->relative_position - parent_position).length()
-        );
+    for (const std::size_t s : satellites) {
+        system_radius_meters = std::max(system_radius_meters, (snap->bodies[s]->absolute_position - parent_position).length());
     }
+
     if (system_radius_meters <= 0.0) return;
 
-    // Keep the outermost modeled moon within 70% of the vertical half-view.
+    // Keep the outermost modeled moon within 70% of the vertical half-view
     constexpr double VIEW_FILL = 0.70;
     const double system_radius_world = system_radius_meters / config::WORLD_UNIT_METERS;
     constexpr double half_vertical_fov = ui_config::CAMERA_FOVY * DEG2RAD / 2.0;
