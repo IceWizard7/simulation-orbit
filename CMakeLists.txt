@@ -134,6 +134,12 @@ if(EMSCRIPTEN)
 
             "-sPTHREAD_POOL_SIZE=8"
     )
+
+    add_custom_command(TARGET simulation-orbit POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/web/coi-serviceworker.min.js"
+            "$<TARGET_FILE_DIR:simulation-orbit>"
+    )
 endif()
 
 target_link_libraries(simulation-orbit PRIVATE

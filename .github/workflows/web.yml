@@ -1,0 +1,51 @@
+name: Web build (GitHub Pages)
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:          # manual "Run workflow" button
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build with Emscripten
+        run: |
+          git clone --depth 1 https://github.com/emscripten-core/emsdk.git "$RUNNER_TEMP/emsdk"
+          "$RUNNER_TEMP/emsdk/emsdk" install 7.0.0
+          "$RUNNER_TEMP/emsdk/emsdk" activate 7.0.0
+          source "$RUNNER_TEMP/emsdk/emsdk_env.sh"
+          emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-web -j "$(nproc)"
+
+      - name: Assemble site
+        run: |
+          mkdir site
+          cp build-web/simulation-orbit.{js,wasm,data} build-web/coi-serviceworker.min.js site/
+          cp build-web/simulation-orbit.html site/index.html
+
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

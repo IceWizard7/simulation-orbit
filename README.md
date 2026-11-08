@@ -293,6 +293,10 @@ Required attribution:
 
 The Io, Europa, Ganymede, and Callisto textures are © James Hastings-Trew / [Planet Pixel Emporium](https://planetpixelemporium.com/planets.html). They are used under the website’s texture-map usage terms, which permit their use for real-time rendering but restrict redistribution of the unmodified maps as a standalone texture collection.
 
-### 5.4 License scope
+### 5.4 Additional code
+
+- [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker) by Guido Zuidhof (MIT, see `web/licenses/coi-serviceworker-MIT.txt`): enables cross-origin isolation (needed for pthreads) on GitHub Pages.
+
+### 5.5 License scope
 
 The project’s source code is licensed under the [Apache License 2.0](LICENSE). This license does not automatically apply to bundled fonts, textures, scientific data, or other third-party material; those resources remain subject to their respective terms.
