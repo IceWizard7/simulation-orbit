@@ -195,6 +195,7 @@ namespace ui_config {
     inline Vec3 view_offset_3d_m;
     inline bool panning_2d = false;
     inline bool panning_3d = false;
+    inline Vector2 drag_last_mouse_px{}; // pointer position of the previous drag frame (touch-safe delta)
     inline std::size_t followed_celestial_body_index = config::NO_BODY_SELECTED;
 
     inline float cam_azimuth = config::DEFAULT_CAM_AZIMUTH; // 0
@@ -275,6 +276,15 @@ namespace ui_helpers {
 #endif
     }
 
+    // Pointer movement since the last drag frame
+    // GetMouseDelta() breaks on touch: a new touch teleports the cursor from the previous finger position, and that jump would be applied as a drag
+    [[nodiscard]] inline Vector2 consume_drag_delta() {
+        const Vector2 now = GetMousePosition();
+        const Vector2 delta{ now.x - ui_config::drag_last_mouse_px.x, now.y - ui_config::drag_last_mouse_px.y };
+        ui_config::drag_last_mouse_px = now;
+        return delta;
+    }
+
     [[nodiscard]] inline bool is_moon(const std::size_t body_index) {
         return body_index >= NUM_PLANETS + NUM_DWARF_PLANETS;
     }
@@ -302,6 +312,42 @@ namespace ui_helpers {
 
     inline void DrawLine(const Vec2& start_pos, const Vec2& end_pos, const float thick, const Color color) {
         DrawLineEx(Vector2(static_cast<float>(start_pos.x), static_cast<float>(start_pos.y)), Vector2(static_cast<float>(end_pos.x), static_cast<float>(end_pos.y)), thick, color);
+    }
+
+    // Inline Structs
+    struct Pinch {
+        bool active = false;
+        double log_scale = 0.0;   // ln(distance / previous distance): + = fingers apart = zoom in
+        Vector2 center{};         // finger midpoint (logical px)
+        Vector2 center_delta{};   // midpoint movement since the previous frame (two-finger pan)
+    };
+
+    // Two-finger gesture from raylib's touch points (web; desktop GLFW reports no multi-touch)
+    inline Pinch read_pinch() {
+        static bool was_active = false;
+        static float previous_distance = 0.0f;
+        static Vector2 previous_center{};
+
+        if (GetTouchPointCount() < 2) {
+            was_active = false;
+            return {};
+        }
+
+        const auto [ax, ay] = GetTouchPosition(0);
+        const auto [bx, by] = GetTouchPosition(1);
+        const float distance = std::hypot(ax - bx, ay - by);
+        const Vector2 center{ (ax + bx) / 2.0f, (ay + by) / 2.0f };
+
+        Pinch pinch{ .active = true, .center = center };
+        if (was_active && previous_distance > 0.0f && distance > 0.0f) { // First frame only sets the reference
+            pinch.log_scale = std::log(distance / previous_distance);
+            pinch.center_delta = { center.x - previous_center.x, center.y - previous_center.y };
+        }
+
+        was_active = true;
+        previous_distance = distance;
+        previous_center = center;
+        return pinch;
     }
 
     // ImGui helpers

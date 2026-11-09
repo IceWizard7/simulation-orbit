@@ -54,6 +54,7 @@ void ui_helpers::UpdateDrawFrame() {
         !pick_body_at_mouse_3d(snap, make_camera_3d())) {
 
         ui_config::panning_3d = true;
+        ui_config::drag_last_mouse_px = GetMousePosition();
     }
 
     if (!ImGui::GetIO().WantCaptureMouse && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
@@ -124,11 +125,17 @@ void ui_helpers::UpdateDrawFrame() {
 
     const float scroll = ImGui::GetIO().WantCaptureMouse ? 0.0f : wheel;
 
-    const auto [mx, my] = GetMousePosition();
+    // Two fingers: Zoom at the midpoint; the first finger must not keep panning/rotating
+    const Pinch pinch = read_pinch();
+    if (pinch.active) cancel_camera_drag();
+    const bool pinch_ok = pinch.active && !ImGui::GetIO().WantCaptureMouse;
+
+    const auto [mx, my] = pinch.active ? pinch.center : GetMousePosition();
 
     // Signed zoom amount this frame: + = in, - = out
     const bool keys_ok = !ImGui::GetIO().WantCaptureKeyboard;
     const double zoom_steps = std::clamp(static_cast<double>(scroll), -3.0, 3.0) // limit huge flicks
+        + (pinch_ok ? pinch.log_scale / std::log(config::ZOOM_FACTOR) : 0.0)  // fingers track the scene 1:1
         + (keys_ok && zoom_key_down(true) ? 1.0 : 0.0)
         - (keys_ok && zoom_key_down(false) ? 1.0 : 0.0);
     const bool shift = std::ranges::any_of(config::KEYS_SHIFT, IsKeyDown);
@@ -162,7 +169,7 @@ void ui_helpers::UpdateDrawFrame() {
         }
 
         if (ui_config::panning_3d) {
-            const auto [x, y] = GetMouseDelta();
+            const auto [x, y] = consume_drag_delta();
 
             ui_config::cam_azimuth += x * config::DRAG_SENSITIVITY; // left/right = spin
             ui_config::cam_elevation += y * config::DRAG_SENSITIVITY; // up/down = tilt
@@ -193,17 +200,25 @@ void ui_helpers::UpdateDrawFrame() {
             !pick_body_at_mouse_2d(snap) && // Drag doesn't start on a celestial body
             config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN && // Mouse is in viewport (x & y)
             config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN) {
+
             ui_config::panning_2d = true;
+            ui_config::drag_last_mouse_px = GetMousePosition();
         }
 
         if (ui_config::panning_2d) {
-            const auto [dx, dy] = GetMouseDelta();
+            const auto [dx, dy] = consume_drag_delta();
             const double pixels_per_meter = get_viewport_2d().pixels_per_meter;
 
             ui_config::view_offset_2d_m.x -= dx / pixels_per_meter;
             ui_config::view_offset_2d_m.y -= dy / pixels_per_meter;
         }
 
+        // Two-finger pan: The scene follows the finger midpoint (same sign convention as mouse panning)
+        if (pinch_ok) {
+            const double pixels_per_meter = get_viewport_2d().pixels_per_meter;
+            ui_config::view_offset_2d_m.x -= pinch.center_delta.x / pixels_per_meter;
+            ui_config::view_offset_2d_m.y -= pinch.center_delta.y / pixels_per_meter;
+        }
 
         if (zoom_steps != 0.0) {
             const bool zoom_in = zoom_steps > 0;
