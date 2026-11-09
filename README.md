@@ -175,7 +175,7 @@ Examples runs:
 
 ### 2.7 Running in the browser (Emscripten)
 
-Requires an activated [emsdk](https://emscripten.org/docs/getting_started/downloads.html)(`source /path/to/emsdk/emsdk_env.sh`).
+Requires an activated [emsdk](https://emscripten.org/docs/getting_started/downloads.html) (`source /path/to/emsdk/emsdk_env.sh`).
 
 ```bash
 emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release
@@ -189,6 +189,8 @@ CLI arguments are passed as URL query parameters separated by `&` (or after `--`
 emrun build-web/simulation-orbit.html -- --dt 900 --body-set all
 # equivalent URL: http://localhost:6931/simulation-orbit.html?--dt&900&--body-set&all
 ```
+
+They also work on the live site (ex. https://icewizard7.github.io/simulation-orbit/?--body-set&all).
 
 `--simd` is unavailable in the browser. `--headless` and `--csv` are not useful there, because files are written to Emscripten's in-memory filesystem.
 

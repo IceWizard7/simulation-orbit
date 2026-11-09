@@ -12,6 +12,10 @@
 #include <variant>
 #include <vector>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include "config.hpp"
 #include "orbital_elements.hpp"
 #include "planet_visual.hpp"
@@ -261,6 +265,15 @@ namespace ui_config {
 
 namespace ui_helpers {
     // Inline functions
+
+
+    inline bool zoom_key_down(const bool zoom_in) {
+#ifdef __EMSCRIPTEN__
+        return EM_ASM_INT({ return Module.heldKeys[$0] ? 1 : 0; }, zoom_in ? 0 : 1) != 0;
+#else
+        return IsKeyDown(zoom_in ? config::KEY_ZOOM_IN : config::KEY_ZOOM_OUT);
+#endif
+    }
 
     [[nodiscard]] inline bool is_moon(const std::size_t body_index) {
         return body_index >= NUM_PLANETS + NUM_DWARF_PLANETS;

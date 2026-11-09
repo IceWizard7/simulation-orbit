@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+    <!-- No favico for now -->
+    <link rel="icon" href="data:,">
+
     <!-- GitHub Pages can't send COOP/COEP headers; this service worker adds them (needed for pthreads) -->
     <script src="coi-serviceworker.min.js"></script>
     <meta charset="utf-8">
-    <meta name="viewport"
-          content="width=device-width, initial-scale=1">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 
     <title>simulation-orbit</title>
 
@@ -83,12 +85,26 @@
             Module.wheelDeltaY += (e.deltaMode === 0) ? e.deltaY : e.deltaY * 33; // lines -> approx. pixels
         }, { passive: true });
 
+        // Layout-independent zoom keys: Emscripten's GLFW maps by keyCode, and Firefox drops "+" on QWERTZ
+        Module.heldKeys = [false, false]; // [zoom in, zoom out]
+        const keyActions = { "+": 0, "-": 1 }; // numpad +/- also report e.key "+"/"-"
+        const heldByCode = new Map(); // e.code -> action (keyup may report another e.key, e.g. "*")
+        window.addEventListener("keydown", (e) => {
+            const a = keyActions[e.key];
+            if (a !== undefined) { heldByCode.set(e.code, a); Module.heldKeys[a] = true; }
+        });
+        window.addEventListener("keyup", (e) => {
+            const a = heldByCode.get(e.code);
+            if (a !== undefined) { heldByCode.delete(e.code); Module.heldKeys[a] = false; }
+        });
+        window.addEventListener("blur", () => { heldByCode.clear(); Module.heldKeys.fill(false); });
+
         document.getElementById("fullscreen").addEventListener("click", () => {
             // documentElement instead of canvas
             document.documentElement.requestFullscreen?.();
         });
 
-        // Emscripten's GLFW forces the canvas to screen.width * screen.height when entering fullscreen, which exceeds the visible area on displays with a notc
+        // Emscripten's GLFW forces the canvas to screen.width * screen.height when entering fullscreen, which exceeds the visible area on displays with a notch
         // A follow-up resize applies the real viewport
         document.addEventListener("fullscreenchange", () => {
             requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));

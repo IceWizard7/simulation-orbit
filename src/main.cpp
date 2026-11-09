@@ -65,6 +65,14 @@ int main(const int argc, char* argv[]) {
 
     rlImGuiSetup(true);
     ImPlot::CreateContext();
+
+#ifdef __EMSCRIPTEN__
+    // Touch devices (coarse pointer): enlarge ImGui hit areas without changing the layout
+    if (EM_ASM_INT({ return matchMedia("(pointer: coarse)").matches ? 1 : 0; }) != 0) {
+        ImGui::GetStyle().TouchExtraPadding = {6.0f, 6.0f};
+    }
+#endif
+
     // Keep global directional keyboard (ImGuiConfigFlags_NavEnableKeyboard) navigation disabled (causes weird behavior)
     // (ex. ImGui still wants keyboard & mice inputs for no reason)
     // Relevant tab selection (ex. between input fields) still works without this config flag.

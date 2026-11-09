@@ -129,8 +129,8 @@ void ui_helpers::UpdateDrawFrame() {
     // Signed zoom amount this frame: + = in, - = out
     const bool keys_ok = !ImGui::GetIO().WantCaptureKeyboard;
     const double zoom_steps = std::clamp(static_cast<double>(scroll), -3.0, 3.0) // limit huge flicks
-        + (keys_ok && IsKeyDown(config::KEY_ZOOM_IN) ? 1.0 : 0.0)
-        - (keys_ok && IsKeyDown(config::KEY_ZOOM_OUT) ? 1.0 : 0.0);
+        + (keys_ok && zoom_key_down(true) ? 1.0 : 0.0)
+        - (keys_ok && zoom_key_down(false) ? 1.0 : 0.0);
     const bool shift = std::ranges::any_of(config::KEYS_SHIFT, IsKeyDown);
 
     if (ui_config::panning_2d && (!IsWindowFocused() || !IsMouseButtonDown(MOUSE_BUTTON_LEFT) || ui_config::view_3d)) {
