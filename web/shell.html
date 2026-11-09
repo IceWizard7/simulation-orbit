@@ -12,9 +12,12 @@
 
     <script>
         // Phones: lay out at 800 CSS px and let the browser scale down, so the desktop toolbar fits
-        if (Math.min(screen.width, screen.height) < 600) {
-            document.querySelector('meta[name="viewport"]').content = "width=800, user-scalable=no";
-        }
+        const smallScreen = Math.min(screen.width, screen.height) < 600;
+        const viewportMeta = document.querySelector('meta[name="viewport"]');
+        const applyViewport = () => {
+            if (smallScreen) viewportMeta.content = "width=800, user-scalable=no";
+        };
+        applyViewport();
     </script>
 
     <!-- Apple add to homescreen features -->
@@ -132,6 +135,20 @@
                 requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
             });
         }
+
+        // iOS: rotation keeps the old zoom with a fixed-width viewport, and innerWidth/innerHeight update late
+        // Re-apply the viewport, then resize again after the layout has settled
+        const refitAfterRotation = () => {
+            if (smallScreen) {
+                viewportMeta.content = "width=800, initial-scale=1, user-scalable=no"; // Different string forces re-evaluation
+                applyViewport();
+            }
+            for (const delay of [0, 150, 500]) {
+                setTimeout(() => window.dispatchEvent(new Event("resize")), delay);
+            }
+        };
+        screen.orientation?.addEventListener("change", refitAfterRotation);
+        window.addEventListener("orientationchange", refitAfterRotation); // older iOS
     </script>
 
     <!-- Emscripten placeholder -->
