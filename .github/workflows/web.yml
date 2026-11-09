@@ -40,6 +40,7 @@ jobs:
           mkdir site
           cp build-web/simulation-orbit.{js,wasm,data} build-web/coi-serviceworker.min.js site/
           cp build-web/simulation-orbit.html site/index.html
+          sed -i "s/__DATA_BYTES__/$(stat -c%s build-web/simulation-orbit.data)/" site/index.html
 
       - uses: actions/configure-pages@v5
       - uses: actions/upload-pages-artifact@v3

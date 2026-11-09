@@ -73,7 +73,7 @@
             oncontextmenu="event.preventDefault()">
     </canvas>
 
-    <div id="status">Loading…</div>
+    <div id="status" data-bytes="__DATA_BYTES__">Loading…</div>
 
     <button id="fullscreen" title="Fullscreen">⛶</button>
 
@@ -92,9 +92,12 @@
 
             // Emscripten calls this with e.g. "Downloading data... (1234/9000)" and "" when done
             setStatus: (text) => {
-                const el = document.getElementById("status");
-                el.textContent = text;
-                el.hidden = !text;
+                if (download) {
+                    // Real size from CI; local builds have no number here and use Emscripten's total
+                    const total = Number(el.dataset.bytes) || Number(download[2]);
+                    const percent = Math.min(100, Math.floor(100 * download[1] / total));
+                    el.textContent = `Loading… ${percent}%`;
+                }
             },
         };
 
