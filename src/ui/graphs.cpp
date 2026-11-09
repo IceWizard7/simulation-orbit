@@ -375,7 +375,8 @@ namespace {
 
         if (q == GraphQuantity::mass) return std::format("{}: {}", item.name, body_name(snap, w.body));
 
-        return std::format("{}: {}", item.name, body_name(snap, w.body));
+        const str frame = w.reference ? std::format("rel. {}", body_name(snap, *w.reference)) : "inertial";
+        return std::format("{}: {} ({})", item.name, body_name(snap, w.body), frame);
     }
 
     ImVec4 graph_color(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w) {
