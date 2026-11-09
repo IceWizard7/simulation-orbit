@@ -44,7 +44,7 @@ namespace config {
     constexpr double ZOOM_FACTOR = 1.0717734625362931; // n-th root of 10 works, because then ZOOM_FACTOR**n = 10 => near perfect zoom cycle
 
     // Browser wheel events report pixels; this many pixels count as one zoom step
-    inline constexpr double WEB_WHEEL_PIXELS_PER_ZOOM_STEP = 25.0;
+    inline constexpr double WEB_WHEEL_PIXELS_PER_ZOOM_STEP = 12.5;
 
     // Orbit trails are sampled per body from its orbital_period_seconds: every body gets the same
     // angular resolution regardless of period
