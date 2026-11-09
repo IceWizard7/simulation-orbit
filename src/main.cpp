@@ -59,7 +59,13 @@ int main(const int argc, char* argv[]) {
 
     SetConfigFlags(FLAG_WINDOW_HIGHDPI | FLAG_MSAA_4X_HINT | FLAG_WINDOW_RESIZABLE);
     InitWindow(config::INITIAL_WINDOW_WIDTH, config::INITIAL_WINDOW_HEIGHT, "simulation-orbit");
+
+#ifndef __EMSCRIPTEN__
+    // Desktop only: on the web, raylib clamps innerWidth/innerHeight to this, so the canvas
+    // overflows small viewports (phones) and gets cut off
     SetWindowMinSize(config::MIN_WINDOW_WIDTH, config::MIN_WINDOW_HEIGHT);
+#endif
+
     SetExitKey(KEY_NULL); // So ESC doesn't close the window, but rather dismisses other UI actions (ImGui)
     SetTargetFPS(config::TARGET_FPS);
 
