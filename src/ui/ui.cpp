@@ -195,7 +195,7 @@ void ui_helpers::UpdateDrawFrame() {
             reset_view();
         }
     } else {
-        if (!ui_config::panning_2d && !ImGui::GetIO().WantCaptureMouse && // Currently not panning, ImGui doesn't consume mouse
+        if (!pinch.active && !ui_config::panning_2d && !ImGui::GetIO().WantCaptureMouse && // Currently not panning, ImGui doesn't consume mouse
             IsWindowFocused() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && // Window focused & button is pressed
             !pick_body_at_mouse_2d(snap) && // Drag doesn't start on a celestial body
             config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN && // Mouse is in viewport (x & y)
