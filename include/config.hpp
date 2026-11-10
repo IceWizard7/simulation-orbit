@@ -142,8 +142,7 @@ namespace runtime_config {
     extern str time_step_string;
 
     extern double target_total_simulation_time; // years; <= 0 unlimited
-    extern double target_simulation_speed; // years per second; <= 0 unlimited
-    extern double target_steps_per_second;
+    extern std::atomic<double> target_simulation_speed; // years per second; <= 0 unlimited
     extern std::optional<std::size_t> target_steps;
 
     extern std::optional<std::filesystem::path> csv_path;

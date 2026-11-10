@@ -227,11 +227,12 @@ void ui_helpers::draw_legend(const std::shared_ptr<const ui_data::RenderSnapshot
             static_cast<float>(GetScreenWidth()) - margin,
             margin
         },
+        // Not resizable
         ImGuiCond_Always,
         ImVec2(1.0f, 0.0f)
     );
 
-    ImGui::SetNextWindowSize({width, std::min(desired_height, available_height)});
+    ImGui::SetNextWindowSize({width, std::min(desired_height, available_height)}, ImGuiCond_Always);
 
     // Collapsing logic
     if (ui_config::legend_collapse_requested) {
@@ -701,11 +702,12 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const bool dark_mode) {
     const double seconds = config::timer.seconds();
     const double years = simulated_years();
-    const double speed = seconds > 0.0 ? years / seconds : 0.0;
+    const double simulation_speed = seconds > 0.0 ? years / seconds : 0.0;
 
     const std::size_t center_i = config::center_celestial_body_index.load();
     const str center_name = center_i < snap->bodies.size() && snap->bodies[center_i] ? snap->bodies[center_i]->name : "None";
-    const str target_speed = runtime_config::target_simulation_speed > 0.0 ? std::format("{:.2f} yr/s", runtime_config::target_simulation_speed) : "Unlimited";
+    const double target = runtime_config::target_simulation_speed.load();
+    const str target_speed = target > 0.0 ? std::format("{:.2f} yr/s", target) : "Unlimited";
 
     const bool running = config::timer.is_running();
     const bool can_resume = runtime_config::target_total_simulation_time < 0.0 || runtime_config::target_total_simulation_time > simulated_years();
@@ -725,6 +727,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
     constexpr float toolbar_height = config::WINDOW_MARGIN - 16.0f;
     const float toolbar_width = static_cast<float>(GetScreenWidth()) - 2.0f * config::WINDOW_MARGIN;
 
+    // Not moveable + not resizable
     ImGui::SetNextWindowPos(ImVec2(config::WINDOW_MARGIN, 10.0f), ImGuiCond_Always);
     ImGui::SetNextWindowSize(ImVec2(toolbar_width, toolbar_height), ImGuiCond_Always);
 
@@ -770,7 +773,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
             stat("TIME", std::format("{:.2f} yr", years));
 
             ImGui::TableSetColumnIndex(1);
-            stat("AVERAGE SPEED", std::format("{:.3f} yr/s", speed));
+            stat("AVERAGE SPEED", std::format("{:.3f} yr/s", simulation_speed));
 
             ImGui::TableSetColumnIndex(2);
             stat("STEP", runtime_config::time_step_string);
@@ -975,6 +978,25 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
                 ImGui::Separator();
 
+                static float speed = 1.0f; // Remembered while Unlimited is on
+                bool unlimited = target <= 0.0;
+                if (!unlimited) speed = static_cast<float>(target);
+
+                if (ImGui::Checkbox("Unlimited speed", &unlimited)) {
+                    runtime_config::target_simulation_speed = unlimited ? -1.0 : static_cast<double>(speed);
+                }
+
+                ImGui::BeginDisabled(unlimited);
+                ImGui::SetNextItemWidth(150.0f);
+
+                if (ImGui::SliderFloat("Speed##simulation", &speed, 0.01f, 100.0f, "%.2f yr/s", ImGuiSliderFlags_Logarithmic)) {
+                    runtime_config::target_simulation_speed = speed;
+                }
+
+                ImGui::EndDisabled();
+
+                ImGui::Separator();
+
                 ImGui::MenuItem("Checkpoints...", nullptr, &ui_config::show_checkpoints);
                 ImGui::MenuItem("Diagnostics...", nullptr, &ui_config::show_diagnostics);
                 if (ImGui::MenuItem("New graph...")) open_graph_window(snap); // Allow multiple graph windows
@@ -1128,8 +1150,10 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
 
     imgui_style_setup(dark_mode);
 
+    // Not moveable
     ImGui::SetNextWindowSize(ImVec2(420.0f, 325.0f), ImGuiCond_Always);
 
+    // Not resizable
     if (ImGui::Begin("Checkpoints", &ui_config::show_checkpoints, ImGuiWindowFlags_NoResize)) {
         const bool busy = ui_data::get_step_progress().busy;
 
@@ -1298,6 +1322,7 @@ void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::Re
 
     imgui_style_setup(dark_mode);
 
+    // Not resizable
     ImGui::SetNextWindowSize(ImVec2(660.0f, 0.0f), ImGuiCond_Always);
 
     if (ImGui::Begin("Diagnostics", &ui_config::show_diagnostics, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize)) {
@@ -1424,3 +1449,5 @@ void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::Re
 }
 
 // TODO: macOS snapping latency
+// TODO: Duplicate raylib link warning?
+// TODO: Controls / Help page

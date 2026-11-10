@@ -20,8 +20,11 @@ namespace runtime_config {
     str time_step_string = "15 mins";
 
     double target_total_simulation_time = -1;
-    double target_simulation_speed = -1;
-    double target_steps_per_second = target_simulation_speed * config::SECONDS_PER_YEAR / time_step;
+#ifdef __EMSCRIPTEN__
+    std::atomic<double> target_simulation_speed = 1.0; // Don't run phones flat out
+#else
+    std::atomic<double> target_simulation_speed = -1.0;
+#endif
     std::optional<std::size_t> target_steps = std::nullopt;
 
     std::optional<std::filesystem::path> csv_path = std::nullopt;
@@ -427,7 +430,6 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
     set_time_step_string();
     half_dt_squared = 0.5 * time_step * time_step;
     half_dt = 0.5 * time_step;
-    target_steps_per_second = target_simulation_speed * config::SECONDS_PER_YEAR / time_step;
 
     enabled_celestial_bodies = 0;
     for (bool i : celestial_bodies.enabled) {

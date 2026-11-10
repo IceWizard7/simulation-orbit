@@ -1245,7 +1245,10 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             continue;
         }
 
-        if (runtime_config::target_simulation_speed <= 0.0) {
+        const double speed = runtime_config::target_simulation_speed.load(std::memory_order_relaxed);
+        const double steps_per_second = speed * config::SECONDS_PER_YEAR / runtime_config::time_step;
+
+        if (speed <= 0.0) {
             simulate_step();
 
             if (++since_check >= MAX_STEPS_PER_BATCH) {
@@ -1262,18 +1265,18 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
         double max_budget = std::max(
             1.0,
-            runtime_config::target_steps_per_second * MAX_CATCH_UP_SECONDS
+            steps_per_second * MAX_CATCH_UP_SECONDS
         );
 
         step_budget = std::min(
-            step_budget + elapsed * runtime_config::target_steps_per_second,
+            step_budget + elapsed * steps_per_second,
             max_budget
         );
 
         const auto steps_to_run = static_cast<std::size_t>(std::min(step_budget, static_cast<double>(MAX_STEPS_PER_BATCH)));
 
         if (steps_to_run == 0) {
-            const double seconds_to_next_step = (1.0 - step_budget) / runtime_config::target_steps_per_second;
+            const double seconds_to_next_step = (1.0 - step_budget) / steps_per_second;
 
             std::this_thread::sleep_for(std::chrono::duration<double>(
                 std::min(seconds_to_next_step, 1.0 / config::TARGET_FPS)

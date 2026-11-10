@@ -27,7 +27,7 @@ namespace {
         velocity_x, velocity_y, velocity_z, speed, radial_speed,
         acceleration_x, acceleration_y, acceleration_z, acceleration,
         mass, body_kinetic_energy, body_momentum, angular_momentum,
-        semi_major_axis, semi_minor_axis, eccentricity, linear_eccentricity, orbital_period, inclination,
+        semi_major_axis, semi_minor_axis, eccentricity, linear_eccentricity, orbital_period, inclination, // Keep this order! is_orbital_element relies on it
         energy, kinetic_energy, potential_energy, energy_drift, relative_energy_drift,
         momentum_x, momentum_y, momentum_z, momentum, momentum_drift,
         barycenter_drift
@@ -95,18 +95,37 @@ namespace {
         return q == GraphQuantity::position_x || q == GraphQuantity::position_y || q == GraphQuantity::position_z;
     }
 
-    double evaluate(const GraphSample& s, const GraphQuantity quantity, const std::size_t body, const std::optional<std::size_t>& reference) {
+    bool is_orbital_element(const GraphQuantity q) {
+        return q >= GraphQuantity::semi_major_axis && q <= GraphQuantity::inclination;
+    }
+
+    double evaluate(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphSample& s, const GraphQuantity quantity, const std::size_t body, const std::optional<std::size_t>& reference, const bool merge_moons) {
+        constexpr double NaN = std::numeric_limits<double>::quiet_NaN();
+
+        if (!snap) return NaN;
+
         const Vec3 position = reference ? s.position[body] - s.position[*reference] : s.position[body];
         const Vec3 velocity = reference ? s.velocity[body] - s.velocity[*reference] : s.velocity[body];
         const Vec3 acceleration = reference ? s.acceleration[body] - s.acceleration[*reference] : s.acceleration[body];
 
         // Orbital elements need a central body: NaN in the inertial frame
         const auto orbital_element = [&](double OrbitalElements::* field) {
-            if (!reference) return std::numeric_limits<double>::quiet_NaN();
+            if (!reference || !snap->bodies[body] || !snap->bodies[*reference]) return NaN;
 
-            const double mu = (s.mass[body] + s.mass[*reference]) * config::GRAVITATIONAL_CONSTANT;
-            const auto orbit = orbital_elements(position, velocity, mu);
-            return orbit ? (*orbit).*field : std::numeric_limits<double>::quiet_NaN();
+            // Disabled bodies hold stale values, so they stay empty
+            std::array<std::optional<PointMass>, NUM_CELESTIAL_BODIES> masses;
+            for (std::size_t i = 0; i < masses.size(); i++) {
+                if (snap->bodies[i]) masses[i] = PointMass{s.position[i], s.velocity[i], s.mass[i]};
+            }
+
+            const PointMass& ref = *masses[*reference];
+            const PointMass orbiter = merge_moons
+                ? system_barycenter(masses, body, *reference)
+                : *masses[body];
+
+            const double mu = (orbiter.mass + ref.mass) * config::GRAVITATIONAL_CONSTANT;
+            const auto orbit = orbital_elements(orbiter.position - ref.position, orbiter.velocity - ref.velocity, mu);
+            return orbit ? (*orbit).*field : NaN;
         };
 
         switch (quantity) {
@@ -158,6 +177,11 @@ namespace {
     struct GraphWindow {
         std::size_t id = 0;
         bool open = true;
+        bool merge_moons = true;
+
+        // Unbound
+        std::size_t unbound_points = 0;
+        bool currently_unbound = false;
 
         GraphQuantity x = GraphQuantity::position_x;
         GraphQuantity y = GraphQuantity::position_y;
@@ -178,23 +202,38 @@ namespace {
     std::vector<GraphWindow> graph_windows;
     std::size_t next_graph_id = 1;
 
-    void sync(GraphWindow& w) {
+    bool is_unbound(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphSample& s, const GraphWindow& w) {
+        if (!is_orbital_element(w.x) && !is_orbital_element(w.y)) return false;
+
+        const auto value = [&](const GraphQuantity q) {
+            return evaluate(snap, s, q, w.body, w.reference, w.merge_moons);
+        };
+
+        // e is still finite when unbound; NaN means no orbit at all (no reference, mass <= 0, r = 0)
+        return !std::isfinite(value(GraphQuantity::semi_major_axis)) && std::isfinite(value(GraphQuantity::eccentricity));
+    }
+
+    void sync(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, GraphWindow &w) {
+        if (!snap) return;
+
         simulation::graph_history.read([&](const std::span<const GraphSample> samples, const std::uint64_t generation, const std::size_t every_steps) {
             w.every_steps = every_steps;
 
-            if (w.rebuild || w.seen_generation != generation) {
+            if (w.rebuild || w.seen_generation != generation || w.merge_moons) {
                 w.fit_next_frame |= w.rebuild; // New quantity/body: The old zoom is meaningless
                 w.ts.clear();
                 w.xs.clear();
                 w.ys.clear();
                 w.next_sample = 0;
+                w.unbound_points = 0;
+                w.currently_unbound = false;
                 w.seen_generation = generation;
                 w.rebuild = false;
             }
 
             constexpr double gap = std::numeric_limits<double>::quiet_NaN();
 
-            for (; w.next_sample < samples.size(); ++w.next_sample) {
+            for (; w.next_sample < samples.size(); w.next_sample++) {
                 const GraphSample& s = samples[w.next_sample];
 
                 if (s.starts_segment && !w.xs.empty()) {
@@ -203,9 +242,12 @@ namespace {
                     w.ts.push_back(gap);
                 }
 
-                w.xs.push_back(evaluate(s, w.x, w.body, w.reference));
-                w.ys.push_back(evaluate(s, w.y, w.body, w.reference));
-                w.ts.push_back(evaluate(s, GraphQuantity::time, w.body, w.reference));
+                w.xs.push_back(evaluate(snap, s, w.x, w.body, w.reference, w.merge_moons));
+                w.ys.push_back(evaluate(snap, s, w.y, w.body, w.reference, w.merge_moons));
+                w.ts.push_back(evaluate(snap, s, GraphQuantity::time, w.body, w.reference, w.merge_moons));
+
+                w.currently_unbound = is_unbound(snap, s, w);
+                w.unbound_points += w.currently_unbound;
             }
         });
     }
@@ -304,6 +346,17 @@ namespace {
         return buffer;
     }
 
+    // Moons that would currently merge with w.body
+    std::vector<std::size_t> system_members(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w) {
+        std::vector<std::size_t> members;
+
+        if (w.reference && snap->bodies[w.body] && snap->bodies[*w.reference]) {
+            system_barycenter(ui_helpers::to_point_masses(*snap), w.body, *w.reference, &members);
+        }
+
+        return members;
+    }
+
     void draw_controls(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, GraphWindow& w) {
         ImGui::TextUnformatted("X axis");
         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -349,6 +402,15 @@ namespace {
         }
 
         ImGui::EndDisabled();
+
+        if (!w.reference && (is_orbital_element(w.x) || is_orbital_element(w.y))) {
+            ImGui::TextDisabled("Orbital elements need\na \"Relative to\" body");
+        }
+
+        if ((is_orbital_element(w.x) || is_orbital_element(w.y)) && !system_members(snap, w).empty()) {
+            w.rebuild |= ImGui::Checkbox("Include moons", &w.merge_moons);
+        }
+
         ImGui::Separator();
 
         ImGui::Checkbox("Auto-fit axes", &w.auto_fit);
@@ -363,6 +425,9 @@ namespace {
         }
 
         ImGui::TextDisabled("%zu points", w.xs.size());
+        if (w.unbound_points > 0) {
+            ImGui::TextDisabled(w.currently_unbound ? "Unbound now (%zu points)" : "Unbound for %zu points", w.unbound_points);
+        }
         ImGui::TextDisabled("Spacing: %s", format_value(GraphQuantity::time, static_cast<double>(w.every_steps) * runtime_config::time_step).c_str());
     }
 
@@ -375,8 +440,10 @@ namespace {
 
         if (q == GraphQuantity::mass) return std::format("{}: {}", item.name, body_name(snap, w.body));
 
+        const bool merged = is_orbital_element(q) && w.merge_moons && !system_members(snap, w).empty();
+        const str name = merged ? std::format("{} system", body_name(snap, w.body)) : body_name(snap, w.body);
         const str frame = w.reference ? std::format("rel. {}", body_name(snap, *w.reference)) : "inertial";
-        return std::format("{}: {} ({})", item.name, body_name(snap, w.body), frame);
+        return std::format("{}: {} ({})", item.name, name, frame);
     }
 
     ImVec4 graph_color(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w) {
@@ -464,14 +531,11 @@ namespace {
         const bool spatial = is_position(w.x) && is_position(w.y);
         const float radius = CURRENT_DOT_RADIUS * (spatial ? SPATIAL_DOT_SCALE : 1.0f);
 
-        for (std::size_t i = w.xs.size(); i-- > 0;) {
-            if (!std::isfinite(w.xs[i]) || !std::isfinite(w.ys[i])) continue;
+        if (w.xs.empty() || !std::isfinite(w.xs.back()) || !std::isfinite(w.ys.back())) return;
 
-            ImPlot::PushPlotClipRect();
-            ImPlot::GetPlotDrawList()->AddCircleFilled(ImPlot::PlotToPixels(w.xs[i], w.ys[i]), radius, line_color);
-            ImPlot::PopPlotClipRect();
-            return;
-        }
+        ImPlot::PushPlotClipRect();
+        ImPlot::GetPlotDrawList()->AddCircleFilled(ImPlot::PlotToPixels(w.xs.back(), w.ys.back()), radius, line_color);
+        ImPlot::PopPlotClipRect();
     }
 
     void draw_plot(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, GraphWindow& w) {
@@ -540,7 +604,7 @@ namespace {
         constexpr ImVec2 WINDOW_SIZE(620.0f, 340.0f);
         constexpr float CONTROLS_WIDTH = 170.0f;
 
-        ImGui::SetNextWindowSize(WINDOW_SIZE, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(WINDOW_SIZE, ImGuiCond_FirstUseEver);
 
         // New windows would otherwise open exactly on top of each other
         const float cascade = 24.0f * static_cast<float>((w.id - 1) % 8);
@@ -554,9 +618,7 @@ namespace {
         // ### keeps the ImGui ID stable if the visible title changes later
         const str title = std::format("Graph {}###graph_{}", w.id, w.id);
 
-        constexpr ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse;
-
-        if (ImGui::Begin(title.c_str(), &w.open, window_flags)) {
+        if (ImGui::Begin(title.c_str(), &w.open,  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
             if (ImGui::BeginChild("##controls", ImVec2(CONTROLS_WIDTH, 0.0f))) {
                 draw_controls(snap, w);
             }
@@ -608,6 +670,7 @@ void ui_helpers::open_graph_window(const std::shared_ptr<const ui_data::RenderSn
         if (!w.reference && w.body != SUN && populated(SUN)) w.reference = SUN;
     }
 
+    w.merge_moons = ui_config::orbit_use_system_barycenter;
     w.id = next_graph_id++;
     graph_windows.push_back(std::move(w));
 }
@@ -618,7 +681,7 @@ void ui_helpers::draw_graph_windows(const std::shared_ptr<const ui_data::RenderS
     imgui_style_setup(dark_mode);
 
     for (GraphWindow& w : graph_windows) {
-        sync(w);
+        sync(snap, w);
         draw_graph_window(snap, w);
     }
 

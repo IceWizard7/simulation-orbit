@@ -62,6 +62,9 @@
             display: grid; place-items: center;
             color: #9aa4b2; font: 14px system-ui, sans-serif;
             pointer-events: none;
+            padding: 16px;
+            box-sizing: border-box;
+            text-align: center;
         }
     </style>
 </head>
@@ -78,13 +81,23 @@
     <button id="fullscreen" title="Fullscreen">⛶</button>
 
     <script>
+        let startupFailed = false; // Emscripten clears the status right after main() has started
+
         var Module = {
             canvas: document.getElementById("canvas"),
 
             // simulation-orbit.html?--dt&900&--body-set&all -> argv = ["--dt", "900", "--body-set", "all"]
             arguments: location.search.slice(1).split("&").filter(Boolean).map(decodeURIComponent),
             print: (...args) => console.log(...args),
-            printErr: (...args) => console.error(...args),
+            printErr: (...args) => {
+                const message = args.join(" ");
+                console.error(message);
+
+                if (message.startsWith("Error:")) {
+                    startupFailed = true;
+                    document.getElementById("status").textContent = message;
+                }
+            },
 
             onAbort: (reason) => {
                 console.error("Simulation aborted:", reason);
@@ -92,6 +105,8 @@
 
             // Emscripten calls this with e.g. "Downloading data... (1234/9000)" and "" when done
             setStatus: (text) => {
+                if (startupFailed) return;
+
                 const el = document.getElementById("status");
                 const download = text.match(/^Downloading data\.\.\. \((\d+)\/(\d+)\)/);
 
