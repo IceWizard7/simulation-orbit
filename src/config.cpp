@@ -17,7 +17,7 @@ namespace runtime_config {
     int time_step = 900;
     double half_dt_squared = 0.5 * time_step * time_step;
     double half_dt = 0.5 * time_step;
-    str time_step_string = "15 mins";
+    str time_step_string; // Gets overwritten by set_time_step_string anyways
 
     double target_total_simulation_time = -1;
 #ifdef __EMSCRIPTEN__
@@ -37,7 +37,7 @@ namespace runtime_config {
     bool use_simd = false;
 
     // ReSharper disable once CppUseAuto
-    BodySet body_set = BodySet::dwarf; // Needs explicit type (like in config.hpp defined)
+    BodySet body_set = BodySet::all; // Needs explicit type (like in config.hpp defined)
 
     // ReSharper disable once CppUseAuto
     InteractionSet interaction_set = InteractionSet::full; // Needs explicit type (like in config.hpp defined)

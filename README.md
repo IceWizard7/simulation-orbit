@@ -28,23 +28,23 @@
 
 ## 1. Features
 
-- Newtonian N-body gravity in double precision
-- 38 celestial bodies, with the Sun, eight planets, and Pluto enabled by default
-- Velocity Verlet integration with cached accelerations
-- Optional planetary J2 oblateness perturbations
-- Interactive 2D and 3D visualization
-- Textured planets and selected moons
-- Headless simulations
-- Endpoint and time-series error analysis
-- NASA/JPL Horizons comparison
-- Parent-relative moon diagnostics
+- Double-precision Newtonian gravity for 38 bodies, using Velocity Verlet integration
+- Optional planetary J2, barycentric planet-system approximations, and interaction pruning
+- Interactive 2D/3D views with textures, orbit trails, physical-size/schematic modes, and camera following
+- Runtime editing of mass, position, and velocity in absolute or body-relative coordinates
+- Customizable graphs with selectable axes, bodies, and reference frames
+- Orbital elements: Semi-major/minor axes, eccentricity, linear eccentricity, period, and inclination
+- Checkpoints, simulation reset, and single/N-step execution
+- Energy, linear-momentum, and barycentre-drift diagnostics
+- Desktop and browser support, headless runs with sampled CSV export
+- Endpoint and time-series comparisons against reference runs and NASA/JPL Horizons
 
 ### 1.1 Initial conditions
 
 Initial positions and velocities represent:
 
 - Epoch: 1800-01-03
-- Origin: solar-system barycentre
+- Origin: Solar-system barycentre
 - Frame: J2000 ecliptic
 
 A project year is defined as exactly 365 days:
@@ -60,7 +60,7 @@ The model currently omits:
 - Tides
 - Radiation pressure
 - Atmospheric effects
-- Collisions and finite body sizes
+- Collisions and finite-size gravitational interactions
 - Planetary spin evolution and back-reaction torques
 
 ### 1.3 Accuracy and validation
@@ -110,6 +110,8 @@ The installed library must include JPEG support to load the bundled textures.
 With `USE_SYSTEM_RAYLIB=ON`, configuration fails if a compatible package is missing;
 there is no download fallback. The option defaults to `OFF`.
 
+For building with Emscripten see [section 2.7](#27-running-in-the-browser-emscripten).
+
 ### 2.3 CLI options
 
 Available CLI options:
@@ -127,27 +129,52 @@ Start the simulator visualization:
 ./cmake-build-release/simulation-orbit
 ```
 
-### 2.5 Simulator keybinds
+### 2.5 Interactive controls
 
-| Input                | Action                                                |
-|----------------------|-------------------------------------------------------|
-| `Space`              | Pause or resume simulation                            |
-| `T`                  | Toggle between 2D and 3D view                         |
-| `M`                  | Toggle moon orbit trails                              |
-| `L`                  | Toggle 2D legend                                      |
-| `R`                  | Reset zoom or camera                                  |
-| `O`                  | Toggle orbits (global switch)                         |
-| `0-9`                | Center on sun, planets or Pluto                       |
-| Mouse wheel          | Zoom in & out                                         |
-| `]` or `/`           | Keyboard zoom for QWERTZ layouts (maps to `+` or `-`) |
-| `Shift`              | Accelerate zoom or camera movement                    |
-| Left click           | Select a body and show its details                    |
-| Arrow keys or `WASD` | Rotate the 3D camera                                  |
-| Left drag            | Rotate the 3D Camera with the mouse                   |
+| Input                                   | Action                                                   |
+|-----------------------------------------|----------------------------------------------------------|
+| `Space`                                 | Pause or resume                                          |
+| `T`                                     | Switch between 2D and 3D                                 |
+| `L`                                     | Collapse or expand the legend                            |
+| `O`                                     | Toggle all orbit trails                                  |
+| `M`                                     | Toggle moon trails while orbit trails are enabled        |
+| `R`                                     | Reset the view, including zoom and camera following      |
+| `0`–`9`                                 | Set the coordinate origin to the Sun, a planet, or Pluto |
+| `^` (QWERTZ; key code 161)              | Return to the stored inertial coordinate frame           |
+| Mouse wheel                             | Zoom; anchored to the cursor in 2D                       |
+| Trackpad / touch                        | Browser-only; Zoom (anchored to the position in 2D)      |
+| `+` / `-` (QWERTZ; key codes `]` / `/`) | Zoom using the keyboard                                  |
+| Left-click body or legend name          | Open or close its inspector                              |
+| Left-click legend circle                | Show or hide the body and its trails                     |
+| Left-drag on empty scene space          | Pan in 2D; rotate in 3D                                  |
+| Arrow keys / `WASD`                     | Rotate the 3D camera                                     |
+| `Shift`                                 | Accelerate zoom and keyboard camera rotation             |
+| `F3`                                    | Toggle the developer debug overlay                       |
+
+
+The toolbar provides pause/resume, view reset, 2D/3D switching, body-size modes, marker scaling, and an ORIGIN selector.
+
+Open Tools to:
+- Toggle orbit trails and adjust simulation speed
+- Save or restore Checkpoints, or reset the simulation to its initial state
+- Open Diagnostics for energy, linear momentum, and barycentre drift
+- Create customizable Graphs
+- Advance one or N simulation steps while paused
+
+Body inspectors provide:
+- Edit relative to: Choose absolute or body-relative position and velocity
+- Enter or the inline checkmark: Commit an edited field
+- Escape while editing: Discard the current draft
+- Copy values: Copy the current simulation values in the selected reference frame
+- Go to (2D), Follow, and Stop following: Control the camera
+- Set origin: Change the coordinate frame used by the scene and trails
+- New graph: Open a graph for the selected body
+
+Camera following, the scene's coordinate origin, and the inspector's editing reference are independent. Reset view (R) changes the camera; Reset simulation under Checkpoints restores the physical state. Checkpoint restoration is unavailable while CSV export is configured.
 
 ### 2.6 CLI arguments
 
-Examples runs:
+Illustrated by examples runs, can also be retrieved via `./cmake-build-release/simulation-orbit --help`:
 ```bash
 # Help & version
 ./cmake-build-release/simulation-orbit --version # Show version
@@ -157,6 +184,7 @@ Examples runs:
 ./cmake-build-release/simulation-orbit # Simulate planets + Pluto for infinite years with 15 minute step size (default)
 ./cmake-build-release/simulation-orbit --headless --years 20 # Simulate 20 years in headless mode
 ./cmake-build-release/simulation-orbit --dt 100 --years 10 # Simulate 10 years with 100 seconds step size
+./cmake-build-release/simulation-orbit --speed 5 # Limit speed to 5 years/second
 
 # Configure body set
 ./cmake-build-release/simulation-orbit --dt 900 --years 100 --j2 --body-set planets # Simulate planets for 100 years with 15 minutes step size, planetary oblateness (J2) enabled
@@ -292,7 +320,7 @@ The Io, Europa, Ganymede, and Callisto textures are © James Hastings-Trew / [Pl
 
 ### 5.4 Additional code
 
-- [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker) by Guido Zuidhof (MIT, see `web/licenses/coi-serviceworker-MIT.txt`): enables cross-origin isolation (needed for pthreads) on GitHub Pages.
+- [coi-serviceworker](https://github.com/gzuidhof/coi-serviceworker) by Guido Zuidhof (MIT, see `web/licenses/coi-serviceworker-MIT.txt`): Enables cross-origin isolation (needed for pthreads) on GitHub Pages.
 
 ### 5.5 License scope
 
