@@ -201,6 +201,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
         std::cout <<   "        --headless                Run without raylib window                                                                                [boolean] [default: false]\n";
         std::cout <<   "        --dt                      Configure time step                                                                                      [number]  [default: 900]\n";
         std::cout <<   "        --years                   Configure total simulation time, -1 for unlimited                                                        [number]  [default: -1]\n";
+        std::cout <<   "        --speed                   Target simulation speed in years per second, -1 for unlimited                                            [number]  [default: -1, browser: 1]\n";
         std::cout <<   "        --csv                     Set CSV path for export of positions                                                                     [string]  [default: none]\n";
         std::cout <<   "        --sample-every-seconds    Set the physical sampling interval. Must be a multiple of --dt                                           [number]  [default: none]\n";
         std::cout <<   "        --csv-live                Stream CSV rows during simulation instead of writing at the end                                          [boolean] [default: false]\n";
@@ -224,6 +225,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
     }
 
     bool years_supplied = false;
+    bool speed_supplied = false;
     std::vector<std::size_t> explicitly_disabled_body_indices;
 
     body_set = BodySet::dwarf;
@@ -244,6 +246,12 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
             if (err != 0) return err;
             target_total_simulation_time = val;
             years_supplied = true;
+            i++;
+        } else if (arg == "--speed") {
+            auto [val, err] = parse_double("--speed", i, argc, argv);
+            if (err != 0) return err;
+            target_simulation_speed = val;
+            speed_supplied = true;
             i++;
         } else if (arg == "--csv") {
             auto [val, err] = parse_str("--csv", i, argc, argv);
@@ -346,6 +354,16 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
 
     if (headless && !years_supplied) {
         std::cerr << "Error: --headless requires --years.\n";
+        return 1;
+    }
+
+    if (speed_supplied && target_simulation_speed.load() != -1.0 && target_simulation_speed.load() <= 0.0) {
+        std::cerr << "Error: --speed must be greater than zero, or -1 for unlimited.\n";
+        return 1;
+    }
+
+    if (speed_supplied && headless) {
+        std::cerr << "Error: --speed has no effect with --headless.\n";
         return 1;
     }
 

@@ -1022,7 +1022,7 @@ GraphSample simulation::make_graph_sample() {
 
 void simulation::simulate_cpu(const std::stop_token& stop_token) {
     auto last_publish = std::chrono::steady_clock::now();
-    auto last_budget_update = std::chrono::steady_clock::now();
+    double last_budget_seconds = config::timer.seconds(); // Only advances while running
     double step_budget = 0.0;
     std::size_t since_check = 0;
 
@@ -1107,7 +1107,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
                     step_budget = 0.0;
                     since_check = 0;
-                    last_budget_update = std::chrono::steady_clock::now();
+                    last_budget_seconds = config::timer.seconds();
                 }
             } else if (const ui_data::DeleteCheckpoint* delete_cmd = std::get_if<ui_data::DeleteCheckpoint>(&*cmd)) {
                 processed_checkpoint_command |= delete_checkpoint(delete_cmd->id);
@@ -1170,7 +1170,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
         if (!config::timer.is_running()) {
             step_budget = 0.0;
-            last_budget_update = std::chrono::steady_clock::now();
+            last_budget_seconds = config::timer.seconds();
 
 
             if (requested_step_count) {
@@ -1228,7 +1228,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
             if (requested_step_count) {
                 since_check = 0;
-                last_budget_update = std::chrono::steady_clock::now();
+                last_budget_seconds = config::timer.seconds();
 
                 ui_data::set_step_progress({});
             }
@@ -1259,9 +1259,9 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             continue;
         }
 
-        const auto now = std::chrono::steady_clock::now();
-        const double elapsed = std::chrono::duration<double>(now - last_budget_update).count();
-        last_budget_update = now;
+        const double timer_seconds = config::timer.seconds();
+        const double elapsed = std::max(0.0, timer_seconds - last_budget_seconds); // Clamped in case the timer is ever set back
+        last_budget_seconds = timer_seconds;
 
         double max_budget = std::max(
             1.0,
