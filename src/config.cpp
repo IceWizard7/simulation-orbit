@@ -228,7 +228,6 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
     bool speed_supplied = false;
     std::vector<std::size_t> explicitly_disabled_body_indices;
 
-    body_set = BodySet::dwarf;
     update_body_set(celestial_bodies);
 
     for (int i = 1; i < argc; i++) {
