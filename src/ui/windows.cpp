@@ -273,23 +273,32 @@ void ui_helpers::draw_legend(const std::shared_ptr<const ui_data::RenderSnapshot
                 dl->AddCircle(center, radius, to_imgui_color(*body->color));
             }
 
+            // Real ImGui item over the circle's bounding box, so a popup or window on top blocks it
+            ImGui::SetCursorScreenPos({center.x - radius, center.y - radius});
+
             const auto [mx, my] = ImGui::GetMousePos();
+            const float dx = mx - center.x;
+            const float dy = my - center.y;
+            const bool inside_circle = dx * dx + dy * dy <= radius * radius;
 
-            const double dx = mx - center.x;
-            const double dy = my - center.y;
+            const bool circle_clicked = ImGui::InvisibleButton(
+                std::format("##planet_visibility_{}", i).c_str(),
+                ImVec2(2.0f * radius, 2.0f * radius)
+            ) && inside_circle;
 
-            if (dx * dx + dy * dy <= radius * radius) {
-                if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
-                    if (body->rendering_visible) {
-                        ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .disable_rendering = true});
-                    } else {
-                        ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .enable_rendering = true});
-                    }
+            const bool circle_hovered = ImGui::IsItemHovered() && inside_circle;
+
+            if (circle_clicked) {
+                if (body->rendering_visible) {
+                    ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .disable_rendering = true});
+                } else {
+                    ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .enable_rendering = true});
                 }
-
-                ImGui::SetTooltip("%s %s", body->rendering_visible ? "Hide" : "Show", body->name.c_str());
             }
 
+            if (circle_hovered) {
+                ImGui::SetTooltip("%s %s", body->rendering_visible ? "Hide" : "Show", body->name.c_str());
+            }
             const ImVec2 pos = {content_start.x + 18.0f, y};
 
             dl->AddText(
