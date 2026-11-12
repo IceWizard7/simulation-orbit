@@ -206,7 +206,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
         std::cout <<   "        --sample-every-seconds    Set the physical sampling interval. Must be a multiple of --dt                                           [number]  [default: none]\n";
         std::cout <<   "        --csv-live                Stream CSV rows during simulation instead of writing at the end                                          [boolean] [default: false]\n";
         std::cout <<   "        --j2                      Enable planetary oblateness (J2) perturbation on satellites                                              [boolean] [default: false]\n";
-        std::cout <<   "        --body-set                Enable only a subset of the available celestial bodies, planet-systems uses barycentric approximation    [string]  [default: \"dwarf\"]\n";
+        std::cout <<   "        --body-set                Enable only a subset of the available celestial bodies, planet-systems uses barycentric approximation    [string]  [default: \"all\"]\n";
         std::cout << R"(            choices:          ["all", "planets", "dwarf", "planet-systems"])" << '\n';
         std::cout <<   "        --disable-body            Disable a certain body; must come after --body-set; can be stacked                                       [string]  [default: none]\n";
         std::cout <<   "        --interaction-set         Enable only a subset of all interactions                                                                 [string]  [default: \"full\"]\n";
