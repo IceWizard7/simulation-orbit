@@ -194,7 +194,7 @@ Illustrated by examples runs, can also be retrieved via `./cmake-build-release/s
 ./cmake-build-release/simulation-orbit --years 2000 --body-set dwarf --disable-body Sun --disable-body Jupiter # Simulate planets + Pluto for 2000 years with Sun & Jupiter explicitly disabled
 
 # CSV output
-./cmake-build-release/simulation-orbit --headless --csv positions_and_velocities.csv --sample-every-seconds 2592000 --years 100 --dt 3600 # Simulate 100 years with 1 hour step size headlessly; sample positions & velocities every month into positions_and_velocities.csv file
+./cmake-build-release/simulation-orbit --headless --csv positions_and_velocities.csv --sample-every-seconds 2592000 --years 100 --dt 3600 # Simulate 100 years with 1 hour step size headlessly; sample positions & velocities every month into positions_and_velocities.csv
 ./cmake-build-release/simulation-orbit --headless --csv positions_and_velocities.csv --sample-every-seconds 2592000 --years 100 --dt 3600 --csv-live # Same as previous command; Also stream CSV rows during simulation instead of writing at the end
 
 # SIMD
@@ -214,11 +214,11 @@ emrun build-web/simulation-orbit.html
 CLI arguments are passed as URL query parameters separated by `&` (or after `--` when using `emrun`):
 
 ```bash
-emrun build-web/simulation-orbit.html -- --dt 900 --body-set all
-# equivalent URL: http://localhost:6931/simulation-orbit.html?--dt&900&--body-set&all
+emrun build-web/simulation-orbit.html -- --dt 900 --body-set planets
+# equivalent URL: http://localhost:6931/simulation-orbit.html?--dt&900&--body-set&planets
 ```
 
-They also work on the live site (ex. https://icewizard7.github.io/simulation-orbit/?--body-set&all).
+They also work on the live site (ex. https://icewizard7.github.io/simulation-orbit/?--body-set&planets).
 
 `--simd` is unavailable in the browser. `--headless` and `--csv` are not useful there, because files are written to Emscripten's in-memory filesystem.
 
