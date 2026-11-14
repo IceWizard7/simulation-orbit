@@ -32,6 +32,12 @@ struct Accelerations {
     alignas(16) double z[NUM_CELESTIAL_BODIES];
 };
 
+// Rendering-only trail sample
+struct OrbitSample {
+    std::size_t step;
+    Vec3 position;
+};
+
 struct SimulationCheckpoint {
     std::size_t id = 0;
     str label;
@@ -64,16 +70,23 @@ namespace simulation {
     extern CelestialBodies<NUM_CELESTIAL_BODIES> celestial_bodies;
     extern const std::array<PlanetarySystem, 7> planetary_systems;
     inline std::vector<CSVEntry> csv_data;
-    inline std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_history;
-    inline std::array<std::deque<Vec3>, NUM_CELESTIAL_BODIES> orbit_center_reference_history;
+
+    // Rendering-only trail histories with explicit steps
+    // (primary samples are adaptive, so the step can't be reconstructed from the index)
+    // see the ORBIT_* constants in config.hpp
+    inline std::array<std::deque<OrbitSample>, NUM_CELESTIAL_BODIES> orbit_history;
+    inline std::array<std::deque<OrbitSample>, NUM_CELESTIAL_BODIES> orbit_center_reference_history;
     inline std::optional<Accelerations> accelerations_at_current_positions;
 
-    // Per-body primary trail sampling plus the common coarse center-reference sampling
-    // (rendering-only; see the ORBIT_* constants in config.hpp)
-    inline std::array<std::size_t, NUM_CELESTIAL_BODIES> orbit_sample_every_steps;
-    inline std::array<std::size_t, NUM_CELESTIAL_BODIES> orbit_max_points;
-    inline std::size_t orbit_center_reference_sample_every_steps;
-    inline std::size_t orbit_center_reference_max_points;
+    // Primary sampling: velocity-direction turn (rad) since each body's last sample, measured relative to its
+    // dynamic host from the latest hierarchy (stale by at most one publication, which is fine for sampling)
+    inline std::array<double, NUM_CELESTIAL_BODIES> orbit_turn_since_sample{};
+    inline std::array<std::optional<std::size_t>, NUM_CELESTIAL_BODIES> orbit_sampling_host{};
+    inline std::size_t orbit_max_gap_steps = 1;
+
+    // Coarse center-reference sampling (fixed cadence)
+    inline std::size_t orbit_center_reference_sample_every_steps = 1;
+    inline std::size_t orbit_center_reference_max_points = 2;
 
     inline std::size_t next_checkpoint_id = 0;
     inline std::vector<SimulationCheckpoint> checkpoints;
@@ -90,6 +103,9 @@ namespace simulation {
     void apply_planet_systems_approximation();
 
     void save_orbit_points();
+
+    // Clears both trail histories and the sampling state (restore, physical edits)
+    void clear_orbit_histories();
 
     bool initialize_csv_output();
 

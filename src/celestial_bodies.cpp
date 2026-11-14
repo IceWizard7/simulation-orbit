@@ -23,8 +23,6 @@ CelestialBodies<NUM_CELESTIAL_BODIES>::CelestialBodies(std::array<CelestialBodyI
         draw_radii_3d[i] = bodies[i].radius_3d;
         colors[i] = bodies[i].color;
 
-        orbital_period_seconds[i] = bodies[i].orbital_period_seconds;
-
         enabled[i] = true;
         rendering_visible[i] = true;
 

@@ -576,74 +576,68 @@ def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
     res: list[str] = []
     positions: list[Vec3] = []
 
-    # radius_2d, radius_3d, color, orbital_period_seconds (as "<days> * 86'400")[, texture]
-    # Periods: rendering-only; heliocentric for planets, local satellite orbits for moons
-    # (the small Pluto moons have barycentric orbital periods).
+    # radius_2d, radius_3d, color [, texture]
     # NASA/NSSDCA Planetary Fact Sheets, David R. Williams, accessed 2026-10-04:
     # https://nssdc.gsfc.nasa.gov/planetary/planetfact.html
     # Preserve all published decimal places; these are tabulated approximations,
     # not exact physical constants. R marks retrograde motion (Phoebe, Triton);
     # trail sampling uses the positive duration. Integer days use .0 for C++ double
     # multiplication, avoiding integer overflow for Pluto and the Sun.
-    # Planet sources ("Sidereal orbit period (days)"):
-    # https://nssdc.gsfc.nasa.gov/planetary/factsheet/mercuryfact.html
-    # https://nssdc.gsfc.nasa.gov/planetary/factsheet/venusfact.html
-    # https://nssdc.gsfc.nasa.gov/planetary/factsheet/earthfact.html
-    # https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html
-    # https://nssdc.gsfc.nasa.gov/planetary/factsheet/jupiterfact.html
-    # https://nssdc.gsfc.nasa.gov/planetary/factsheet/saturnfact.html
-    # https://nssdc.gsfc.nasa.gov/planetary/factsheet/uranusfact.html
-    # https://nssdc.gsfc.nasa.gov/planetary/factsheet/neptunefact.html
-    # https://nssdc.gsfc.nasa.gov/planetary/factsheet/plutofact.html
-    # Sun uses Pluto's period so its history (which bounds how far back center-relative
-    # trails can reach) spans every other body's full tail
     fix_code: dict[str, str] = {
-        "Sun": "10, 0.03, (Color){255, 230,  40, 255}, 90560.0 * 86'400, \"resources/sun.jpg\"",
-        "Mercury": "5, 0.01, (Color){150, 150, 150, 255}, 87.969 * 86'400, \"resources/mercury.jpg\"",
-        "Venus": "5, 0.01, (Color){245, 190,  70, 255}, 224.701 * 86'400, \"resources/venus.jpg\"",
-        "Earth": "5, 0.01, (Color){ 40, 120, 204, 255}, 365.256 * 86'400, \"resources/earth.jpg\"",
-        "Mars": "10, 0.02, (Color){220,  60,  40, 255}, 686.980 * 86'400, \"resources/mars.jpg\"",
-        "Jupiter": "10, 0.15, (Color){220, 150,  85, 255}, 4332.589 * 86'400, \"resources/jupiter.jpg\"",
-        "Saturn": "10, 0.15, (Color){235, 205, 120, 255}, 10755.699 * 86'400, \"resources/saturn.jpg\"",
-        "Uranus": "10, 0.15, (Color){ 80, 220, 220, 255}, 30685.400 * 86'400, \"resources/uranus.jpg\"",
-        "Neptune": "10, 0.15, (Color){ 40,  80, 230, 255}, 60189.018 * 86'400, \"resources/neptune.jpg\"",
-        "Pluto": "10, 0.15, (Color){185, 155, 130, 255}, 90560.0 * 86'400",
-        # https://nssdc.gsfc.nasa.gov/planetary/factsheet/moonfact.html
-        "Moon": "5, 0.01, (Color){200, 200, 200, 255}, 27.3217 * 86'400, \"resources/moon.jpg\"",
-        # https://nssdc.gsfc.nasa.gov/planetary/factsheet/marsfact.html
-        "Phobos": "5, 0.01, (Color){105, 93, 82, 255}, 0.31891 * 86'400",
-        "Deimos": "5, 0.01, (Color){139, 118, 99, 255}, 1.26244 * 86'400",
-        # https://nssdc.gsfc.nasa.gov/planetary/factsheet/joviansatfact.html
-        "Io": "5, 0.01, (Color){240, 197, 79, 255}, 1.769138 * 86'400, \"resources/io.jpg\"",
-        "Europa": "5, 0.01, (Color){210, 199, 174, 255}, 3.551181 * 86'400, \"resources/europa.jpg\"",
-        "Ganymede": "5, 0.01, (Color){139, 126, 112, 255}, 7.154553 * 86'400, \"resources/ganymede.jpg\"",
-        "Callisto": "5, 0.01, (Color){76, 66, 60, 255}, 16.689017 * 86'400, \"resources/callisto.jpg\"",
-        # https://nssdc.gsfc.nasa.gov/planetary/factsheet/saturniansatfact.html
-        "Mimas": "5, 0.01, (Color){207, 208, 197, 255}, 0.9424218 * 86'400",
-        "Enceladus": "5, 0.01, (Color){231, 240, 242, 255}, 1.370218 * 86'400",
-        "Tethys": "5, 0.01, (Color){202, 203, 191, 255}, 1.887802 * 86'400",
-        "Dione": "5, 0.01, (Color){190, 190, 180, 255}, 2.736915 * 86'400",
-        "Rhea": "5, 0.01, (Color){180, 180, 170, 255}, 4.517500 * 86'400",
-        "Titan": "5, 0.01, (Color){201, 141, 71, 255}, 15.945421 * 86'400",
-        "Hyperion": "5, 0.01, (Color){136, 99, 70, 255}, 21.276609 * 86'400",
-        "Iapetus": "5, 0.01, (Color){154, 137, 108, 255}, 79.330183 * 86'400",
-        "Phoebe": "5, 0.01, (Color){71, 68, 67, 255}, 548.0 * 86'400",
-        # https://nssdc.gsfc.nasa.gov/planetary/factsheet/uraniansatfact.html
-        "Ariel": "5, 0.01, (Color){188, 203, 205, 255}, 2.520379 * 86'400",
-        "Umbriel": "5, 0.01, (Color){79, 85, 91, 255}, 4.144176 * 86'400",
-        "Titania": "5, 0.01, (Color){150, 153, 160, 255}, 8.705867 * 86'400",
-        "Oberon": "5, 0.01, (Color){102, 97, 92, 255}, 13.463234 * 86'400",
-        "Miranda": "5, 0.01, (Color){169, 174, 163, 255}, 1.413479 * 86'400",
-        # https://nssdc.gsfc.nasa.gov/planetary/factsheet/neptuniansatfact.html
-        "Triton": "5, 0.01, (Color){194, 190, 183, 255}, 5.876854 * 86'400",
-        "Nereid": "5, 0.01, (Color){164, 171, 174, 255}, 360.13619 * 86'400",
-        "Proteus": "5, 0.01, (Color){89, 91, 89, 255}, 1.122315 * 86'400",
-        # https://nssdc.gsfc.nasa.gov/planetary/factsheet/plutofact.html
-        "Charon": "5, 0.01, (Color){126, 117, 109, 255}, 6.3872 * 86'400",
-        "Nix": "5, 0.01, (Color){184, 183, 175, 255}, 24.85 * 86'400",
-        "Hydra": "5, 0.01, (Color){164, 165, 157, 255}, 38.20 * 86'400",
-        "Kerberos": "5, 0.01, (Color){84, 80, 78, 255}, 32.17 * 86'400",
-        "Styx": "5, 0.01, (Color){123, 120, 113, 255}, 20.16 * 86'400"
+        # Planets + Pluto
+        "Sun": "10, 0.03, (Color){255, 230,  40, 255}, \"resources/sun.jpg\"",
+        "Mercury": "5, 0.01, (Color){150, 150, 150, 255}, \"resources/mercury.jpg\"",
+        "Venus": "5, 0.01, (Color){245, 190,  70, 255}, \"resources/venus.jpg\"",
+        "Earth": "5, 0.01, (Color){ 40, 120, 204, 255}, \"resources/earth.jpg\"",
+        "Mars": "10, 0.02, (Color){220,  60,  40, 255}, \"resources/mars.jpg\"",
+        "Jupiter": "10, 0.15, (Color){220, 150,  85, 255}, \"resources/jupiter.jpg\"",
+        "Saturn": "10, 0.15, (Color){235, 205, 120, 255}, \"resources/saturn.jpg\"",
+        "Uranus": "10, 0.15, (Color){ 80, 220, 220, 255}, \"resources/uranus.jpg\"",
+        "Neptune": "10, 0.15, (Color){ 40,  80, 230, 255}, \"resources/neptune.jpg\"",
+        "Pluto": "10, 0.15, (Color){185, 155, 130, 255}",
+
+        # Earth
+        "Moon": "5, 0.01, (Color){200, 200, 200, 255}, \"resources/moon.jpg\"",
+
+        # Mars
+        "Phobos": "5, 0.01, (Color){105, 93, 82, 255}",
+        "Deimos": "5, 0.01, (Color){139, 118, 99, 255}",
+
+        # Jupiter
+        "Io": "5, 0.01, (Color){240, 197, 79, 255}, \"resources/io.jpg\"",
+        "Europa": "5, 0.01, (Color){210, 199, 174, 255}, \"resources/europa.jpg\"",
+        "Ganymede": "5, 0.01, (Color){139, 126, 112, 255}, \"resources/ganymede.jpg\"",
+        "Callisto": "5, 0.01, (Color){76, 66, 60, 255}, \"resources/callisto.jpg\"",
+
+        # Saturn
+        "Mimas": "5, 0.01, (Color){207, 208, 197, 255}",
+        "Enceladus": "5, 0.01, (Color){231, 240, 242, 255}",
+        "Tethys": "5, 0.01, (Color){202, 203, 191, 255}",
+        "Dione": "5, 0.01, (Color){190, 190, 180, 255}",
+        "Rhea": "5, 0.01, (Color){180, 180, 170, 255}",
+        "Titan": "5, 0.01, (Color){201, 141, 71, 255}",
+        "Hyperion": "5, 0.01, (Color){136, 99, 70, 255}",
+        "Iapetus": "5, 0.01, (Color){154, 137, 108, 255}",
+        "Phoebe": "5, 0.01, (Color){71, 68, 67, 255}",
+
+        # Uranus
+        "Ariel": "5, 0.01, (Color){188, 203, 205, 255}",
+        "Umbriel": "5, 0.01, (Color){79, 85, 91, 255}",
+        "Titania": "5, 0.01, (Color){150, 153, 160, 255}",
+        "Oberon": "5, 0.01, (Color){102, 97, 92, 255}",
+        "Miranda": "5, 0.01, (Color){169, 174, 163, 255}",
+
+        # Neptune
+        "Triton": "5, 0.01, (Color){194, 190, 183, 255}",
+        "Nereid": "5, 0.01, (Color){164, 171, 174, 255}",
+        "Proteus": "5, 0.01, (Color){89, 91, 89, 255}",
+
+        # Pluto
+        "Charon": "5, 0.01, (Color){126, 117, 109, 255}",
+        "Nix": "5, 0.01, (Color){184, 183, 175, 255}",
+        "Hydra": "5, 0.01, (Color){164, 165, 157, 255}",
+        "Kerberos": "5, 0.01, (Color){84, 80, 78, 255}",
+        "Styx": "5, 0.01, (Color){123, 120, 113, 255}"
     }
 
     planet_to_code: dict[str, str] = {planet: "" for planet in planet_to_horizon_id.keys()}

@@ -62,15 +62,11 @@ void ui_helpers::draw_debug_overlay(const std::shared_ptr<const ui_data::RenderS
     std::size_t candidate_segments = 0;
 
     if (snap) {
-        const std::size_t orbit_limit = ui_config::draw_moon_orbits
-            ? NUM_CELESTIAL_BODIES
-            : NUM_PLANETS + NUM_DWARF_PLANETS;
-
         for (std::size_t i = 0; i < snap->orbits.size(); ++i) {
             const auto& [points, color] = snap->orbits[i];
             stored_points += points.size();
 
-            if (ui_config::draw_orbits && i < orbit_limit &&
+            if (ui_config::draw_orbits && (ui_config::draw_moon_orbits || !is_moon(*snap, i)) &&
                 snap->bodies[i] && snap->bodies[i]->rendering_visible &&
                 color && points.size() >= 2) {
                 candidate_segments += points.size() - 1;
@@ -1463,5 +1459,4 @@ void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::Re
 }
 
 // TODO: macOS snapping latency
-// TODO: Duplicate raylib link warning?
 // TODO: Controls / Help page

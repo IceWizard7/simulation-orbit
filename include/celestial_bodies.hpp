@@ -16,7 +16,6 @@ struct CelestialBodyInit {
     float radius_2d;
     float radius_3d;
     const std::optional<Color>& color;
-    double orbital_period_seconds;
     const std::optional<str>& texture_path = std::nullopt;
     double j2 = 0.0;
     double equatorial_radius = 0.0;
@@ -46,12 +45,6 @@ struct CelestialBodies {
     float draw_radii_2d[NUM_CELESTIAL_BODIES]{};
     float draw_radii_3d[NUM_CELESTIAL_BODIES]{};
     std::optional<Color> colors[NUM_CELESTIAL_BODIES]{};
-
-    // Approximate orbital period (parent-relative for moons, heliocentric for planets;
-    // the Sun uses Pluto's period so its history — which bounds how far back center-relative
-    // trails can reach — spans every other body's full tail)
-    // Rendering-only; sets the orbit-trail sampling cadence and tail length
-    double orbital_period_seconds[NUM_CELESTIAL_BODIES]{};
 
     PlanetVisual planet_visuals[NUM_CELESTIAL_BODIES]{};
 

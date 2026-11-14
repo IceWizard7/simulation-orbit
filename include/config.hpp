@@ -46,18 +46,23 @@ namespace config {
     // Browser wheel events report pixels; this many pixels count as one zoom step
     inline constexpr double WEB_WHEEL_PIXELS_PER_ZOOM_STEP = 12.5;
 
-    // Orbit trails are sampled per body from its orbital_period_seconds: every body gets the same
-    // angular resolution regardless of period
-    // ORBIT_TAIL_REVOLUTIONS sets how many revolutions each trail keeps: ~1.05 -> one clean closed curve, higher -> faded precession spirals
-    // Memory & per-frame cost scale with REVOLUTIONS * POINTS (points per body ~= that product)
+    // Orbit trails are sampled dynamically (no stored periods):
+    // A body gets a new sample once its velocity direction, relative to its current host from the hierarchy (roots: inertial),
+    // has turned by 2pi / ORBIT_POINTS_PER_REVOLUTION
+    // Circular orbit -> that many points per revolution
+    // eccentric -> denser near periapsis
+    // unbound -> dense near closest approach
+    // The max gap bounds nearly straight motion; Memory & per-frame cost scale with ORBIT_MAX_POINTS per body (~ORBIT_TAIL_REVOLUTIONS revolutions)
     constexpr int ORBIT_POINTS_PER_REVOLUTION = 1'024;
     constexpr double ORBIT_TAIL_REVOLUTIONS = 10;
+    constexpr std::size_t ORBIT_MAX_POINTS = static_cast<std::size_t>(ORBIT_TAIL_REVOLUTIONS * ORBIT_POINTS_PER_REVOLUTION);
+    constexpr double ORBIT_MAX_SAMPLE_GAP_SECONDS = 365.0 * 86'400;
 
-    // Coarse, long-lived positions used only to reconstruct a moving center for old, distant
-    // orbit samples. 1.05 of Pluto's period keeps at least one complete outer-planet orbit
-    // available without retaining every moon's high-frequency history for centuries
+    // Coarse, long-lived positions used only to reconstruct a moving center for old, distant orbit samples
+    // ~260 years (~ 1.05 Pluto orbits at the default masses) keeps complete outer-planet trails available without retaining every moon's high-frequency history for centuries
     constexpr int ORBIT_CENTER_REFERENCE_POINTS_PER_YEAR = 64;
-    constexpr double ORBIT_CENTER_REFERENCE_LONGEST_REVOLUTIONS = 1.05;
+    constexpr double ORBIT_CENTER_REFERENCE_YEARS = 260;
+
     constexpr bool CLEAR_ORBITS_AFTER_PHYSICAL_EDIT = true;
 
     constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2) // TODO: Make this changeable

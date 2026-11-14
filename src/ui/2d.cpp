@@ -268,12 +268,11 @@ namespace {
         constexpr double minimum_distance_squared = minimum_distance_px * minimum_distance_px;
         const Vec2 offset = ui_config::get_2d_offset(snap);
 
-        const std::size_t orbit_limit = ui_config::draw_moon_orbits
-            ? NUM_CELESTIAL_BODIES
-            : NUM_PLANETS + NUM_DWARF_PLANETS;
-
-        for (std::size_t i = 0; i < orbit_limit; ++i) {
+        for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; ++i) {
             const auto& [points, color] = snap->orbits[i];
+
+            // Moon = current hierarchy depth >= 2, not a fixed index range
+            if (!ui_config::draw_moon_orbits && is_moon(*snap, i)) continue;
 
             if (!color || points.size() < 2 || !snap->bodies[i] || !snap->bodies[i]->rendering_visible) continue;
 

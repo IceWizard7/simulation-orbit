@@ -14,6 +14,7 @@ bool orbits(const Hierarchy& h, std::size_t i, const std::size_t ancestor) {
         i = *h.host[i];
         if (i == ancestor) return true;
     }
+
     return false;
 }
 
