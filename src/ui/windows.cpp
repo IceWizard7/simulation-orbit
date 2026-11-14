@@ -507,10 +507,22 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                             // Collapsed by default: Some celestial bodies may have many moons
                             if (ImGui::TreeNode("##moons", "Moons (%zu)", members.size())) {
+                                // Every member divides by the same hill, so sorting by distance = sorting by r_H fraction (and still works when hill is NaN/inf)
+                                // NaN distances (non-finite edits) go last: a plain `<` on NaN breaks std::sort's strict weak ordering (undefined behavior)
+                                std::vector<std::pair<double, std::size_t>> by_distance; // {distance to i, member}
+
+                                by_distance.reserve(members.size());
                                 for (const std::size_t m : members) {
+                                    by_distance.emplace_back((point_masses[m]->position - self.position).length(), m);
+                                }
+
+                                std::ranges::stable_sort(by_distance, {}, [](const auto& entry) {
+                                    return std::pair{std::isnan(entry.first), entry.first};
+                                });
+
+                                for (const auto& [distance, m] : by_distance) {
                                     if (std::isfinite(hill)) {
-                                        const double fraction = (point_masses[m]->position - self.position).length() / hill;
-                                        ImGui::Text("%s: %.3f r_H", snap->bodies[m]->name.c_str(), fraction);
+                                        ImGui::Text("%s: %.3f r_H", snap->bodies[m]->name.c_str(), distance / hill);
                                     } else {
                                         ImGui::Text("%s", snap->bodies[m]->name.c_str());
                                     }
