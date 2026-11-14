@@ -262,6 +262,7 @@ namespace ui_config {
     constexpr float MIN_CLICK_RADIUS_PX_3D = 12.0f;
 
     inline Model star_model{};
+    inline constexpr auto STAR_BACKGROUND_PATH = "resources/8k_stars_milky_way.jpg"; // Alternative: "resources/stars.jpg"
     inline Texture2D star_texture{};
     inline bool star_background_loaded = false;
 }
@@ -409,9 +410,19 @@ namespace ui_helpers {
 
     void set_coordinate_origin(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, std::size_t index);
 
+    // Synchronous decode + upload
     void load_star_background();
 
+    // Main thread only (GL): star sphere from an already decoded image; the caller keeps ownership of `image`
+    void upload_star_background(const Image& image);
+
     void unload_star_background();
+
+    // Decodes all textures of enabled bodies plus the star background and uploads them
+    // Desktop: decodes on worker threads while drawing a progress screen
+    // Web: synchronous (the browser shell shows its own download progress)
+    // Returns false if the window was closed during loading
+    bool load_resources_with_progress();
 
     // Shared 2d & 3d (needed for ui/ui.cpp)
     std::optional<std::size_t> pick_body_at_mouse_2d(const std::shared_ptr<const ui_data::RenderSnapshot>& snap);

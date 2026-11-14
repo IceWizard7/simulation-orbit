@@ -67,8 +67,16 @@ Mesh make_equirectangular_sphere_mesh(const float radius, const int rings, const
 void PlanetVisual::load_planet_visual() {
     if (loaded || !texture_path.has_value()) return;
 
+    const Image image = LoadImage(texture_path->c_str());
+    upload_planet_visual(image);
+    UnloadImage(image); // the GPU has its own copy now
+}
+
+void PlanetVisual::upload_planet_visual(const Image& image) {
+    if (loaded || !texture_path.has_value()) return;
+
     model = LoadModelFromMesh(make_equirectangular_sphere_mesh(1.0f, 64, 128));
-    texture = LoadTexture(texture_path->c_str());
+    texture = image.data != nullptr ? LoadTextureFromImage(image) : Texture2D{};
 
     if (texture.id == 0 || model.materials == nullptr) {
         TraceLog(LOG_ERROR, "Could not load planet texture: %s", texture_path->c_str());

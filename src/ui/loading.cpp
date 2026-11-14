@@ -1,0 +1,179 @@
+#include <algorithm>
+#include <chrono>
+#include <cmath>
+#include <cstddef>
+#include <filesystem>
+#include <functional>
+#include <future>
+#include <raylib.h>
+#include <string>
+#include <system_error>
+#include <vector>
+
+#include "simulation.hpp"
+#include "ui.hpp"
+
+// Startup resource loading: textures are decoded (CPU, no GL) on worker threads and uploaded on the
+// main thread, which owns the GL context, while a progress screen keeps the window responsive
+
+namespace {
+    struct LoadJob {
+        std::string path;
+        std::function<void(const Image&)> upload; // main thread only (needs the GL context)
+        std::uintmax_t bytes = 0;                  // progress weight: decode time ~ file size
+        std::future<Image> decoded;
+        bool done = false;
+    };
+
+    std::vector<LoadJob> make_load_jobs() {
+        std::vector<LoadJob> jobs;
+
+        jobs.push_back({ui_config::STAR_BACKGROUND_PATH, [](const Image& image) {
+            ui_helpers::upload_star_background(image);
+        }});
+
+        for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+            PlanetVisual& visual = simulation::celestial_bodies.planet_visuals[i];
+            if (!simulation::celestial_bodies.enabled[i] || !visual.texture_path) continue;
+
+            jobs.push_back({*visual.texture_path, [&visual](const Image& image) {
+                visual.upload_planet_visual(image);
+            }});
+        }
+
+        for (LoadJob& job : jobs) {
+            std::error_code error;
+            job.bytes = std::filesystem::file_size(job.path, error);
+            if (error || job.bytes == 0) job.bytes = 1; // missing file: still counts as one finished step
+        }
+
+        return jobs;
+    }
+
+#ifndef __EMSCRIPTEN__
+    void draw_centered_text(const Font& font, const std::string& text, const float y, const float size, const Color color) {
+        const Vector2 extent = MeasureTextEx(font, text.c_str(), size, 1.0f);
+        DrawTextEx(font, text.c_str(), {(static_cast<float>(GetScreenWidth()) - extent.x) * 0.5f, y}, size, 1.0f, color);
+    }
+
+    void draw_loading_frame(const Font& font, const float progress, const std::string& last_loaded) {
+        // Recomputed every frame: MaximizeWindow() and user resizes change the size during loading
+        const float width = static_cast<float>(GetScreenWidth());
+        const float height = static_cast<float>(GetScreenHeight());
+        const float center_x = width * 0.5f;
+        const float center_y = height * 0.5f;
+
+        ClearBackground(BLACK); // same as the 3D view
+
+        // "Alive" indicator: keeps moving while a single large texture decodes and the bar can't advance
+        constexpr float orbit_radius = 22.0f;
+        const Vector2 star{center_x, center_y - 90.0f};
+        const auto angle = static_cast<float>(GetTime() * 2.0);
+        DrawRing(star, orbit_radius - 0.75f, orbit_radius + 0.75f, 0.0f, 360.0f, 64, {70, 70, 70, 255});
+        DrawCircleV(star, 6.0f, {255, 230, 40, 255});
+        DrawCircleV({star.x + orbit_radius * std::cos(angle), star.y + orbit_radius * std::sin(angle)}, 3.5f, {40, 120, 204, 255});
+
+        draw_centered_text(font, "simulation-orbit", center_y - 45.0f, 28.0f, RAYWHITE);
+
+        // Progress bar
+        const float bar_width = std::min(420.0f, width - 64.0f);
+        constexpr float bar_height = 10.0f;
+        const Rectangle bar{center_x - bar_width * 0.5f, center_y + 5.0f, bar_width, bar_height};
+        DrawRectangleRounded(bar, 1.0f, 8, {40, 40, 40, 255});
+
+        if (progress > 0.0f) {
+            const Rectangle fill{bar.x, bar.y, std::max(bar_height, bar.width * std::clamp(progress, 0.0f, 1.0f)), bar.height};
+            DrawRectangleRounded(fill, 1.0f, 8, {40, 120, 204, 255});
+        }
+
+        const int percent = static_cast<int>(std::lround(std::clamp(progress, 0.0f, 1.0f) * 100.0f));
+        draw_centered_text(font, "Loading textures... " + std::to_string(percent) + " %", center_y + 30.0f, 18.0f, {200, 200, 200, 255});
+        draw_centered_text(font, last_loaded, center_y + 54.0f, 14.0f, {120, 120, 120, 255});
+    }
+#endif
+}
+
+bool ui_helpers::load_resources_with_progress() {
+    std::vector<LoadJob> jobs = make_load_jobs();
+
+#ifdef __EMSCRIPTEN__
+    // The browser shell already shows download progress, and a blocking loop can't present frames here
+    for (LoadJob& job : jobs) {
+        Image image = LoadImage(job.path.c_str());
+        job.upload(image);
+        UnloadImage(image);
+    }
+    return true;
+#else
+    std::uintmax_t total_bytes = 0;
+    for (const LoadJob& job : jobs) total_bytes += job.bytes;
+
+    // Load at the DPI-scaled pixel size and draw at the logical size, otherwise text is blurry on Retina displays
+    const float dpi_scale = std::max(1.0f, GetWindowScaleDPI().y);
+    Font font = LoadFontEx("resources/JetBrainsMono-Regular.ttf", static_cast<int>(std::lround(28.0f * dpi_scale)), nullptr, 0);
+    const bool own_font = font.texture.id != 0;
+    if (own_font) {
+        SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
+    } else {
+        font = GetFontDefault();
+    }
+
+    // Each 8k texture decodes to ~100 MB of RGB; cap parallel decodes to bound peak memory
+    constexpr std::size_t MAX_IN_FLIGHT = 3;
+    std::size_t next_to_start = 0;
+    std::size_t in_flight = 0;
+    std::size_t finished = 0;
+    std::uintmax_t finished_bytes = 0;
+    std::string last_loaded = "Preparing";
+
+    bool completed = true;
+
+    while (finished < jobs.size()) {
+        if (WindowShouldClose()) {
+            completed = false;
+            break;
+        }
+
+        while (in_flight < MAX_IN_FLIGHT && next_to_start < jobs.size()) {
+            LoadJob& job = jobs[next_to_start++];
+            // launch::async: a deferred task would only run at get(), on the main thread
+            job.decoded = std::async(std::launch::async, [path = job.path] { return LoadImage(path.c_str()); });
+            in_flight++;
+        }
+
+        // Upload at most one finished image per frame: an 8k upload + mipmaps takes a noticeable moment
+        for (LoadJob& job : jobs) {
+            if (job.done || !job.decoded.valid()) continue;
+            if (job.decoded.wait_for(std::chrono::seconds(0)) != std::future_status::ready) continue;
+
+            Image image = job.decoded.get();
+            job.upload(image); // failed decode (empty image) logs inside and leaves the body untextured
+            UnloadImage(image); // the GPU has its own copy now
+
+            job.done = true;
+            in_flight--;
+            finished++;
+            finished_bytes += job.bytes;
+            last_loaded = std::filesystem::path(job.path).filename().string();
+            break;
+        }
+
+        const float progress = static_cast<float>(
+            static_cast<double>(finished_bytes) / static_cast<double>(std::max<std::uintmax_t>(total_bytes, 1))
+        );
+
+        BeginDrawing(); // EndDrawing() polls events: the window stays responsive and closable
+        draw_loading_frame(font, progress, last_loaded);
+        EndDrawing();
+    }
+
+    // Closed early: wait for running decodes (get() blocks) and free their images; already uploaded
+    // resources are released by the regular unload functions
+    for (LoadJob& job : jobs) {
+        if (job.decoded.valid()) UnloadImage(job.decoded.get());
+    }
+
+    if (own_font) UnloadFont(font);
+    return completed;
+#endif
+}

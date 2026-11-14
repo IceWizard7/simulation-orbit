@@ -417,9 +417,16 @@ namespace {
 
 
 void ui_helpers::load_star_background() {
+    const Image image = LoadImage(ui_config::STAR_BACKGROUND_PATH);
+    upload_star_background(image);
+    UnloadImage(image); // the GPU has its own copy now
+}
+
+void ui_helpers::upload_star_background(const Image& image) {
+    if (ui_config::star_background_loaded) return;
+
     ui_config::star_model = LoadModelFromMesh(make_equirectangular_sphere_mesh(1.0f, 64, 128));
-    ui_config::star_texture = LoadTexture("resources/8k_stars_milky_way.jpg");
-    // Alternative: "resources/stars.jpg"
+    ui_config::star_texture = image.data != nullptr ? LoadTextureFromImage(image) : Texture2D{};
 
     if (ui_config::star_texture.id == 0) {
         std::cerr << "Could not load star background.\n";

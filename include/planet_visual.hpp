@@ -14,6 +14,11 @@ public:
     std::optional<str> texture_path;
     bool loaded = false;
 
+    // Main thread only (needs the GL context): mesh + texture from an already decoded image
+    // The caller keeps ownership of `image`; an empty image (failed decode) logs and leaves the body untextured
+    void upload_planet_visual(const Image& image);
+
+    // Synchronous decode + upload (used where no loading screen runs, ex. the web build)
     void load_planet_visual();
 
     void unload_planet_visual();

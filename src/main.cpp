@@ -66,10 +66,6 @@ int main(const int argc, char* argv[]) {
 
     // Start filling the screen's usable area (minus menu bar/dock/taskbar); un-maximizing returns to the initial size
     MaximizeWindow();
-
-    BeginDrawing();
-    DrawRectangle(0, 0, 100, 100, RED);
-    EndDrawing();
 #endif
 
     SetExitKey(KEY_NULL); // So ESC doesn't close the window, but rather dismisses other UI actions (ImGui)
@@ -91,13 +87,10 @@ int main(const int argc, char* argv[]) {
     // We do sacrifice some functionality (ex. arrow keys in ImGui::Combo), but that's the better trade for now.
 
     // Loading begin
-    ui_helpers::load_star_background();
+    // Desktop: progress screen while textures decode in parallel; false if the window was closed meanwhile
+    const bool resources_loaded = ui_helpers::load_resources_with_progress();
 
-    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (simulation::celestial_bodies.enabled[i]) simulation::celestial_bodies.planet_visuals[i].load_planet_visual();
-    }
-
-    ImGuiIO& io = ImGui::GetIO();
+    const ImGuiIO& io = ImGui::GetIO();
 
     config::imgui_ui_font = io.Fonts->AddFontFromFileTTF(
         "resources/JetBrainsMono-Regular.ttf",
@@ -113,23 +106,26 @@ int main(const int argc, char* argv[]) {
 
     // Loading done
 
-    config::timer.resume();
+    // Window closed during loading: Skip the run, but still unload what was loaded and report the (step 0) final state
+    if (resources_loaded) {
+        config::timer.resume();
 
-    simulation::publish_snapshot();
-    std::jthread cpu_thread(simulation::simulate_cpu);
+        simulation::publish_snapshot();
+        std::jthread cpu_thread(simulation::simulate_cpu);
 
-    #ifdef __EMSCRIPTEN__
-    emscripten_set_main_loop(ui_helpers::UpdateDrawFrame, 0, 1);
-    #else
+        #ifdef __EMSCRIPTEN__
+        emscripten_set_main_loop(ui_helpers::UpdateDrawFrame, 0, 1);
+        #else
 
-    while (!WindowShouldClose()) {
-        ui_helpers::UpdateDrawFrame();
+        while (!WindowShouldClose()) {
+            ui_helpers::UpdateDrawFrame();
+        }
+        #endif
+
+        cpu_thread.request_stop();
+        config::timer.pause();
+        cpu_thread.join();
     }
-    #endif
-
-    cpu_thread.request_stop();
-    config::timer.pause();
-    cpu_thread.join();
 
     // Unloading begin
 
