@@ -58,8 +58,8 @@ namespace {
 
     void draw_loading_frame(const Font& font, const float progress, const std::string& last_loaded) {
         // Recomputed every frame: MaximizeWindow() and user resizes change the size during loading
-        const float width = static_cast<float>(GetScreenWidth());
-        const float height = static_cast<float>(GetScreenHeight());
+        const auto width = static_cast<float>(GetScreenWidth());
+        const auto height = static_cast<float>(GetScreenHeight());
         const float center_x = width * 0.5f;
         const float center_y = height * 0.5f;
 
