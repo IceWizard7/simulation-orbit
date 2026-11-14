@@ -6,7 +6,7 @@
 #include "config.hpp"
 #include "simulation.hpp"
 
-void force_pairs::initialize_all_pairs(const CelestialBodies<NUM_CELESTIAL_BODIES>& celestial_bodies) {
+void force_pairs::initialize_all_pairs(const CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies) {
     // Call after celestial bodies have been enabled / disabled accordingly
 
     all_pairs.clear();

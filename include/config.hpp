@@ -13,9 +13,14 @@
 #include "timer.hpp"
 #include "utils.hpp"
 
-inline constexpr std::size_t NUM_CELESTIAL_BODIES = 38;
-inline constexpr std::size_t NUM_PLANETS = 9; // Sun + 8 planets, indices 0-8
+// Only used for config.cpp setup
+inline constexpr std::size_t NUM_CATALOG_BODIES = 38;
+inline constexpr std::size_t NUM_CATALOG_PLANETS = 9; // Sun + 8 planets, indices 0-8
 inline constexpr std::size_t NUM_DWARF_PLANETS = 1; // Amount of dwarf planets
+
+// Increases RAM usage
+inline constexpr std::size_t MAX_CUSTOM_BODIES = 64 - NUM_CATALOG_BODIES;
+inline constexpr std::size_t NUM_CELESTIAL_BODIES = NUM_CATALOG_BODIES + MAX_CUSTOM_BODIES;
 
 namespace ui_data {
     struct RenderSnapshot;
@@ -165,7 +170,7 @@ namespace runtime_config {
     [[nodiscard]] const char* body_set_name();
     [[nodiscard]] const char* interaction_set_name();
 
-    void update_body_set(CelestialBodies<NUM_CELESTIAL_BODIES>& celestial_bodies);
+    void update_body_set(CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies);
 
     extern std::size_t enabled_celestial_bodies;
 
@@ -181,7 +186,7 @@ namespace runtime_config {
 
     ParseRes<str> parse_str(const str& argument_name, int i, int argc, char* argv[]);
 
-    int parse_cli_args(int argc, char* argv[], CelestialBodies<NUM_CELESTIAL_BODIES>& celestial_bodies);
+    int parse_cli_args(int argc, char* argv[], CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies);
 
     void set_time_step_string();
 }

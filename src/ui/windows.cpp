@@ -1303,7 +1303,7 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
             ImGui::EndPopup();
         }
 
-        ImGui::BeginDisabled(!can_restore);
+        ImGui::BeginDisabled(!has_checkpoints);
 
         if (ImGui::Button("Restore selected")) {
             request_checkpoint_restore(selected_id);

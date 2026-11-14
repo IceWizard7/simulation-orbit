@@ -2,9 +2,9 @@
 
 #include "config.hpp"
 
-template<std::size_t NUM_CELESTIAL_BODIES>
-CelestialBodies<NUM_CELESTIAL_BODIES>::CelestialBodies(std::array<CelestialBodyInit, NUM_CELESTIAL_BODIES> bodies) {
-    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::CelestialBodies(std::array<CelestialBodyInit, NUM_CATALOG_BODIES> bodies) {
+    for (std::size_t i = 0; i < NUM_CATALOG_BODIES; i++) {
         original_gravitational_masses[i] = bodies[i].gravitational_mass;
         gravitational_masses[i] = bodies[i].gravitational_mass;
         names[i] = bodies[i].name;
@@ -34,43 +34,43 @@ CelestialBodies<NUM_CELESTIAL_BODIES>::CelestialBodies(std::array<CelestialBodyI
     }
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES>
- Vec3 CelestialBodies<NUM_CELESTIAL_BODIES>::position(const std::size_t i) const {
+template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+Vec3 CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::position(const std::size_t i) const {
     return {pos_x[i], pos_y[i], pos_z[i]};
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES>
-void CelestialBodies<NUM_CELESTIAL_BODIES>::set_position(const std::size_t i, const Vec3& position) {
+template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+void CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::set_position(const std::size_t i, const Vec3& position) {
     pos_x[i] = position.x;
     pos_y[i] = position.y;
     pos_z[i] = position.z;
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES>
-Vec3 CelestialBodies<NUM_CELESTIAL_BODIES>::velocity(const std::size_t i) const {
+template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+Vec3 CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::velocity(const std::size_t i) const {
     return {vel_x[i], vel_y[i], vel_z[i]};
 }
 
 
-template<std::size_t NUM_CELESTIAL_BODIES>
-void CelestialBodies<NUM_CELESTIAL_BODIES>::set_velocity(const std::size_t i, const Vec3& velocity) {
+template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+void CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::set_velocity(const std::size_t i, const Vec3& velocity) {
     vel_x[i] = velocity.x;
     vel_y[i] = velocity.y;
     vel_z[i] = velocity.z;
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES>
-double CelestialBodies<NUM_CELESTIAL_BODIES>::distance_to(const std::size_t i, const std::size_t to) const {
+template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+double CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::distance_to(const std::size_t i, const std::size_t to) const {
     return (position(i) - position(to)).length();
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES>
-double CelestialBodies<NUM_CELESTIAL_BODIES>::get_mass(const std::size_t i) const {
+template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+double CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::get_mass(const std::size_t i) const {
     return gravitational_masses[i] / config::GRAVITATIONAL_CONSTANT;
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES>
-Vec3 CelestialBodies<NUM_CELESTIAL_BODIES>::j2_acceleration_at(
+template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+Vec3 CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::j2_acceleration_at(
     std::size_t i,
     const Vec3& source_to_target_direction,
     const double distance
@@ -104,4 +104,4 @@ Vec3 CelestialBodies<NUM_CELESTIAL_BODIES>::j2_acceleration_at(
 }
 
 // Prevents linker errors, because now the implementation for exactly NUM_CELESTIAL_BODIES is visible
-template class CelestialBodies<NUM_CELESTIAL_BODIES>;
+template class CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>;

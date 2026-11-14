@@ -22,7 +22,7 @@ struct CelestialBodyInit {
     const Vec3& pole_axis = {};
 };
 
-template<std::size_t NUM_CELESTIAL_BODIES>
+template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 struct CelestialBodies {
     // Position
     alignas(16) double pos_x[NUM_CELESTIAL_BODIES]{};
@@ -54,7 +54,7 @@ struct CelestialBodies {
     double equatorial_radii[NUM_CELESTIAL_BODIES]{}; // meters, reference radius for the J2 term
     Vec3 pole_axes[NUM_CELESTIAL_BODIES]{}; // unit spin axis in the simulation's J2000 ecliptic frame
 
-    explicit CelestialBodies(std::array<CelestialBodyInit, NUM_CELESTIAL_BODIES> bodies);
+    explicit CelestialBodies(std::array<CelestialBodyInit, NUM_CATALOG_BODIES> bodies);
 
     [[nodiscard]] Vec3 position(std::size_t i) const;
     [[nodiscard]] Vec3 velocity(std::size_t i) const;

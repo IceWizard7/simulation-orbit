@@ -67,7 +67,7 @@ struct SimulationCheckpoint {
 };
 
 namespace simulation {
-    extern CelestialBodies<NUM_CELESTIAL_BODIES> celestial_bodies;
+    extern CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES> celestial_bodies;
     extern const std::array<PlanetarySystem, 7> planetary_systems;
     inline std::vector<CSVEntry> csv_data;
 
