@@ -159,6 +159,7 @@ Open Tools to:
 - Save or restore Checkpoints, or reset the simulation to its initial state
 - Open Diagnostics for energy, linear momentum, and barycentre drift
 - Create customizable Graphs
+- Orbital elements can include a planet's bound moons ("Include moons")
 - Advance one or N simulation steps while paused
 
 Body inspectors provide:

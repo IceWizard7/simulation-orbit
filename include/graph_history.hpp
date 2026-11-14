@@ -1,6 +1,7 @@
 #pragma once
 
 #include <array>
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 #include <mutex>
@@ -8,6 +9,7 @@
 #include <vector>
 
 #include "config.hpp"
+#include "hierarchy.hpp"
 #include "vectors.hpp"
 
 struct GraphSample {
@@ -20,6 +22,8 @@ struct GraphSample {
     double energy = 0, energy_drift = 0, kinetic_energy = 0;
     Vec3 momentum{}, momentum_drift{}, barycenter_drift{};
     bool barycenter_valid = false;
+
+    Hierarchy hierarchy;
 };
 
 class GraphHistory {
@@ -29,7 +33,7 @@ class GraphHistory {
     std::uint64_t generation = 0;
 
 public:
-    static constexpr std::size_t CAPACITY = 8192;
+    static constexpr std::size_t CAPACITY = 16'384; // TODO: Make this changeable in the UI
 
     bool due(const std::size_t step) const {
         return step % every_steps == 0;
@@ -60,12 +64,14 @@ public:
         generation++;
     }
 
-    template <class Reader>
-    void read(Reader&& reader) const {
-        // Returning a reference would be unsafe (caller uses the vector unprotected)
-        // Returning a copy would be too expensive
+
+    // reader(samples, generation, every_steps) runs while the history is locked
+    // Don't call graph_history inside the lambda: std::mutex isn't recursive, so it would deadlock
+    void read(std::invocable<std::span<const GraphSample>, std::uint64_t, std::size_t> auto&& reader) const {
+        // Returning a reference would be unsafe (used after unlocking -> data race)
+        // Returning a copy would be too expensive (~63.6 MB at capacity)
 
         std::lock_guard lock(mtx);
-        reader(std::span<const GraphSample>(samples), generation, every_steps);
+        reader(std::span(samples), generation, every_steps);
     }
 };

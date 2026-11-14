@@ -64,7 +64,7 @@ namespace {
         QuantityInfo{GraphQuantity::semi_minor_axis, "Semi-minor axis b", "%.6g m", true},
         QuantityInfo{GraphQuantity::eccentricity, "Eccentricity e", "%.6g", true},
         QuantityInfo{GraphQuantity::linear_eccentricity, "Linear eccentricity c", "%.6g m", true},
-        QuantityInfo{GraphQuantity::orbital_period, "Orbital period T", "%.6g s", true},
+        QuantityInfo{GraphQuantity::orbital_period, "Orbital period τ", "%.6g s", true},
         QuantityInfo{GraphQuantity::inclination, "Inclination i", "%.4g deg", true},
         QuantityInfo{GraphQuantity::energy, "Total energy", "%.6g J", false},
         QuantityInfo{GraphQuantity::kinetic_energy, "Total kinetic energy", "%.6g J", false},
@@ -119,8 +119,8 @@ namespace {
             }
 
             const PointMass& ref = *masses[*reference];
-            const PointMass orbiter = merge_moons
-                ? system_barycenter(masses, body, *reference)
+            const PointMass orbiter = merge_moons && can_merge(s.hierarchy, body, reference)
+                ? system_barycenter(masses, s.hierarchy, body)
                 : *masses[body];
 
             const double mu = (orbiter.mass + ref.mass) * config::GRAVITATIONAL_CONSTANT;
@@ -174,6 +174,21 @@ namespace {
         return std::numeric_limits<double>::quiet_NaN();
     }
 
+    // Osculating period of i around its current host; NaN for roots (bodies without a host), unbound orbits or invalid masses
+    double own_period(const GraphSample& s, const std::size_t i) {
+        const std::optional<std::size_t> host = s.hierarchy.host[i];
+        if (!host) return std::numeric_limits<double>::quiet_NaN(); // root (ex. the Sun) or disabled slot
+
+        const double mu = (s.mass[i] + s.mass[*host]) * config::GRAVITATIONAL_CONSTANT;
+        const auto orbit = orbital_elements(
+            s.position[i] - s.position[*host],
+            s.velocity[i] - s.velocity[*host],
+            mu
+        );
+
+        return orbit ? orbit->orbital_period : std::numeric_limits<double>::quiet_NaN();
+    }
+
     struct GraphWindow {
         std::size_t id = 0;
         bool open = true;
@@ -197,6 +212,9 @@ namespace {
         bool fit_next_frame = false;
         bool plot_hovered = false; // from the previous frame
         ImPlotRange visible_x{0.0, 1.0}, visible_y{0.0, 1.0}; // from the previous frame
+
+        double fastest_period = std::numeric_limits<double>::quiet_NaN();
+        std::size_t fastest_body = 0;
     };
 
     std::vector<GraphWindow> graph_windows;
@@ -219,7 +237,7 @@ namespace {
         simulation::graph_history.read([&](const std::span<const GraphSample> samples, const std::uint64_t generation, const std::size_t every_steps) {
             w.every_steps = every_steps;
 
-            if (w.rebuild || w.seen_generation != generation || w.merge_moons) {
+            if (w.rebuild || w.seen_generation != generation) {
                 w.fit_next_frame |= w.rebuild; // New quantity/body: The old zoom is meaningless
                 w.ts.clear();
                 w.xs.clear();
@@ -231,15 +249,15 @@ namespace {
                 w.rebuild = false;
             }
 
-            constexpr double gap = std::numeric_limits<double>::quiet_NaN();
+            constexpr double NaN = std::numeric_limits<double>::quiet_NaN();
 
             for (; w.next_sample < samples.size(); w.next_sample++) {
                 const GraphSample& s = samples[w.next_sample];
 
                 if (s.starts_segment && !w.xs.empty()) {
-                    w.xs.push_back(gap);
-                    w.ys.push_back(gap);
-                    w.ts.push_back(gap);
+                    w.xs.push_back(NaN);
+                    w.ys.push_back(NaN);
+                    w.ts.push_back(NaN);
                 }
 
                 w.xs.push_back(evaluate(snap, s, w.x, w.body, w.reference, w.merge_moons));
@@ -248,6 +266,33 @@ namespace {
 
                 w.currently_unbound = is_unbound(snap, s, w);
                 w.unbound_points += w.currently_unbound;
+            }
+
+            if (!samples.empty()) {
+                const GraphSample& latest = samples.back();
+                w.fastest_period = NaN;
+
+                // Check one body; keep it if its period is the shortest so far
+                const auto consider = [&](const std::size_t i) {
+                    const double tau = own_period(latest, i);
+                    if (std::isfinite(tau) && !(tau >= w.fastest_period)) { // also true while fastest_period is NaN
+                        w.fastest_period = tau;
+                        w.fastest_body = i;
+                    }
+                };
+
+                const auto is_global = [](const GraphQuantity q) {
+                    return !info(q).per_body && q != GraphQuantity::time && q != GraphQuantity::steps;
+                };
+
+                if (is_global(w.x) || is_global(w.y)) {
+                    for (std::size_t i = 0; i < snap->bodies.size(); i++) {
+                        if (snap->bodies[i]) consider(i);  // only populated (enabled) bodies
+                    }
+                } else {
+                    consider(w.body);
+                    if (w.reference) consider(*w.reference);
+                }
             }
         });
     }
@@ -348,13 +393,7 @@ namespace {
 
     // Moons that would currently merge with w.body
     std::vector<std::size_t> system_members(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w) {
-        std::vector<std::size_t> members;
-
-        if (w.reference && snap->bodies[w.body] && snap->bodies[*w.reference]) {
-            system_barycenter(ui_helpers::to_point_masses(*snap), w.body, *w.reference, &members);
-        }
-
-        return members;
+        return can_merge(snap->hierarchy, w.body, w.reference) ? members_of(snap->hierarchy, w.body) : std::vector<std::size_t>{};
     }
 
     void draw_controls(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, GraphWindow& w) {
@@ -428,7 +467,23 @@ namespace {
         if (w.unbound_points > 0) {
             ImGui::TextDisabled(w.currently_unbound ? "Unbound now (%zu points)" : "Unbound for %zu points", w.unbound_points);
         }
-        ImGui::TextDisabled("Spacing: %s", format_value(GraphQuantity::time, static_cast<double>(w.every_steps) * runtime_config::time_step).c_str());
+        const double spacing = static_cast<double>(w.every_steps) * runtime_config::time_step;
+        const auto spacing_str = format_value(GraphQuantity::time, spacing);
+        ImGui::TextDisabled("Spacing: %s", spacing_str.c_str());
+
+        if (std::isfinite(w.fastest_period)) {
+            const double per_orbit = w.fastest_period / spacing;
+
+            if (per_orbit < 10.0) {
+                ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.3f, 1.0f),
+                    "Low-detail: %.1f samples/orbit", per_orbit
+                );
+                ImGui::SetItemTooltip(
+                    "%s orbits every %s, but samples are %s apart.\nLines between samples cut corners.",
+                    body_name(snap, w.fastest_body).c_str(), format_value(GraphQuantity::orbital_period, w.fastest_period).c_str(), spacing_str.c_str()
+                );
+            }
+        }
     }
 
     str axis_label(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w, const GraphQuantity q) {
@@ -638,9 +693,7 @@ namespace {
 void ui_helpers::open_graph_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const std::optional<std::size_t> body, const std::optional<std::size_t> reference) {
     if (!snap) return;
 
-    constexpr std::size_t SUN = 0;
-    constexpr std::size_t EARTH = 3;
-
+    // NO_BODY_SELECTED (= size) is rejected by the range check
     const auto populated = [&](const std::size_t i) {
         return i < snap->bodies.size() && snap->bodies[i].has_value();
     };
@@ -649,28 +702,22 @@ void ui_helpers::open_graph_window(const std::shared_ptr<const ui_data::RenderSn
 
     if (body && populated(*body)) {
         w.body = *body;
-    } else if (populated(EARTH)) {
-        w.body = EARTH;
+    } else if (populated(ui_config::followed_celestial_body_index)) {
+        w.body = ui_config::followed_celestial_body_index;
     } else {
         const auto first = std::ranges::find_if(snap->bodies, [](const auto& candidate) { return candidate.has_value(); });
         if (first == snap->bodies.end()) return;
         w.body = static_cast<std::size_t>(first - snap->bodies.begin());
     }
 
+    // Reference: explicit request, else whatever the body currently orbits (roots stay inertial)
     if (reference && *reference != w.body && populated(*reference)) {
         w.reference = reference;
     } else {
-        // A moon is most readable relative to its planet, everything else relative to the Sun
-        for (const auto& system : simulation::planetary_systems) {
-            if (std::ranges::find(system.moon_indices, w.body) != system.moon_indices.end() && populated(system.parent_index)) {
-                w.reference = system.parent_index;
-            }
-        }
-
-        if (!w.reference && w.body != SUN && populated(SUN)) w.reference = SUN;
+        w.reference = snap->hierarchy.host[w.body];
     }
 
-    w.merge_moons = ui_config::orbit_use_system_barycenter;
+    w.merge_moons = ui_config::orbit_use_system_barycenter; // Initially
     w.id = next_graph_id++;
     graph_windows.push_back(std::move(w));
 }

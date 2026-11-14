@@ -1,10 +1,6 @@
 #pragma once
 
-#include <algorithm>
-#include <cstddef>
 #include <optional>
-#include <span>
-#include <vector>
 
 #include "vectors.hpp"
 
@@ -13,11 +9,12 @@ struct PointMass {
     double mass = 0.0;
 };
 
-double hill_radius(const PointMass& planet, const PointMass& reference);
+// Radius around body where its gravity beats host's tidal pull; NaN unless host is heavier and body.mass > 0
+double hill_radius(const PointMass& body, const PointMass& host);
 
-bool is_satellite(const PointMass& planet, const PointMass& candidate, const PointMass& reference);
+// Negative two-body energy: body can't escape host on its own
+bool is_bound(const PointMass& host, const PointMass& body);
 
-PointMass system_barycenter(std::span<const std::optional<PointMass>> bodies, std::size_t planet, std::size_t reference, std::vector<std::size_t>* members = nullptr);
 
 // Osculating two-body elements of r, v relative to a reference, with mu = G * (M_ref + m_body)
 struct OrbitalElements {

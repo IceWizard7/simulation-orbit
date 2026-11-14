@@ -101,6 +101,22 @@ namespace {
         const std::optional<std::size_t> first_parent = planetary_system_parent(first_index);
         return first_parent.has_value() && first_parent == planetary_system_parent(second_index);
     }
+
+    std::array<std::optional<PointMass>, NUM_CELESTIAL_BODIES> current_point_masses() {
+        std::array<std::optional<PointMass>, NUM_CELESTIAL_BODIES> result;
+
+        for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+            if (simulation::celestial_bodies.enabled[i]) {
+                result[i] = PointMass{
+                    simulation::celestial_bodies.position(i),
+                    simulation::celestial_bodies.velocity(i),
+                    simulation::celestial_bodies.gravitational_masses[i] / config::GRAVITATIONAL_CONSTANT
+                };
+            }
+        }
+
+        return result;
+    }
 }
 
 void simulation::apply_planet_systems_approximation() {
@@ -647,9 +663,9 @@ void simulation::publish_snapshot() {
         const std::size_t last_step = current_step / cadence * cadence;
         const std::size_t first_step = last_step - (history.size() - 1) * cadence;
 
-        // Nearby bodies in the same planet/moon system require the center's high-resolution
-        // history. Distant bodies can use the coarse, centuries-long center history: its small
-        // interpolation error is invisible at planetary distances and allows complete outer orbits.
+        // Nearby bodies in the same planet/moon system require the center's high-resolution history
+        // Distant bodies can use the coarse, centuries-long center history:
+        // its small interpolation error is invisible at planetary distances and allows complete outer orbits
         const bool allow_coarse_center_history = !share_planetary_system(center_index, i);
         const std::size_t oldest_center_step = allow_coarse_center_history
             ? std::min(center_first_step, center_reference_first_step)
@@ -715,6 +731,8 @@ void simulation::publish_snapshot() {
         };
         snap->barycenter_valid = finite(snap->barycenter) && finite(snap->expected_barycenter) && finite(snap->barycenter_drift);
     }
+
+    snap->hierarchy = compute_hierarchy(current_point_masses());
 
     {
         std::lock_guard lock(config::snapshot_lock);
@@ -1016,6 +1034,8 @@ GraphSample simulation::make_graph_sample() {
                                && std::isfinite(sample.barycenter_drift.y)
                                && std::isfinite(sample.barycenter_drift.z);
     }
+
+    sample.hierarchy = compute_hierarchy(current_point_masses());
 
     return sample;
 }

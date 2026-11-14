@@ -17,6 +17,7 @@
 #endif
 
 #include "config.hpp"
+#include "hierarchy.hpp"
 #include "orbital_elements.hpp"
 #include "planet_visual.hpp"
 #include "vectors.hpp"
@@ -74,6 +75,7 @@ namespace ui_data {
         Vec3 expected_barycenter{};
         Vec3 barycenter_drift{};
         bool barycenter_valid = false;
+        Hierarchy hierarchy;
     };
 
     struct EditableDouble {
@@ -285,8 +287,9 @@ namespace ui_helpers {
         return delta;
     }
 
-    [[nodiscard]] inline bool is_moon(const std::size_t body_index) {
-        return body_index >= NUM_PLANETS + NUM_DWARF_PLANETS;
+    // Orbits something that itself orbits something (ex. Sun -> planet -> moon)
+    [[nodiscard]] inline bool is_moon(const ui_data::RenderSnapshot& snap, const std::size_t i) {
+        return depth(snap.hierarchy, i) >= 2;
     }
 
     [[nodiscard]] inline double simulated_years() {

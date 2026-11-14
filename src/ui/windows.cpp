@@ -486,23 +486,15 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                     ImGui::EndTable();
 
                     if (reference_index && snap->bodies[*reference_index]) {
-                        const auto& reference = *snap->bodies[*reference_index];
-
                         const auto point_masses = to_point_masses(*snap);
                         const PointMass& self = *point_masses[i];
                         const PointMass& ref = *point_masses[*reference_index];
 
                         // Membership is needed even when merging is off, to decide whether to show the checkbox at all
-                        std::vector<std::size_t> members;
-                        const PointMass with_moons = system_barycenter(point_masses, i, *reference_index, &members);
-                        const bool merged = ui_config::orbit_use_system_barycenter && !members.empty();
-                        const PointMass system = merged ? with_moons : self;
+                        const std::vector<std::size_t> members = members_of(snap->hierarchy, i);
+                        const bool mergeable = !members.empty() && can_merge(snap->hierarchy, i, reference_index);
 
-                        const double mu = (system.mass + ref.mass) * config::GRAVITATIONAL_CONSTANT;
-                        const auto orbit = orbital_elements(system.position - ref.position, system.velocity - ref.velocity, mu);
-                        const double hill = hill_radius(self, ref);
-
-                        if (!members.empty()) {
+                        if (mergeable) {
                             ImGui::Checkbox("Include moons (system barycenter)", &ui_config::orbit_use_system_barycenter);
 
                             if (ImGui::IsItemHovered()) {
@@ -512,17 +504,30 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                                     body->name.c_str(), body->name.c_str()
                                 );
                             }
+                        }
+
+                        if (snap->hierarchy.host[i] && !members.empty()) {
+                            const double hill = snap->hierarchy.hill_radius[i];
 
                             // Collapsed by default: Some celestial bodies may have many moons
                             if (ImGui::TreeNode("##moons", "Moons (%zu)", members.size())) {
                                 for (const std::size_t m : members) {
-                                    const double fraction = (point_masses[m]->position - self.position).length() / hill;
-                                    ImGui::Text("%s: %.3f r_H", snap->bodies[m]->name.c_str(), fraction);
+                                    if (std::isfinite(hill)) {
+                                        const double fraction = (point_masses[m]->position - self.position).length() / hill;
+                                        ImGui::Text("%s: %.3f r_H", snap->bodies[m]->name.c_str(), fraction);
+                                    } else {
+                                        ImGui::Text("%s", snap->bodies[m]->name.c_str());
+                                    }
                                 }
 
                                 ImGui::TreePop();
                             }
                         }
+
+                        const bool merged = mergeable && ui_config::orbit_use_system_barycenter;
+                        const PointMass system = merged ? system_barycenter(point_masses, snap->hierarchy, i) : self;
+                        const double mu = (system.mass + ref.mass) * config::GRAVITATIONAL_CONSTANT;
+                        const auto orbit = orbital_elements(system.position - ref.position, system.velocity - ref.velocity, mu);
 
                         if (!orbit) {
                             ImGui::TextDisabled("No orbit (total mass <= 0)");
@@ -549,8 +554,8 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                                 if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Semi minor axis b"); }
                                 ImGui::Text("e: %.6f", orbit->eccentricity);
                                 if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Eccentricity e"); }
-                                ImGui::Text("T: %s", time_units::format_duration(orbit->orbital_period).c_str());
-                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Orbital period T"); }
+                                ImGui::Text("τ: %s", time_units::format_duration(orbit->orbital_period).c_str());
+                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Orbital period τ"); }
 
                                 ImGui::Unindent(15.0f);
 

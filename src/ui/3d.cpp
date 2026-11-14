@@ -26,7 +26,7 @@ namespace {
         return Vector2Distance(center_screen, edge_screen);
     }
 
-    [[nodiscard]] float adaptive_body_radius_3d(const RenderSnapshot::Body& body, const std::size_t body_index, const Camera3D& cam, const Vec3& render_origin) {
+    [[nodiscard]] float adaptive_body_radius_3d(const RenderSnapshot::Body& body, const bool moon, const Camera3D& cam, const Vec3& render_origin) {
         const auto physical_radius_world = static_cast<float>(body.physical_radius_m / config::WORLD_UNIT_METERS);
 
         if (ui_config::body_size_mode == ui_config::BodySizeMode::physical) {
@@ -45,8 +45,8 @@ namespace {
                 : fallback_radius;
         }
 
-        const float min_radius = is_moon(body_index) ? ui_config::MOON_MIN_RADIUS_PX_3D : ui_config::PLANET_MIN_RADIUS_PX_3D;
-        const float max_radius = is_moon(body_index) ? ui_config::MOON_MAX_RADIUS_PX_3D : ui_config::PLANET_MAX_RADIUS_PX_3D;
+        const float min_radius = moon ? ui_config::MOON_MIN_RADIUS_PX_3D : ui_config::PLANET_MIN_RADIUS_PX_3D;
+        const float max_radius = moon ? ui_config::MOON_MAX_RADIUS_PX_3D : ui_config::PLANET_MAX_RADIUS_PX_3D;
         const float desired_radius = std::clamp(projected_radius, min_radius, max_radius);
 
         const float schematic_radius_world = body.radius_3d * desired_radius / projected_radius * ui_config::marker_scale;
@@ -78,7 +78,7 @@ namespace {
                 Vector3Subtract(world_position, cam.position),
                 forward
             );
-            const double outer_depth = center_depth + adaptive_body_radius_3d(*body, i, cam, render_origin);
+            const double outer_depth = center_depth + adaptive_body_radius_3d(*body, is_moon(*snap, i), cam, render_origin);
             if (!std::isfinite(outer_depth) || outer_depth <= 0.0) continue;
 
             far_plane = std::max(far_plane, outer_depth * DEPTH_MARGIN);
@@ -260,7 +260,7 @@ namespace {
             const auto& body = snap->bodies[i];
             if (!body || !body->rendering_visible) continue;
 
-            const float radius_3d = adaptive_body_radius_3d(*body, i, cam, render_origin);
+            const float radius_3d = adaptive_body_radius_3d(*body, is_moon(*snap, i), cam, render_origin);
             if (body->planet_visual != nullptr && body->planet_visual->loaded) {
                 DrawModel(
                     body->planet_visual->model,
@@ -474,7 +474,7 @@ std::optional<std::size_t> ui_helpers::pick_body_at_mouse_3d(const std::shared_p
         const float dx = mx - sx;
         const float dy = my - sy;
 
-        const float rendered_radius = adaptive_body_radius_3d(*body, i, cam, render_origin);
+        const float rendered_radius = adaptive_body_radius_3d(*body, is_moon(*snap, i), cam, render_origin);
         const Vector3 edge = Vector3Add(world, Vector3Scale(right, rendered_radius));
         const auto [ex, ey] = GetWorldToScreen(edge, cam);
         const float radius_px  = std::hypot(ex - sx, ey - sy); // sphere radius in pixels
@@ -487,8 +487,8 @@ std::optional<std::size_t> ui_helpers::pick_body_at_mouse_3d(const std::shared_p
         bool prefer_candidate = !best.has_value();
 
         if (best) {
-            const bool candidate_is_moon = is_moon(i);
-            const bool best_is_moon = is_moon(*best);
+            const bool candidate_is_moon = is_moon(*snap, i);
+            const bool best_is_moon = is_moon(*snap, *best);
 
             // If candidate and best aren't the same type (moon vs. not moon)
             if (candidate_is_moon != best_is_moon) {
@@ -515,20 +515,13 @@ void ui_helpers::fit_camera_to_planetary_system_3d(const std::shared_ptr<const R
 
     if (!snap) return;
 
-    constexpr std::size_t sun = 0;
-
-    // Sun: no parent to fit around (same as before)
-    // Missing Sun: no Hill sphere to measure against
-    if (center_index == sun || center_index >= snap->bodies.size() || !snap->bodies[center_index] || !snap->bodies[sun]) return;
-
-    // Current satellites, not the original moon list (moved-away moons would otherwise zoom far out)
-    std::vector<std::size_t> satellites;
-    system_barycenter(to_point_masses(*snap), center_index, sun, &satellites);
+    if (center_index >= snap->bodies.size() || !snap->bodies[center_index]) return;
+    if (!snap->hierarchy.host[center_index]) return; // Roots (ex. the Sun) aren't fitted: their system is everything
 
     const Vec3 parent_position = snap->bodies[center_index]->absolute_position;
     double system_radius_meters = 0.0;
 
-    for (const std::size_t s : satellites) {
+    for (const std::size_t s : members_of(snap->hierarchy, center_index)) {
         system_radius_meters = std::max(system_radius_meters, (snap->bodies[s]->absolute_position - parent_position).length());
     }
 

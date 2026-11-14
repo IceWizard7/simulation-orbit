@@ -73,6 +73,11 @@ add_library(imgui STATIC
         ${imgui_SOURCE_DIR}/imgui_demo.cpp
 )
 
+
+# 16-bit indices limit a window to 65,535 vertices, and rlImGui doesn't support VtxOffset to go beyond
+# A full graph (default: 16,384 points x 4 vertices per segment + background, text, etc.) exceeds that limit and wraps indices into some triangles
+target_compile_definitions(imgui PUBLIC ImDrawIdx=unsigned\ int)
+
 target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR})
 
 # Compile ImPlot as a static library
@@ -104,6 +109,7 @@ add_executable(simulation-orbit
         src/config.cpp
         src/force_pairs.cpp
         src/orbital_elements.cpp
+        src/hierarchy.cpp
 
         src/ui/2d.cpp
         src/ui/3d.cpp

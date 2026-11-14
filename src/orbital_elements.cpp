@@ -2,59 +2,29 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstddef>
 #include <limits>
 #include <numbers>
 #include <optional>
-#include <span>
-#include <vector>
 
 #include "config.hpp"
 #include "vectors.hpp"
 
-// Region where planet's gravity dominates over reference's tidal pull; NaN if reference isn't heavier
-double hill_radius(const PointMass& planet, const PointMass& reference) {
-    if (!(planet.mass > 0.0) || !(reference.mass > planet.mass)) return std::numeric_limits<double>::quiet_NaN();
+// Radius around body where its gravity beats host's tidal pull; NaN unless host is heavier and body.mass > 0
+double hill_radius(const PointMass& body, const PointMass& host) {
+    if (!(body.mass > 0.0) || !(host.mass > body.mass)) return std::numeric_limits<double>::quiet_NaN();
 
-    return (planet.position - reference.position).length() * std::cbrt(planet.mass / (3.0 * reference.mass));
+    return (body.position - host.position).length() * std::cbrt(body.mass / (3.0 * host.mass));
 }
 
-// Is candidate currently a moon of planet? (relative to the dominant reference, ex. the Sun)
-inline bool is_satellite(const PointMass& planet, const PointMass& candidate, const PointMass& reference) {
-    if (!(candidate.mass > 0.0) || candidate.mass >= planet.mass || !(reference.mass > planet.mass)) return false;
-
-    const Vec3 r = candidate.position - planet.position;
-    const Vec3 v = candidate.velocity - planet.velocity;
+bool is_bound(const PointMass& host, const PointMass& body) {
+    const Vec3 r = body.position - host.position;
+    const Vec3 v = body.velocity - host.velocity;
     const double distance = r.length();
+    const double mu = config::GRAVITATIONAL_CONSTANT * (host.mass + body.mass);
 
-    // Hill sphere: region where the planet's gravity dominates over the reference's tidal pull
-    const double hill = (planet.position - reference.position).length() * std::cbrt(planet.mass / (3.0 * reference.mass));
-    if (!(distance > 0.0) || distance >= hill) return false;
+    if (!(distance > 0.0) || !(mu > 0.0)) return false; // coincident, negative/zero total mass, NaN
 
-    return 0.5 * v.dot(v) - config::GRAVITATIONAL_CONSTANT * (planet.mass + candidate.mass) / distance < 0.0;
-}
-
-// Planet + its current satellites as one mass-weighted point; empty slots = disabled bodies
-PointMass system_barycenter(const std::span<const std::optional<PointMass>> bodies, const std::size_t planet, const std::size_t reference, std::vector<std::size_t>* members) {
-    const PointMass& p = *bodies[planet];
-    const PointMass& ref = *bodies[reference];
-
-    Vec3 weighted_position = p.position * p.mass;
-    Vec3 weighted_velocity = p.velocity * p.mass;
-    double mass = p.mass;
-
-    for (std::size_t c = 0; c < bodies.size(); c++) {
-        if (c == planet || c == reference || !bodies[c] || !is_satellite(p, *bodies[c], ref)) continue;
-
-        weighted_position += bodies[c]->position * bodies[c]->mass;
-        weighted_velocity += bodies[c]->velocity * bodies[c]->mass;
-        mass += bodies[c]->mass;
-        if (members) members->push_back(c);
-    }
-
-    if (!(mass > 0.0)) return p;
-
-    return {weighted_position / mass, weighted_velocity / mass, mass};
+    return (0.5 * v.dot(v) - mu / distance) < 0.0;
 }
 
 [[nodiscard]] bool OrbitalElements::is_finite() const {

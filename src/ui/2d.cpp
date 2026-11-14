@@ -172,7 +172,7 @@ namespace {
 
             // snap->bodies positions are already relative to the center body (see publish_snapshot)
             for (std::size_t i = 0; i < snap->bodies.size(); i++) {
-                if (is_moon(i) != draw_moons) continue;
+                if (is_moon(*snap, i) != draw_moons) continue;
 
                 const auto& body = snap->bodies[i];
                 if (!body || !body->rendering_visible || !body->color) continue;
@@ -356,8 +356,8 @@ std::optional<std::size_t> ui_helpers::pick_body_at_mouse_2d(const std::shared_p
         bool prefer_candidate = !best.has_value();
 
         if (best) {
-            const bool candidate_is_moon = is_moon(i);
-            const bool best_is_moon = is_moon(*best);
+            const bool candidate_is_moon = is_moon(*snap, i);
+            const bool best_is_moon = is_moon(*snap, *best);
 
             // If candidate and best aren't the same type (moon vs. not moon)
             if (candidate_is_moon != best_is_moon) {
