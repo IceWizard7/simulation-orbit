@@ -148,16 +148,17 @@ if(EMSCRIPTEN)
     )
 endif()
 
+# Dependents before their dependencies: raylib after rlimgui, so static linking doesn't repeat it
 target_link_libraries(simulation-orbit PRIVATE
-        raylib
         rlimgui
         implot
+        raylib
 )
 
 target_include_directories(simulation-orbit PRIVATE include)
 
 # Required when linking raylib statically on macOS
-if (APPLE)
+if (APPLE AND USE_SYSTEM_RAYLIB)
     target_link_libraries(simulation-orbit PRIVATE
             "-framework IOKit"
             "-framework Cocoa"

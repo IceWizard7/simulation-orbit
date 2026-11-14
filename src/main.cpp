@@ -61,9 +61,15 @@ int main(const int argc, char* argv[]) {
     InitWindow(config::INITIAL_WINDOW_WIDTH, config::INITIAL_WINDOW_HEIGHT, "simulation-orbit");
 
 #ifndef __EMSCRIPTEN__
-    // Desktop only: on the web, raylib clamps innerWidth/innerHeight to this, so the canvas
-    // overflows small viewports (phones) and gets cut off
+    // Desktop only: on the web, raylib clamps innerWidth/innerHeight to this, so the canvas overflows small viewports (phones) and gets cut off
     SetWindowMinSize(config::MIN_WINDOW_WIDTH, config::MIN_WINDOW_HEIGHT);
+
+    // Start filling the screen's usable area (minus menu bar/dock/taskbar); un-maximizing returns to the initial size
+    MaximizeWindow();
+
+    BeginDrawing();
+    DrawRectangle(0, 0, 100, 100, RED);
+    EndDrawing();
 #endif
 
     SetExitKey(KEY_NULL); // So ESC doesn't close the window, but rather dismisses other UI actions (ImGui)
