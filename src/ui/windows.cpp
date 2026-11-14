@@ -1188,7 +1188,6 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
         bool open_rename_popup = false;
 
         const bool has_checkpoints = !snap->checkpoints.empty();
-        const bool can_restore = has_checkpoints && snap->checkpoint_restore_allowed;
 
         if (std::ranges::none_of(
             snap->checkpoints,
@@ -1207,7 +1206,7 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
 
         ImGui::SameLine();
 
-        ImGui::BeginDisabled(!can_restore);
+        ImGui::BeginDisabled(!has_checkpoints);
 
         if (ImGui::Button("Reset simulation")) {
             request_checkpoint_restore(0);
@@ -1323,12 +1322,6 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
         }
 
         ImGui::EndDisabled();
-
-        if (!snap->checkpoint_restore_allowed) {
-            ImGui::TextDisabled(
-                "Restoration is unavailable during CSV export."
-            );
-        }
 
         ImGui::TextDisabled("Restoring pauses the simulation.");
 

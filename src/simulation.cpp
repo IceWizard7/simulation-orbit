@@ -731,8 +731,6 @@ void simulation::publish_snapshot() {
         snap->checkpoints.push_back({checkpoint.id, simulated_seconds, checkpoint.label});
     }
 
-    snap->checkpoint_restore_allowed = !runtime_config::csv_path.has_value();
-
     snap->linear_momentum = calculate_linear_momentum();
     snap->baseline_linear_momentum = diagnostics_baseline.linear_momentum;
     snap->momentum_drift = snap->linear_momentum - diagnostics_baseline.linear_momentum;
@@ -813,8 +811,6 @@ bool simulation::delete_checkpoint(const std::size_t id) {
 }
 
 bool simulation::load_checkpoint(const std::size_t id) {
-    if (runtime_config::csv_path) return false; // TODO: For now.
-
     const auto it = std::ranges::find(checkpoints, id, &SimulationCheckpoint::id);
 
     if (it == checkpoints.end()) return false;

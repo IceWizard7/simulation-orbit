@@ -14,13 +14,13 @@
 </div>
 
 <!--<div align="center">
-  <img src="screenshots/1.png" alt="3D Solar system" width="250">
-  <img src="screenshots/2.png" alt="3D Jupiter & 4 moons" width="250">
-  <img src="screenshots/3.png" alt="3D Uranus & 5 moons" width="250">
-  <img src="screenshots/4.png" alt="3D Earth & its moon" width="250">
-  <img src="screenshots/5.png" alt="3D Pluto & 4 moons" width="250">
-  <img src="screenshots/6.png" alt="2D Solar system" width="250">
-  <img src="screenshots/7.png" alt="2D Solar system relative to Jupter" width="250">
+  <img src="screenshots/1.png" alt="Solar system (3D)" width="250">
+  <img src="screenshots/2.png" alt="Jupiter & 4 moons (3D)" width="250">
+  <img src="screenshots/3.png" alt="Jupiter & 4 moons, graphs, diagnostics (3D)" width="250">
+  <img src="screenshots/4.png" alt="Urans and 5 moons, checkpoints (2D)" width="250">
+  <img src="screenshots/5.png" alt="Solar system, editing inspectors (2D)" width="250">
+  <img src="screenshots/6.png" alt="Solar system after mass modifications (2D)" width="250">
+  <img src="screenshots/7.png" alt="Solar system relative to Jupiter (2D)" width="250">
 </div>-->
 <br>
 
@@ -171,7 +171,7 @@ Body inspectors provide:
 - Set origin: Change the coordinate frame used by the scene and trails
 - New graph: Open a graph for the selected body
 
-Camera following, the scene's coordinate origin, and the inspector's editing reference are independent. Reset view (R) changes the camera; Reset simulation under Checkpoints restores the physical state. Checkpoint restoration is unavailable while CSV export is configured.
+Camera following, the scene's coordinate origin, and the inspector's editing reference are independent. Reset view (R) changes the camera; Reset simulation under Checkpoints restores the physical state.
 
 ### 2.6 CLI arguments
 
@@ -195,6 +195,7 @@ Illustrated by examples runs, can also be retrieved via `./cmake-build-release/s
 ./cmake-build-release/simulation-orbit --years 2000 --body-set dwarf --disable-body Sun --disable-body Jupiter # Simulate planets + Pluto for 2000 years with Sun & Jupiter explicitly disabled
 
 # CSV output
+# Note: --csv, --sample-every-seconds and --csv-live require --headless
 ./cmake-build-release/simulation-orbit --headless --csv positions_and_velocities.csv --sample-every-seconds 2592000 --years 100 --dt 3600 # Simulate 100 years with 1 hour step size headlessly; sample positions & velocities every month into positions_and_velocities.csv
 ./cmake-build-release/simulation-orbit --headless --csv positions_and_velocities.csv --sample-every-seconds 2592000 --years 100 --dt 3600 --csv-live # Same as previous command; Also stream CSV rows during simulation instead of writing at the end
 

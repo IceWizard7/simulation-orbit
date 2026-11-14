@@ -61,7 +61,6 @@ namespace ui_data {
         std::array<Orbit, NUM_CELESTIAL_BODIES> orbits;
         std::size_t max_orbit_points_used = 0;
         std::vector<CheckpointInfo> checkpoints;
-        bool checkpoint_restore_allowed = false;
 
         Vec3 linear_momentum{};
         Vec3 baseline_linear_momentum{};

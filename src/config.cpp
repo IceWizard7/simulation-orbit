@@ -366,6 +366,11 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
         return 1;
     }
 
+    if (csv_path.has_value() && !headless) {
+        std::cerr << "Error: --csv requires --headless.\n";
+        return 1;
+    }
+
     if (csv_path.has_value() != sample_csv_data_every_seconds.has_value()) {
         std::cerr << "Error: --csv requires --sample-every-seconds (and vice-versa).\n";
         return 1;
