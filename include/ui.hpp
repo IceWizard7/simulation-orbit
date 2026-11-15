@@ -102,6 +102,19 @@ namespace ui_data {
         bool enable_rendering = false;
     };
 
+    struct CreateBodyCommand {
+        std::optional<std::size_t> reference_index;
+        Vec3 position{}, velocity{};
+        double mass;
+        double physical_radius_m = 0;
+        str name;
+        Color color = BLACK;
+    };
+
+    struct DeleteBodyCommand {
+        std::size_t i;
+    };
+
     struct CaptureCheckpoint {};
 
     struct RestoreCheckpoint {
@@ -123,7 +136,20 @@ namespace ui_data {
 
     struct ClearGraphs {};
 
-    using SimulationCommand = std::variant<UpdateBodyCommand, CaptureCheckpoint, RestoreCheckpoint, DeleteCheckpoint, RenameCheckpoint, StepN, ClearGraphs>;
+    using SimulationCommand = std::variant<
+        UpdateBodyCommand,
+
+        CaptureCheckpoint,
+        RestoreCheckpoint,
+        DeleteCheckpoint,
+        RenameCheckpoint,
+
+        StepN,
+        ClearGraphs,
+
+        CreateBodyCommand,
+        DeleteBodyCommand
+    >;
 
     inline std::array<BodyEditState, NUM_CELESTIAL_BODIES> edit_states{};
     inline std::array<bool, NUM_CELESTIAL_BODIES> was_open{};

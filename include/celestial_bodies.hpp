@@ -15,7 +15,7 @@ struct CelestialBodyInit {
     double physical_radius_m;
     float radius_2d;
     float radius_3d;
-    const std::optional<Color>& color;
+    const Color color;
     const std::optional<str>& texture_path = std::nullopt;
     double j2 = 0.0;
     double equatorial_radius = 0.0;
@@ -44,7 +44,7 @@ struct CelestialBodies {
 
     float draw_radii_2d[NUM_CELESTIAL_BODIES]{};
     float draw_radii_3d[NUM_CELESTIAL_BODIES]{};
-    std::optional<Color> colors[NUM_CELESTIAL_BODIES]{};
+    Color colors[NUM_CELESTIAL_BODIES]{};
 
     PlanetVisual planet_visuals[NUM_CELESTIAL_BODIES]{};
 
