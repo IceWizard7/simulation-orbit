@@ -146,6 +146,14 @@
         Module.wheelDeltaY += (e.deltaMode === 0) ? e.deltaY : e.deltaY * 33; // lines -> approx. pixels
     }, {passive: true});
 
+    // Last pointer type ("mouse" | "touch" | "pen"): Touch gestures can synthesize right-button events,
+    // so C++ ignores the right button for touch and uses a double tap instead
+    // Capture phase: Set before any synthesized mouse event reaches GLFW
+    Module.lastPointerType = "mouse";
+    Module.canvas.addEventListener("pointerdown", (e) => {
+        Module.lastPointerType = e.pointerType;
+    }, {capture: true});
+
     // Layout-independent zoom keys: Emscripten's GLFW maps by keyCode, and Firefox drops "+" on QWERTZ
     Module.heldKeys = [false, false]; // [zoom in, zoom out]
     const keyActions = {"+": 0, "-": 1}; // numpad +/- also report e.key "+"/"-"

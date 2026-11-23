@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <format>
 #include <string>
 
@@ -40,6 +41,19 @@ str round_to_hundreds(const double x) {
     // Avoid displaying "-0"
     if (result == "-0") {
         return "0";
+    }
+
+    return result;
+}
+
+str group_thousands(const std::uint64_t x) {
+    const str digits = std::to_string(x);
+    str result;
+    result.reserve(digits.size() + digits.size() / 3);
+
+    for (std::size_t i = 0; i < digits.size(); i++) {
+        if (i > 0 && (digits.size() - i) % 3 == 0) result += ',';
+        result += digits[i];
     }
 
     return result;

@@ -43,6 +43,61 @@ namespace {
         was_wanted = wanted;
     }
 #endif
+
+    // Last pointer was a finger (web/shell.html tracks pointerType). Touch gestures can synthesize right-button
+    // events, so touch uses a double tap instead of right-click; a mouse on the same device keeps right-click
+    bool touch_pointer() {
+#ifdef __EMSCRIPTEN__
+        // @formatter:off
+        return EM_ASM_INT({ return Module.lastPointerType === "touch" ? 1 : 0; }) != 0;
+        // @formatter:on
+#else
+        return false; // Desktop GLFW reports no touch
+#endif
+    }
+
+    struct DoubleTap {
+        double last_tap_time = -1.0; // Release time of the last short, still tap; -1 = none
+        Vector2 last_tap_px{};
+        Vector2 press_px{};
+    };
+
+    DoubleTap double_tap;
+
+    constexpr double DOUBLE_TAP_SECONDS = 0.30;
+    constexpr float DOUBLE_TAP_SLOP_PX = 24.0f; // A finger never lands on the same pixel twice
+
+    float distance_px(const Vector2 a, const Vector2 b) {
+        return std::hypot(a.x - b.x, a.y - b.y);
+    }
+
+    // True on the press of a second short tap near the first one; pans and pinches never count
+    bool detect_double_tap() {
+        const Vector2 pointer = GetMousePosition();
+
+        if (GetTouchPointCount() >= 2) {
+            double_tap.last_tap_time = -1.0; // A pinch is never part of a double tap
+            return false;
+        }
+
+        if (IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+            double_tap.press_px = pointer;
+            const bool second = double_tap.last_tap_time >= 0.0
+                                && GetTime() - double_tap.last_tap_time <= DOUBLE_TAP_SECONDS
+                                && distance_px(pointer, double_tap.last_tap_px) <= DOUBLE_TAP_SLOP_PX;
+            if (second) double_tap.last_tap_time = -1.0; // A third tap starts over
+            return second;
+        }
+
+        if (IsMouseButtonReleased(MOUSE_BUTTON_LEFT)) {
+            // Only a still tap counts; the release of a pan does not
+            const bool tap = distance_px(pointer, double_tap.press_px) <= DOUBLE_TAP_SLOP_PX;
+            double_tap.last_tap_time = tap ? GetTime() : -1.0;
+            double_tap.last_tap_px = pointer;
+        }
+
+        return false;
+    }
 }
 
 void ui_helpers::UpdateDrawFrame() {
@@ -113,7 +168,12 @@ void ui_helpers::UpdateDrawFrame() {
         config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN &&
         config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN;
 
-    if (!ui_config::view_3d && !placing_body && !ImGui::GetIO().WantCaptureMouse && in_viewport_2d && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+    // Scene create menu (2D): right-click with a mouse, double tap with a finger
+    const bool touch = touch_pointer();
+    const bool double_tapped = touch && !ui_config::view_3d && detect_double_tap();
+    const bool open_scene_menu = touch ? double_tapped : IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
+
+    if (!ui_config::view_3d && !placing_body && !ImGui::GetIO().WantCaptureMouse && in_viewport_2d && open_scene_menu) {
         ui_config::scene_context_menu_requested = true;
         ui_config::scene_context_menu_point_m = screen_to_meters(GetMousePosition(), ui_config::get_2d_offset(snap));
         ui_config::scene_context_menu_body = pick_body_at_mouse_2d(snap);
@@ -133,7 +193,8 @@ void ui_helpers::UpdateDrawFrame() {
         ui_config::drag_last_mouse_px = GetMousePosition();
     }
 
-    if (!placing_body && !ImGui::GetIO().WantCaptureMouse && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    // The second tap of a double tap opens the menu; it must not toggle the inspector the first tap opened
+    if (!double_tapped && !placing_body && !ImGui::GetIO().WantCaptureMouse && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         std::optional<std::size_t> selected_body_i;
 
         if (ui_config::view_3d) {
@@ -274,7 +335,7 @@ void ui_helpers::UpdateDrawFrame() {
             reset_view();
         }
     } else {
-        if (!placing_body && !pinch.active && !ui_config::panning_2d && !ImGui::GetIO().WantCaptureMouse && // Currently not panning, ImGui doesn't consume mouse
+        if (!double_tapped && !placing_body && !pinch.active && !ui_config::panning_2d && !ImGui::GetIO().WantCaptureMouse && // Currently not panning, ImGui doesn't consume mouse
             IsWindowFocused() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && // Window focused & button is pressed
             !pick_body_at_mouse_2d(snap) && // Drag doesn't start on a celestial body
             config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN && // Mouse is in viewport (x & y)

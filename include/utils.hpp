@@ -18,6 +18,10 @@ str round_to_hundreds(double x);
 
 str get_numerical_suffix(std::size_t x);
 
+// Ex. 1234567 -> "1,234,567"
+// Locale-independent: Named std::locales are not portable and throw when missing
+str group_thousands(std::uint64_t x);
+
 [[nodiscard]] inline bool is_blank(const str_view s) {
     return s.find_first_not_of(" \t\r\n") == str_view::npos;
 }

@@ -149,7 +149,7 @@ Start the simulator visualization:
 | Left-click body or legend name          | Open or close its inspector                              |
 | Left-click legend circle                | Show or hide the body and its trails                     |
 | Left-drag on empty scene space          | Pan in 2D; rotate in 3D                                  |
-| Right-click empty space (2D)            | Create a body there                                      |
+| Right-click / double-tap (2D)           | Create a body there                                      |
 | Drop an image / `.json`                 | Set a texture (Create window, inspector) / import state  |
 | Arrow keys / `WASD`                     | Rotate the 3D camera                                     |
 | `Shift`                                 | Accelerate zoom and keyboard camera rotation             |

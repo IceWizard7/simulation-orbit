@@ -4,6 +4,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <ctime>
 #include <format>
@@ -1014,10 +1015,9 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 stat(
                     "SIMULATING",
                     std::format(
-                        std::locale{"en_US.UTF-8"}, // "," as thousands seperator
-                        "{:L} / {:L} steps ({:.3f}%)",
-                        progress.completed,
-                        progress.total,
+                        "{} / {} steps ({:.3f}%)",
+                        group_thousands(progress.completed),
+                        group_thousands(progress.total),
                         100.0 * static_cast<double>(progress.completed) / static_cast<double>(progress.total)
                     )
                 );
@@ -1220,11 +1220,15 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                     runtime_config::target_simulation_speed = speed;
                 }
 
-                ImGui::TextDisabled(
-                    "Steps: %.3f",
+                double target_simulation_speed = runtime_config::target_simulation_speed.load();
 
-                    runtime_config::target_simulation_speed / runtime_config::time_step
-                );
+                // Whole steps are enough; slow speeds (below 10 steps/s) keep one decimal
+                const double steps_per_second = target_simulation_speed * config::SECONDS_PER_YEAR / runtime_config::time_step;
+                const str steps_text = target_simulation_speed == -1.0 ? "Unlimited"
+                                       : steps_per_second < 10.0 ? std::format("{:.1f}", steps_per_second)
+                                       : group_thousands(static_cast<std::uint64_t>(std::llround(steps_per_second)));
+
+                ImGui::TextDisabled("Steps/s: %s", steps_text.c_str());
 
                 ImGui::EndDisabled();
 
@@ -1979,7 +1983,7 @@ void ui_helpers::draw_empty_scene_overlay() {
 
     // Same font path as the 2D labels; background draw list: above the scene, below every ImGui window
     draw_imgui_centered_text(
-        "No bodies. Tools > Create body... or right-click the scene (2D) to add one.",
+        "No bodies. Tools > Create body... or right-click / double-tap the scene (2D) to add one.",
         {center.x, center.y}, 0.0f, 16.0f, GRAY
     );
 }
