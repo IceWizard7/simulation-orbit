@@ -2,16 +2,29 @@
 #include <cfloat>
 #include <charconv>
 #include <chrono>
+#include <cmath>
 #include <cstddef>
 #include <cstdio>
 #include <ctime>
 #include <format>
 #include <imgui.h>
+#include <iterator>
+#include <limits>
+#include <memory>
 #include <numbers>
+#include <optional>
 #include <raylib.h>
-#include <string_view>
+#include <span>
+#include <string>
+#include <system_error>
+#include <utility>
+#include <vector>
+#include <misc/cpp/imgui_stdlib.h>
 
+#include "hierarchy.hpp"
 #include "orbital_elements.hpp"
+#include "planet_visual.hpp"
+#include "rlImGui.h"
 #include "time_units.hpp"
 #include "ui.hpp"
 
@@ -21,13 +34,137 @@ namespace {
             ui_data::RestoreCheckpoint{index}
         );
 
-        for (auto& edit : ui_data::edit_states) {
-            const auto reference = edit.reference_index;
-            edit = {};
-            edit.reference_index = reference;
+        ui_helpers::reset_editor_drafts();
+    }
+
+    // Returns true if the selection changed
+    bool reference_combo(const ui_data::RenderSnapshot& snap, std::optional<std::size_t>& reference_index, const std::optional<std::size_t> exclude, const char* label, const char* id) {
+        const auto before = reference_index;
+
+        // Defensive fallback if the reference becomes unavailable
+        if (reference_index && (*reference_index >= snap.bodies.size() || *reference_index == exclude || !snap.bodies[*reference_index])) {
+            reference_index.reset();
         }
 
-        ui_helpers::cancel_camera_drag();
+        const char* reference_name = reference_index && snap.bodies[*reference_index] ? snap.bodies[*reference_index]->name.c_str() : "None (absolute)";
+        const std::optional<Color> reference_color = reference_index && snap.bodies[*reference_index] ? snap.bodies[*reference_index]->color : std::nullopt;
+
+        ImGui::SetNextItemWidth(180.0f);
+
+        if (ui_helpers::begin_labeled_combo(label, id, reference_name, 210.0f, reference_color)) {
+            if (ImGui::Selectable("None (absolute)", !reference_index)) {
+                reference_index.reset();
+            }
+
+            ImGui::Separator();
+
+            for (std::size_t ref = 0; ref < snap.bodies.size(); ref++) {
+                if (ref == exclude) continue; // Body with info itself
+
+                const auto& candidate = snap.bodies[ref];
+                if (!candidate) continue;
+
+                ImGui::PushID(static_cast<int>(ref));
+
+                const bool already_selected = reference_index && *reference_index == ref;
+
+                if (ui_helpers::body_selectable(candidate->name, already_selected, candidate->color)) {
+                    reference_index = ref;
+                }
+
+                if (already_selected && ImGui::IsWindowAppearing()) {
+                    ImGui::SetScrollHereY(0.5f);
+                }
+
+                ImGui::PopID();
+            }
+
+            ImGui::EndCombo();
+        }
+
+        return reference_index != before;
+    }
+
+
+    bool creation_allowed(const ui_data::RenderSnapshot& snap) {
+        const auto custom_slots = std::span(snap.bodies).subspan(NUM_CATALOG_BODIES);
+
+        return !runtime_config::use_simd
+               && runtime_config::interaction_set == runtime_config::InteractionSet::full
+               && std::ranges::any_of(custom_slots, [](const auto& body) { return !body.has_value(); });
+    }
+
+    // Returns the new value when it changed (set or removed)
+    std::optional<std::optional<std::size_t>> texture_row(const std::optional<std::size_t> current, const std::size_t body_id) {
+        // body_id: NO_BODY_SELECTED for creation panel
+
+        std::optional<std::optional<std::size_t>> changed;
+
+        const PlanetVisual* visual = current && *current < ui_config::body_textures.size()
+                                         ? &ui_config::body_textures[*current]
+                                         : nullptr;
+
+        if (visual && visual->loaded) {
+            rlImGuiImageSize(&visual->texture, 64, 32); // Smaller preview (2:1 ratio)
+            ImGui::SameLine();
+            ImGui::TextUnformatted(GetFileName(visual->texture_path->c_str()));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Remove")) {
+                changed = std::optional<std::size_t>{};
+            }
+        } else if (visual && !visual->failed) {
+            ImGui::TextDisabled("Loading %s...", GetFileName(visual->texture_path->c_str()));
+        } else if (visual && visual->failed) {
+            ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "Could not load %s", GetFileName(visual->texture_path->c_str()));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Remove")) changed = std::optional<std::size_t>{};
+        } else {
+            ImGui::TextDisabled("No texture (drop image)");
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                ImGui::SetTooltip(
+                    "Drop an image onto this window to texture the body in 3D.\n"
+                    "Formats: PNG, JPG, BMP, QOI, GIF (first frame).\n"
+                    "Use an equirectangular map (2:1, longitude x latitude),\n"
+                    "like a planet texture; other aspect ratios look stretched.\n"
+                    "Images wider than 4096 px are scaled down to save VRAM."
+                );
+            }
+        }
+
+        // Window-level drop target (state files never get here: receive_dropped_file() consumes them)
+        if (ui_config::dropped_file && ImGui::IsWindowHovered(ImGuiHoveredFlags_RootAndChildWindows)) {
+            const auto& drop = *ui_config::dropped_file;
+
+            if (drop.kind == ui_config::DropKind::unsupported) {
+                ui_config::texture_error = std::format("Unsupported format: {}", GetFileExtension(drop.path.c_str()));
+                ui_config::texture_error_source = body_id;
+            } else if (const auto id = ui_helpers::register_custom_texture_file(drop.path)) {
+                changed = id;
+                ui_config::texture_error.clear();
+            } else {
+                ui_config::texture_error = "Could not load " + drop.path;
+                ui_config::texture_error_source = body_id;
+            }
+
+            ui_config::dropped_file.reset(); // Consumed
+        }
+
+        if (!ui_config::texture_error.empty() && ui_config::texture_error_source == body_id) {
+            ImGui::TextColored({1.0f, 0.4f, 0.4f, 1.0f}, "%s", ui_config::texture_error.c_str());
+        }
+
+        return changed;
+    }
+
+    void export_file(ui_config::FileStatus& status, const str& filename, const str_view contents, const char* mime_type) {
+        const auto saved = ui_helpers::save_user_file(filename, contents, mime_type);
+        status = {saved ? std::format("Saved: {}", *saved) : "Export failed", !saved};
+    }
+
+    void status_line(const ui_config::FileStatus& status) {
+        if (status.text.empty()) return;
+        if (status.failed) ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.3f, 1.0f), "%s", status.text.c_str());
+        else ImGui::TextDisabled("%s", status.text.c_str());
     }
 }
 
@@ -131,7 +268,7 @@ void ui_helpers::draw_debug_overlay(const std::shared_ptr<const ui_data::RenderS
 
             row("Process CPU", std::format("{:.1f}%", cpu_percent));
             row("FPS", std::format("{:.1f} / {}", fps, config::TARGET_FPS));
-            row("Frame interval", std::format("{:.2f} ms", frame_ms));
+            row("Frame interval", std::format("{:.3f} ms", frame_ms));
             row("Steps", std::format("{}", config::steps_simulated.load()));
 
             section("Trails / frame");
@@ -149,9 +286,9 @@ void ui_helpers::draw_debug_overlay(const std::shared_ptr<const ui_data::RenderS
 
                 if (candidate_segments > 0) {
                     const double removed_percent = 100.0 * (
-                        1.0 - static_cast<double>(reduced)
-                            / static_cast<double>(candidate_segments)
-                    );
+                                                       1.0 - static_cast<double>(reduced)
+                                                       / static_cast<double>(candidate_segments)
+                                                   );
 
                     row(
                         "Sampling removed",
@@ -163,9 +300,9 @@ void ui_helpers::draw_debug_overlay(const std::shared_ptr<const ui_data::RenderS
 
                 if (reduced > 0) {
                     const double rejected_percent = 100.0 * (
-                        1.0 - static_cast<double>(submitted)
-                            / static_cast<double>(reduced)
-                    );
+                                                        1.0 - static_cast<double>(submitted)
+                                                        / static_cast<double>(reduced)
+                                                    );
 
                     row(
                         "Clipping rejected",
@@ -212,8 +349,8 @@ void ui_helpers::draw_legend(const std::shared_ptr<const ui_data::RenderSnapshot
     const float available_height = static_cast<float>(GetScreenHeight()) - 2.0f * margin;
 
     const float rows_height = visible_count == 0
-        ? 0.0f
-        : font_size + static_cast<float>(visible_count - 1) * spacing;
+                                  ? 0.0f
+                                  : font_size + static_cast<float>(visible_count - 1) * spacing;
 
     const float desired_height = ImGui::GetFrameHeight() + 2.0f * padding_y + rows_height;
 
@@ -278,9 +415,9 @@ void ui_helpers::draw_legend(const std::shared_ptr<const ui_data::RenderSnapshot
             const bool inside_circle = dx * dx + dy * dy <= radius * radius;
 
             const bool circle_clicked = ImGui::InvisibleButton(
-                std::format("##planet_visibility_{}", i).c_str(),
-                ImVec2(2.0f * radius, 2.0f * radius)
-            ) && inside_circle;
+                                            std::format("##planet_visibility_{}", i).c_str(),
+                                            ImVec2(2.0f * radius, 2.0f * radius)
+                                        ) && inside_circle;
 
             const bool circle_hovered = ImGui::IsItemHovered() && inside_circle;
 
@@ -343,7 +480,7 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
             bool highlighted = true;
 
-            auto& [mass, px, py, pz, vx, vy, vz, reference_index] = ui_data::edit_states[i];
+            auto& edit = ui_data::edit_states[i];
 
             if (!ui_data::was_open[i]) {
                 const float offset = static_cast<float>(ui_data::next_window_slot++ % 8) * 35.0f;
@@ -387,67 +524,26 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
             }
 
             if (visible) {
-                const auto previous_reference = reference_index;
-
-                // Defensive fallback if the reference becomes unavailable
-                if (reference_index && (*reference_index >= snap->bodies.size() || *reference_index == i || !snap->bodies[*reference_index])) {
-                    reference_index.reset();
-                }
-
-                const char* reference_name = reference_index && snap->bodies[*reference_index] ? snap->bodies[*reference_index]->name.c_str() : "None (absolute)";
-                const std::optional<Color> reference_color = reference_index && snap->bodies[*reference_index] ? snap->bodies[*reference_index]->color : std::nullopt;
-
-                ImGui::SetNextItemWidth(180.0f);
-
-                if (begin_labeled_combo("Edit relative to:", "##reference", reference_name, 210.0f, reference_color)) {
-                    if (ImGui::Selectable("None (absolute)", !reference_index)) {
-                        reference_index.reset();
-                    }
-
-                    ImGui::Separator();
-
-                    for (std::size_t ref = 0; ref < snap->bodies.size(); ref++) {
-                        if (ref == i) continue; // Body with info itself
-
-                        const auto& candidate = snap->bodies[ref];
-                        if (!candidate) continue;
-
-                        ImGui::PushID(static_cast<int>(ref));
-
-                        const bool already_selected = reference_index && *reference_index == ref;
-
-                        if (body_selectable(candidate->name, already_selected, candidate->color)) {
-                            reference_index = ref;
-                        }
-
-                        if (already_selected && ImGui::IsWindowAppearing()) {
-                            ImGui::SetScrollHereY(0.5f);
-                        }
-
-                        ImGui::PopID();
-                    }
-
-                    ImGui::EndCombo();
-                }
+                const bool reference_changed = reference_combo(*snap, edit.reference_index, i, "Edit relative to:", "##reference");
 
                 Vec3 displayed_position = body->absolute_position;
                 Vec3 displayed_velocity = body->velocity;
 
-                if (reference_index) {
-                    if (const auto& reference = snap->bodies[*reference_index]) {
+                if (edit.reference_index) {
+                    if (const auto& reference = snap->bodies[*edit.reference_index]) {
                         displayed_position -= reference->absolute_position;
                         displayed_velocity -= reference->velocity;
                     }
                 }
 
-                if (reference_index != previous_reference) {
-                    px = {displayed_position.x, false};
-                    py = {displayed_position.y, false};
-                    pz = {displayed_position.z, false};
+                if (reference_changed) {
+                    edit.px = {displayed_position.x, false};
+                    edit.py = {displayed_position.y, false};
+                    edit.pz = {displayed_position.z, false};
 
-                    vx = {displayed_velocity.x, false};
-                    vy = {displayed_velocity.y, false};
-                    vz = {displayed_velocity.z, false};
+                    edit.vx = {displayed_velocity.x, false};
+                    edit.vy = {displayed_velocity.y, false};
+                    edit.vz = {displayed_velocity.z, false};
                 }
 
                 ImGui::BeginDisabled(ui_data::get_step_progress().busy);
@@ -457,9 +553,9 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                     ImGui::TextUnformatted("Position");
                     ImGui::Indent(15.0f);
 
-                    if (imgui_double_input(px, displayed_position.x, i, "x", "x##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .px = px.val});
-                    if (imgui_double_input(py, displayed_position.y, i, "y", "y##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .py = py.val});
-                    if (imgui_double_input(pz, displayed_position.z, i, "z", "z##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .pz = pz.val});
+                    if (imgui_double_input(edit.px, displayed_position.x, i, "x", "x##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = edit.reference_index, .px = edit.px.val});
+                    if (imgui_double_input(edit.py, displayed_position.y, i, "y", "y##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = edit.reference_index, .py = edit.py.val});
+                    if (imgui_double_input(edit.pz, displayed_position.z, i, "z", "z##position", 4, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = edit.reference_index, .pz = edit.pz.val});
 
                     ImGui::Spacing();
                     ImGui::Text("Distance: %.4e m", displayed_position.length());
@@ -470,9 +566,9 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                     ImGui::TextUnformatted("Velocity");
                     ImGui::Indent(15.0f);
 
-                    if (imgui_double_input(vx, displayed_velocity.x, i, "x", "x##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vx = vx.val});
-                    if (imgui_double_input(vy, displayed_velocity.y, i, "y", "y##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vy = vy.val});
-                    if (imgui_double_input(vz, displayed_velocity.z, i, "z", "z##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = reference_index, .vz = vz.val});
+                    if (imgui_double_input(edit.vx, displayed_velocity.x, i, "x", "x##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = edit.reference_index, .vx = edit.vx.val});
+                    if (imgui_double_input(edit.vy, displayed_velocity.y, i, "y", "y##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = edit.reference_index, .vy = edit.vy.val});
+                    if (imgui_double_input(edit.vz, displayed_velocity.z, i, "z", "z##velocity", 4, "m/s")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .reference_index = edit.reference_index, .vz = edit.vz.val});
 
                     ImGui::Spacing();
                     ImGui::Text("Speed: %.4e m/s", displayed_velocity.length());
@@ -481,19 +577,19 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                     ImGui::EndTable();
 
-                    if (reference_index && snap->bodies[*reference_index]) {
+                    if (edit.reference_index && snap->bodies[*edit.reference_index]) {
                         const auto point_masses = to_point_masses(*snap);
                         const PointMass& self = *point_masses[i];
-                        const PointMass& ref = *point_masses[*reference_index];
+                        const PointMass& ref = *point_masses[*edit.reference_index];
 
                         // Membership is needed even when merging is off, to decide whether to show the checkbox at all
                         const std::vector<std::size_t> members = members_of(snap->hierarchy, i);
-                        const bool mergeable = !members.empty() && can_merge(snap->hierarchy, i, reference_index);
+                        const bool mergeable = !members.empty() && can_merge(snap->hierarchy, i, edit.reference_index);
 
                         if (mergeable) {
                             ImGui::Checkbox("Include moons (system barycenter)", &ui_config::orbit_use_system_barycenter);
 
-                            if (ImGui::IsItemHovered()) {
+                            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                                 ImGui::SetTooltip(
                                     "On: orbit of the mass-weighted center of %s and its moons (less wobble).\n"
                                     "Off: orbit of %s alone.",
@@ -547,11 +643,11 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                                 ImGui::TextUnformatted("Orbital elements");
 
                                 ImGui::Text("a: %.6e m", orbit->semi_major_axis);
-                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Semi major axis a"); }
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) { ImGui::SetTooltip("Semi major axis a"); }
                                 ImGui::Text("c: %.6e m", orbit->linear_eccentricity);
-                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Linear eccentricity c"); }
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) { ImGui::SetTooltip("Linear eccentricity c"); }
                                 ImGui::Text("i: %.4f deg", orbit->inclination * 180.0 / std::numbers::pi);
-                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Inclination i"); }
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) { ImGui::SetTooltip("Inclination i"); }
 
                                 ImGui::Unindent(15.0f);
 
@@ -559,11 +655,11 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                                 ImGui::Indent(15.0f);
 
                                 ImGui::Text("b: %.6e m", orbit->semi_minor_axis);
-                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Semi minor axis b"); }
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) { ImGui::SetTooltip("Semi minor axis b"); }
                                 ImGui::Text("e: %.6f", orbit->eccentricity);
-                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Eccentricity e"); }
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) { ImGui::SetTooltip("Eccentricity e"); }
                                 ImGui::Text("τ: %s", time_units::format_duration(orbit->orbital_period).c_str());
-                                if (ImGui::IsItemHovered()) { ImGui::SetTooltip("Orbital period τ"); }
+                                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) { ImGui::SetTooltip("Orbital period τ"); }
 
                                 ImGui::Unindent(15.0f);
 
@@ -581,7 +677,9 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                 ImGui::Spacing();
 
-                if (imgui_double_input(mass, body->mass, i, "Mass", "mass", 6, "kg")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .mass = mass.val});
+                if (imgui_double_input(edit.mass, body->mass, i, "Mass", "mass", 6, "kg")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .mass = edit.mass.val});
+
+                if (imgui_double_input(edit.physical_radius_m, body->physical_radius_m, i, "Radius", "radius", 6, "m")) ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .physical_radius_m = edit.physical_radius_m.val});
 
                 ImGui::EndDisabled();
 
@@ -591,7 +689,7 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                 const bool recently_copied = std::chrono::steady_clock::now() - ui_config::last_copied[i] < std::chrono::seconds(1);
 
-                const char* copy_values_label = recently_copied ? "Copied!" : "Copy values";
+                const auto copy_values_label = recently_copied ? "Copied!" : "Copy values";
                 const float copy_values_width = ImGui::CalcTextSize(copy_values_label).x + 2.0f * style.FramePadding.x;
                 float group_width = copy_values_width;
 
@@ -602,16 +700,17 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                 if (ImGui::Button(std::format("{}###copy_values", copy_values_label).c_str())) {
                     // Recompute reference_name (reference_index might have changed)
-                    const char* relative_name = reference_index && snap->bodies[*reference_index] ? snap->bodies[*reference_index]->name.c_str() : "None (absolute)";
+                    const char* relative_name = edit.reference_index && snap->bodies[*edit.reference_index] ? snap->bodies[*edit.reference_index]->name.c_str() : "None (absolute)";
 
                     const str text = std::format(
                         "{}\n"
                         "Data Relative to: {}\n"
-                        "Years simulated: {:.2f}\n"
+                        "Years simulated: {:.3f}\n"
                         "Position: {} m\n"
                         "Velocity: {} m/s\n"
-                        "Mass: {:e} kg",
-                        body->name, relative_name, simulated_years(), displayed_position.to_string(), displayed_velocity.to_string(), body->mass
+                        "Mass: {:e} kg\n"
+                        "Radius: {:e} m",
+                        body->name, relative_name, simulated_years(), displayed_position.to_string(), displayed_velocity.to_string(), body->mass, body->physical_radius_m
                     );
                     SetClipboardText(text.c_str());
                     ui_config::last_copied[i] = std::chrono::steady_clock::now();
@@ -624,8 +723,8 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                 ImGui::SameLine();
 
-                const char* follow_label = ui_config::followed_celestial_body_index == i ? "Stop following" : "Follow";
-                const auto goto_label = "Go to";
+                const auto follow_label = ui_config::followed_celestial_body_index == i ? "Stop following" : "Follow";
+                constexpr auto goto_label = "Go to";
                 const float goto_width = ui_config::view_3d ? 0 : ImGui::CalcTextSize(goto_label).x + 2.0f * style.FramePadding.x;
                 const float follow_width = ImGui::CalcTextSize(follow_label).x + 2.0f * style.FramePadding.x;
                 group_width = follow_width + (ui_config::view_3d ? 0.0f : goto_width + style.ItemSpacing.x);
@@ -644,7 +743,7 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                         cancel_camera_drag();
                     }
 
-                    if (ImGui::IsItemHovered()) {
+                    if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                         ImGui::SetTooltip("One-time camera move");
                     }
 
@@ -673,7 +772,7 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                 ImGui::SameLine();
 
-                const auto coordinate_origin_label = "Set origin";
+                constexpr auto coordinate_origin_label = "Set origin";
                 const float coordinate_origin_width = ImGui::CalcTextSize(coordinate_origin_label).x + 2.0f * style.FramePadding.x;
                 group_width = coordinate_origin_width;
 
@@ -683,14 +782,14 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                 );
 
                 if (ImGui::Button("Set origin")) {
-                    set_coordinate_origin(snap, i);
+                    set_coordinate_origin(i);
                 }
 
                 ImGui::TextUnformatted("Data");
 
                 ImGui::SameLine();
 
-                const auto new_graph_label = "New graph";
+                constexpr auto new_graph_label = "New graph";
                 group_width = ImGui::CalcTextSize(new_graph_label).x + 2.0f * style.FramePadding.x;
 
                 ImGui::SetCursorPosX(
@@ -699,7 +798,97 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
                 );
 
                 if (ImGui::Button(new_graph_label)) {
-                    open_graph_window(snap, i, reference_index);
+                    open_graph_window(snap, i, edit.reference_index);
+                }
+
+                ImGui::TextUnformatted("Body");
+                ImGui::SameLine();
+
+                constexpr auto delete_label = "Delete";
+                constexpr auto rename_label = "Rename";
+
+                const float rename_width = ImGui::CalcTextSize(rename_label).x + 2.0f * style.FramePadding.x;
+                const float delete_width = ImGui::CalcTextSize(delete_label).x + 2.0f * style.FramePadding.x;
+                const float color_picker_width = ImGui::GetFrameHeight();
+
+                group_width = rename_width + delete_width + color_picker_width + 2.0f * style.ItemSpacing.x;
+
+                ImGui::SetCursorPosX(
+                    ImGui::GetCursorPosX() +
+                    std::max(0.0f, ImGui::GetContentRegionAvail().x - group_width)
+                );
+
+                if (ImGui::Button(rename_label)) {
+                    edit.rename_buffer = body->name; // Prefill once, on open
+                    ImGui::OpenPopup("Rename body");
+                }
+
+                if (ImGui::BeginPopup("Rename body")) {
+                    if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
+
+                    ImGui::SetNextItemWidth(260.0f);
+                    const bool enter = ImGui::InputText("##name", &edit.rename_buffer, ImGuiInputTextFlags_EnterReturnsTrue);
+                    const bool valid = !is_blank(edit.rename_buffer);
+
+                    ImGui::BeginDisabled(!valid);
+                    const bool save = ImGui::Button("Save");
+                    ImGui::EndDisabled();
+                    ImGui::SameLine();
+
+                    if (valid && (enter || save)) {
+                        ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .name = edit.rename_buffer});
+                        ImGui::CloseCurrentPopup();
+                    } else if (ImGui::Button("Cancel") || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+                        ImGui::CloseCurrentPopup();
+                    }
+
+                    ImGui::EndPopup();
+                }
+
+                ImGui::SameLine();
+
+                edit.color_active = ImGui::IsItemActive(); // true during drags inside the picker popup too
+
+                // Draft follows the snapshot except while the picker is being dragged
+                // (otherwise it would flicker back to the old color until the publish arrives)
+                if (!edit.color_active) to_float3(body->color.value_or(WHITE), edit.color);
+
+                if (ImGui::ColorEdit3("##body_color", edit.color, ImGuiColorEditFlags_NoInputs | ImGuiColorEditFlags_NoLabel | ImGuiColorEditFlags_NoTooltip)) {
+                    ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .color = to_color(edit.color)});
+                }
+
+                edit.color_active = ImGui::IsItemActive(); // Must come right after ColorEdit3; Also true during picker drags
+
+                if (body->texture_id && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                    ImGui::SetTooltip("Textured in 3D; color applies to 2D, trails, legend and labels");
+                }
+
+                ImGui::SameLine();
+
+                // Every body can be deleted, including the last one (empty scenario)
+                const bool can_delete = !runtime_config::use_simd && runtime_config::interaction_set == runtime_config::InteractionSet::full;
+
+                ImGui::BeginDisabled(!can_delete);
+
+                if (ImGui::Button("Delete")) {
+                    ImGui::OpenPopup("Delete body?");
+                }
+
+                if (confirm_delete_popup("Delete body?", std::format("Delete {}?", body->name),
+                                         "Restoring a checkpoint brings it back if it existed then.", dark_mode)) {
+                    ui_data::simulation_command_queue.push(ui_data::DeleteBodyCommand{i});
+                }
+
+                ImGui::EndDisabled();
+
+
+                if (const auto t = texture_row(body->texture_id, i)) {
+                    // Changed this frame?
+                    if (*t) {
+                        ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .texture_id = *t});
+                    } else {
+                        ui_data::simulation_command_queue.push(ui_data::UpdateBodyCommand{.i = i, .clear_texture = true});
+                    }
                 }
             }
 
@@ -727,9 +916,9 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
     const double simulation_speed = seconds > 0.0 ? years / seconds : 0.0;
 
     const std::size_t center_i = config::center_celestial_body_index.load();
-    const str center_name = center_i < snap->bodies.size() && snap->bodies[center_i] ? snap->bodies[center_i]->name : "None";
+    const str center_name = center_i < snap->bodies.size() && snap->bodies[center_i] ? snap->bodies[center_i]->name : "Absolute (inertial frame)";
     const double target = runtime_config::target_simulation_speed.load();
-    const str target_speed = target > 0.0 ? std::format("{:.2f} yr/s", target) : "Unlimited";
+    const str target_speed = target > 0.0 ? std::format("{:.3f} yr/s", target) : "Unlimited";
 
     const bool running = config::timer.is_running();
     const bool can_resume = runtime_config::target_total_simulation_time < 0.0 || runtime_config::target_total_simulation_time > simulated_years();
@@ -792,7 +981,21 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
             ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
-            stat("TIME", std::format("{:.2f} yr", years));
+            stat("TIME", std::format("{:.3f} yr", years));
+            const double t = static_cast<double>(snap->step) * runtime_config::time_step;
+
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                ImGui::SetTooltip(
+                    "Local time:  %s\n"
+                    "Simulation:  %s\n\n"
+                    "Simulation time (TDB) is uniform. Local time converts it to UTC\n"
+                    "(leap seconds from 1972, an estimate of Earth's rotation before: +-1 s)\n"
+                    "and then to your time zone. Dates before ~1890 use local mean time.\n"
+                    "TIME counts 365-day years; dates use the real (gregorian) calendar.",
+                    time_units::format_local_time(t).c_str(),
+                    time_units::format_epoch_date(t).c_str()
+                );
+            }
 
             ImGui::TableSetColumnIndex(1);
             stat("AVERAGE SPEED", std::format("{:.3f} yr/s", simulation_speed));
@@ -803,7 +1006,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
             ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
-            stat("RUN TIME", std::format("{:.2f} s", seconds));
+            stat("RUN TIME", std::format("{:.3f} s", seconds));
 
             ImGui::TableSetColumnIndex(1);
 
@@ -811,9 +1014,11 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 stat(
                     "SIMULATING",
                     std::format(
-                        "{} / {} steps",
+                        std::locale{"en_US.UTF-8"}, // "," as thousands seperator
+                        "{:L} / {:L} steps ({:.3f}%)",
                         progress.completed,
-                        progress.total
+                        progress.total,
+                        100.0 * static_cast<double>(progress.completed) / static_cast<double>(progress.total)
                     )
                 );
             } else {
@@ -849,8 +1054,8 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
             )) {
                 const bool none_selected = center_i == config::NO_BODY_SELECTED;
 
-                if (ImGui::Selectable("None (inertial)", none_selected) && !none_selected) {
-                    set_coordinate_origin(snap, config::NO_BODY_SELECTED);
+                if (ImGui::Selectable("Absolute (inertial frame)", none_selected) && !none_selected) {
+                    set_coordinate_origin(config::NO_BODY_SELECTED);
                 }
 
                 ImGui::Separator();
@@ -864,7 +1069,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                     const bool already_selected = center_i == i;
 
                     if (body_selectable(body->name, already_selected, body->color) && !already_selected) {
-                        set_coordinate_origin(snap, i);
+                        set_coordinate_origin(i);
                     }
 
                     if (already_selected && ImGui::IsWindowAppearing()) {
@@ -921,7 +1126,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                     static_cast<ui_config::BodySizeMode>(selected_mode);
             }
 
-            if (ImGui::IsItemHovered()) {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                 ImGui::SetTooltip("Body sizes");
             }
 
@@ -952,7 +1157,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 ui_config::marker_scale = 1.0f;
             }
 
-            if (ImGui::IsItemHovered()) {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                 ImGui::SetTooltip("Reset marker size to 1x");
             }
 
@@ -968,11 +1173,11 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
                 const auto center = config::center_celestial_body_index.load();
                 if (ui_config::view_3d && center != config::NO_BODY_SELECTED) {
-                    fit_camera_to_planetary_system_3d(snap, center);
+                    ui_config::pending_camera_fit = center;
                 }
             }
 
-            if (ImGui::IsItemHovered()) {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                 ImGui::SetTooltip("Switch between 2D and 3D (T)");
             }
 
@@ -983,7 +1188,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 ImGui::OpenPopup("##ToolOptions");
             }
 
-            if (ImGui::IsItemHovered()) {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                 ImGui::SetTooltip("Various Tools");
             }
 
@@ -1011,9 +1216,15 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 ImGui::BeginDisabled(unlimited);
                 ImGui::SetNextItemWidth(150.0f);
 
-                if (ImGui::SliderFloat("Speed##simulation", &speed, 0.01f, 100.0f, "%.2f yr/s", ImGuiSliderFlags_Logarithmic)) {
+                if (ImGui::SliderFloat("Speed##simulation", &speed, 0.001f, 100.0f, "%.3f yr/s", ImGuiSliderFlags_Logarithmic)) {
                     runtime_config::target_simulation_speed = speed;
                 }
+
+                ImGui::TextDisabled(
+                    "Steps: %.3f",
+
+                    runtime_config::target_simulation_speed / runtime_config::time_step
+                );
 
                 ImGui::EndDisabled();
 
@@ -1021,9 +1232,72 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
                 ImGui::MenuItem("Checkpoints...", nullptr, &ui_config::show_checkpoints);
                 ImGui::MenuItem("Diagnostics...", nullptr, &ui_config::show_diagnostics);
-                if (ImGui::MenuItem("New graph...")) open_graph_window(snap); // Allow multiple graph windows
 
-                if (ImGui::MenuItem("Step once", nullptr, false, can_step)) {
+
+                const bool has_bodies = std::ranges::any_of(
+                    snap->bodies,
+                    [](const auto& body) {
+                        return static_cast<bool>(body);
+                    }
+                );
+
+                if (ImGui::MenuItem("New graph...", nullptr, false, has_bodies)) open_graph_window(snap); // Allow multiple graph windows
+
+                ImGui::Separator();
+
+                // Keep the popup open, so the result line below stays visible
+                ImGui::PushItemFlag(ImGuiItemFlags_AutoClosePopups, false);
+
+                if (ImGui::MenuItem("Export history (CSV)")) {
+                    export_file(ui_config::csv_export_status, std::format("history_step{}.csv", snap->step), full_state_csv(snap), "text/csv");
+                }
+
+                ImGui::SetItemTooltip(
+                    "Positions (m), velocities (m/s) and masses (kg) of all bodies, sampled like the graphs.\n"
+                    "Absolute coordinates in the stored inertial frame; units m, m/s, kg.\n"
+                    "\n"
+                    "Each edit (mass, position, velocity, create, delete) starts a new segment.\n"
+                    "Rows with the same \"segment\" number belong together; position edits make the data jump.\n"
+                    "Analyze each segment separately, e.g. don't compute velocities across a boundary.\n"
+                    "\n"
+                    "For research data, use --headless --csv."
+                );
+
+                status_line(ui_config::csv_export_status);
+
+                if (ImGui::MenuItem("Export state (JSON)", nullptr, false, snap != nullptr)) {
+                    export_file(ui_config::json_export_status, std::format("state_step{}.json", snap->step), state_json(*snap), "application/json");
+                }
+
+                ImGui::SetItemTooltip(
+                    "Current positions, velocities, GM, radii, J2 data and colors of all enabled bodies.\n"
+                    "Absolute, stored inertial frame. Can be imported later (format v1)."
+                );
+
+#ifdef __EMSCRIPTEN__
+                // Opened by the browser in the touch/mouse-up handler (needs a user gesture), not by this click
+                ImGui::MenuItem("Import state (JSON)...");
+                {
+                    const bool armed = ImGui::IsItemHovered() || ImGui::IsItemActive();
+                    arm_state_file_picker(armed);
+                }
+#else
+                ImGui::BeginDisabled();
+                ImGui::MenuItem("Import state (JSON)...");
+                ImGui::EndDisabled();
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+                    ImGui::SetTooltip("Drop a .json file onto the window");
+                }
+#endif
+
+                status_line(ui_config::json_export_status);
+                status_line(ui_config::import_status);
+
+                ImGui::PopItemFlag();
+
+                const double dt = runtime_config::time_step;
+
+                if (ImGui::MenuItem(std::format("Step once ({})", time_units::format_duration(dt, 3)).c_str(), nullptr, false, can_step)) {
                     ui_data::request_steps(1);
                 }
 
@@ -1043,14 +1317,21 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
                 ImGui::EndDisabled();
 
-                const std::string_view text(step_count_text);
-                std::size_t step_count = 0;
+                // This parameter can not be made a constant expression. It would result in a compiler error.
+                // ReSharper disable once CppVariableCanBeMadeConstexpr
+                const str_view text(step_count_text);
+                step_t step_count = 0;
 
                 const auto [end, error] = std::from_chars(
                     text.data(), text.data() + text.size(), step_count
                 );
 
                 const bool valid = error == std::errc{} && end == text.data() + text.size() && step_count > 0;
+
+                if (valid) {
+                    ImGui::SameLine();
+                    ImGui::TextDisabled("= %s", time_units::format_duration(static_cast<double>(step_count) * dt, 3).c_str());
+                }
 
                 ImGui::BeginDisabled(!can_step || !valid);
 
@@ -1059,6 +1340,10 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 }
 
                 ImGui::EndDisabled();
+
+                if (ImGui::MenuItem("Create body...", nullptr, false, creation_allowed(*snap))) {
+                    ui_config::show_create_body = true;
+                }
 
                 ImGui::EndPopup();
             }
@@ -1073,10 +1358,10 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
             const float buttons_y = ImGui::GetCursorPosY();
             const float button_x = ImGui::GetCursorPosX()
-                + std::max(
-                    0.0f,
-                    (ImGui::GetContentRegionAvail().x - button_size) * 0.5f
-                );
+                                   + std::max(
+                                       0.0f,
+                                       (ImGui::GetContentRegionAvail().x - button_size) * 0.5f
+                                   );
 
             ImGui::SetCursorPosX(button_x);
 
@@ -1090,7 +1375,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 ImVec2(button_width, button_height)
             );
 
-            if (ImGui::IsItemHovered()) {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                 ImGui::SetTooltip(running ? "Pause" : "Resume");
             }
 
@@ -1151,7 +1436,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                 reset_view();
             }
 
-            if (ImGui::IsItemHovered()) {
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                 ImGui::SetTooltip("Reset view (R)");
             }
 
@@ -1234,9 +1519,8 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
                     selected_id = checkpoint.id;
                 }
 
-                if (ImGui::IsItemHovered()) {
-                    ImGui::SetTooltip("%.6f years", static_cast<double>(checkpoint.simulated_seconds) / config::SECONDS_PER_YEAR
-                    );
+                if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                    ImGui::SetTooltip("%.6f years", static_cast<double>(checkpoint.simulated_seconds) / config::SECONDS_PER_YEAR);
                 }
 
                 if (ImGui::BeginPopupContextItem("##checkpoint_actions")) {
@@ -1281,7 +1565,7 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
                 ImGuiInputTextFlags_EnterReturnsTrue
             );
 
-            const bool valid = std::string_view(rename_buffer).find_first_not_of(" \t\r\n") != std::string_view::npos;
+            const bool valid = str_view(rename_buffer).find_first_not_of(" \t\r\n") != str_view::npos;
 
             ImGui::BeginDisabled(!valid);
             const bool save = ImGui::Button("Save");
@@ -1316,9 +1600,19 @@ void ui_helpers::draw_checkpoint_window(const std::shared_ptr<const ui_data::Ren
         ImGui::BeginDisabled(!has_checkpoints || selected_id == 0);
 
         if (ImGui::Button("Delete selected")) {
+            ImGui::OpenPopup("Delete checkpoint?");
+        }
+
+        const auto selected = std::ranges::find(snap->checkpoints, selected_id, &ui_data::CheckpointInfo::id);
+        const str question = selected != snap->checkpoints.end() ? std::format("Delete \"{}\"?", selected->label) : "Delete checkpoint?";
+
+        if (confirm_delete_popup("Delete checkpoint?", question, "This cannot be undone.", dark_mode)) {
             ui_data::simulation_command_queue.push(ui_data::DeleteCheckpoint{selected_id});
 
-            selected_id = 0;
+            // Keep the selection in place: The entry just above (ID 0 is first and protected, so it exists)
+            selected_id = selected != snap->checkpoints.begin() && selected != snap->checkpoints.end()
+                              ? std::prev(selected)->id
+                              : 0;
         }
 
         ImGui::EndDisabled();
@@ -1344,10 +1638,10 @@ void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::Re
         ImGui::TextDisabled("Stored inertial frame");
 
         constexpr ImGuiTableFlags flags =
-           ImGuiTableFlags_SizingStretchProp |
-           ImGuiTableFlags_BordersInnerH |
-           ImGuiTableFlags_RowBg |
-           ImGuiTableFlags_NoSavedSettings;
+            ImGuiTableFlags_SizingStretchProp |
+            ImGuiTableFlags_BordersInnerH |
+            ImGuiTableFlags_RowBg |
+            ImGuiTableFlags_NoSavedSettings;
 
         // Left-align numbers within their table cells
         const auto number = [](const double value) {
@@ -1390,9 +1684,9 @@ void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::Re
 
         const double magnitude = std::abs(snap->total_energy);
         const double resolution = std::nextafter(
-            magnitude,
-            std::numeric_limits<double>::infinity()
-        ) - magnitude;
+                                      magnitude,
+                                      std::numeric_limits<double>::infinity()
+                                  ) - magnitude;
 
         if (ImGui::BeginTable("##diagnostics_energy", 3, flags)) {
             ImGui::TableSetupColumn("Quantity", ImGuiTableColumnFlags_WidthStretch, 1.5f);
@@ -1405,7 +1699,7 @@ void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::Re
                 ImGui::TableSetColumnIndex(0);
                 ImGui::TextUnformatted(label);
 
-                if (tooltip && ImGui::IsItemHovered()) {
+                if (tooltip && ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
                     ImGui::SetTooltip("%s", tooltip);
                 }
 
@@ -1463,5 +1757,229 @@ void ui_helpers::draw_diagnostics_window(const std::shared_ptr<const ui_data::Re
     imgui_style_cleanup();
 }
 
-// TODO: macOS snapping latency
-// TODO: Controls / Help page
+void ui_helpers::draw_create_body_window(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const bool dark_mode) {
+    if (!ui_config::show_create_body || !snap) return;
+
+    auto& draft = ui_config::create_body_draft;
+
+    imgui_style_setup(dark_mode);
+    ImGui::SetNextWindowSize(ImVec2(440.0f, 0.0f), ImGuiCond_Always);
+
+    if (ImGui::Begin("Create body", &ui_config::show_create_body, ImGuiWindowFlags_NoResize | ImGuiWindowFlags_AlwaysAutoResize)) {
+        // Escape closes the window, but not while an input is active (Escape there reverts the field first)
+        // Checked before the widgets, so the item still counts as active from last frame
+        if (!ui_config::escape_consumed && ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::IsAnyItemActive() && ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            ui_config::show_create_body = false;
+        }
+
+        ImGui::BeginDisabled(ui_data::get_step_progress().busy);
+
+        const float properties_label_width = ImGui::CalcTextSize("Radius:").x + ImGui::GetStyle().ItemSpacing.x;
+        const float axis_label_width = ImGui::CalcTextSize("x:").x + ImGui::GetStyle().ItemSpacing.x;
+        constexpr float field_width = 200.0f;
+
+        // Properties
+        ImGui::InputText("Name", &draft.name);
+        imgui_draft_double_input(draft.mass, "Mass", "mass", 6, "kg", properties_label_width, field_width);
+        imgui_draft_double_input(draft.radius_m, "Radius", "radius", 6, "m", properties_label_width, field_width);
+        ImGui::ColorEdit3("Color", draft.color, ImGuiColorEditFlags_NoInputs);
+
+        if (const auto t = texture_row(draft.texture_id, config::NO_BODY_SELECTED)) {
+            draft.texture_id = *t;
+        }
+
+        // Reference
+        ImGui::Separator();
+        reference_combo(*snap, draft.reference_index, std::nullopt, "Relative to:", "##create_reference");
+        const ui_data::RenderSnapshot::Body* reference = draft.reference_index && snap->bodies[*draft.reference_index] ? &*snap->bodies[*draft.reference_index] : nullptr;
+
+        // Position / velocity table
+        if (ImGui::BeginTable("CreatePositionVelocity", 2)) {
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("Position");
+            imgui_draft_double_input(draft.position.x, "x", "x##p", 4, "m", axis_label_width, field_width);
+            imgui_draft_double_input(draft.position.y, "y", "y##p", 4, "m", axis_label_width, field_width);
+            imgui_draft_double_input(draft.position.z, "z", "z##p", 4, "m", axis_label_width, field_width);
+
+            ImGui::TableNextColumn();
+            ImGui::TextUnformatted("Velocity");
+            imgui_draft_double_input(draft.velocity.x, "x", "x##v", 4, "m/s", axis_label_width, field_width);
+            imgui_draft_double_input(draft.velocity.y, "y", "y##v", 4, "m/s", axis_label_width, field_width);
+            imgui_draft_double_input(draft.velocity.z, "z", "z##v", 4, "m/s", axis_label_width, field_width);
+
+            ImGui::EndTable();
+        }
+        ImGui::TextDisabled("Relative to %s", reference ? reference->name.c_str() : "Absolute (inertial frame)");
+
+
+        // Circular
+        CircularOrbit c = circular_orbit_velocity(
+            draft.position,
+            reference ? config::GRAVITATIONAL_CONSTANT * (reference->mass + draft.mass) : 0.0
+        );
+
+        ImGui::BeginDisabled(c.issue != CircularOrbitIssue::none);
+        if (ImGui::Button("Circular orbit")) {
+            draft.velocity = c.velocity;
+        }
+        ImGui::EndDisabled();
+
+        if (c.issue != CircularOrbitIssue::none && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
+            const char* circular_problem =
+                c.issue == CircularOrbitIssue::coincident ? "Position coincides with the reference" : c.issue == CircularOrbitIssue::pole_axis ? "Position on the pole axis: direction undefined" : c.issue == CircularOrbitIssue::non_positive_mu ? "Total mass must be positive and finite" : "Unreachable";
+
+            ImGui::SetTooltip("%s", circular_problem);
+        }
+
+        // Timescale for the velocity arrow (and drag)
+
+        if (c.issue == CircularOrbitIssue::none && reference) {
+            // Reference is implied anyway
+            const double lambda = draft.velocity.length() / c.velocity.length();
+            ImGui::Text("Speed: %.3f x circular", lambda);
+            ImGui::SameLine();
+            ImGui::TextDisabled("(escape at %.3f)", std::numbers::sqrt2);
+            if (ImGui::IsItemHovered(ImGuiHoveredFlags_ForTooltip)) {
+                ImGui::SetTooltip(
+                    "Arrow as long as the distance to %s = circular speed.\n"
+                    "< 1: body is at apoapsis, > 1: at periapsis, >= sqrt(2): escapes.",
+                    reference->name.c_str()
+                );
+            }
+        }
+
+        const auto mu = create_draft_mu(*snap);
+
+        if (mu && reference) {
+            // Reference is implied anyway
+            const Vec3 h = draft.position.cross(draft.velocity);
+            const auto el = orbital_elements(draft.position, draft.velocity, *mu);
+
+            if (el && h.length() > 0.0) {
+                constexpr ImVec4 WARN{1.0f, 0.7f, 0.2f, 1.0f};
+                const double e = el->eccentricity;
+                const double p = h.dot(h) / *mu; // h.dot(h) = h.length() * h.length() (slight performance optimization)
+                const double peri = p / (1.0 + e);
+
+                ImGui::Text("Eccentricity: %.4f", e);
+                ImGui::Text("Periapsis: %.4e m", peri);
+
+                if (std::isfinite(el->orbital_period)) {
+                    const double apo = p / (1.0 - e);
+                    ImGui::Text("Apoapsis: %.4e m", apo);
+                    ImGui::Text("Period: %s", time_units::format_duration(el->orbital_period, 3).c_str());
+
+                    const double r_H = snap->hierarchy.hill_radius[*draft.reference_index];
+                    if (std::isfinite(r_H) && r_H > 0.0) {
+                        ImGui::Text("Apoapsis: %.3f r_H", apo / r_H);
+                        if (apo > 0.5 * r_H) {
+                            ImGui::TextColored(WARN, "Likely unstable: Beyond ~0.5 r_H of %s", reference->name.c_str());
+                        }
+                    }
+                } else {
+                    const double v_inf = std::sqrt(std::max(0.0, draft.velocity.dot(draft.velocity) - 2.0 * *mu / draft.position.length()));
+                    ImGui::TextColored(WARN, "Escapes %s (v_inf = %.4e m/s)", reference->name.c_str(), v_inf);
+                }
+
+                if (peri < reference->physical_radius_m) {
+                    ImGui::TextColored(WARN, "Periapsis inside %s (no collisions modeled)", reference->name.c_str());
+                }
+            } else if (el) {
+                ImGui::TextDisabled("Radial velocity: falls straight in or out");
+            }
+        }
+
+        const bool placing = ui_config::body_placement_state != ui_config::BodyPlacementState::idle;
+        if (ImGui::Button(placing ? "Cancel placing" : "Place in view")) {
+            if (placing) {
+                cancel_placement();
+            } else {
+                ui_config::body_placement_backup = draft;
+                ui_config::body_placement_state = ui_config::BodyPlacementState::armed;
+            }
+        }
+        if (placing) ImGui::TextDisabled("Click: position · drag: velocity · Esc: cancel");
+
+        // Validation and creation
+        const auto finite = [](const Vec3& v) { return std::isfinite(v.x) && std::isfinite(v.y) && std::isfinite(v.z); };
+
+        // First problem wins; nullptr = the draft can be created
+        const auto validation_problem = [&]() -> const char* {
+            if (!creation_allowed(*snap)) return "No free slot (or --simd / reduced interaction set)";
+            if (is_blank(draft.name)) return "Name is empty";
+            if (!std::isfinite(draft.mass)) return "Mass must be finite";
+            if (!std::isfinite(draft.radius_m) || draft.radius_m < 0) return "Radius must be finite and >= 0";
+            if (!finite(draft.position) || !finite(draft.velocity)) return "Position and velocity must be finite";
+            if (reference && draft.position.length() == 0.0) return "Position coincides with the reference";
+            return nullptr;
+        };
+        const char* problem = validation_problem();
+
+        ImGui::Separator();
+        ImGui::BeginDisabled(problem != nullptr);
+        if (ImGui::Button("Create")) {
+            ui_data::simulation_command_queue.push(ui_data::CreateBodyCommand{
+                .reference_index   = draft.reference_index,
+                .position          = draft.position,
+                .velocity          = draft.velocity,
+                .mass              = draft.mass,
+                .physical_radius_m = draft.radius_m,
+                .name              = draft.name,
+                .color             = to_color(draft.color),
+                .texture_id        = draft.texture_id
+            });
+
+            draft.name = "Body " + std::to_string(++ui_config::created_body_counter);
+        }
+        ImGui::EndDisabled(); // problem != nullptr
+        ImGui::EndDisabled(); // Step progress busy (start of window)
+
+        if (problem != nullptr) {
+            ImGui::TextDisabled("%s", problem);
+        }
+    }
+
+    ImGui::End();
+    imgui_style_cleanup();
+}
+
+void ui_helpers::draw_scene_context_menu(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const bool dark_mode) {
+    if (!snap) return;
+
+    if (ui_config::scene_context_menu_requested) {
+        ImGui::OpenPopup("##scene_context"); // Opens at the current mouse position
+        ui_config::scene_context_menu_requested = false;
+    }
+
+    imgui_style_setup(dark_mode);
+    if (ImGui::BeginPopup("##scene_context")) {
+        const bool allowed = creation_allowed(*snap);
+        auto& draft = ui_config::create_body_draft;
+
+        if (ImGui::MenuItem("Create body here", nullptr, false, allowed)) {
+            if (set_draft_xy_from_snapshot_point(*snap, ui_config::scene_context_menu_point_m)) {
+                ui_config::show_create_body = true;
+            }
+        }
+
+        if (const auto i = ui_config::scene_context_menu_body; i && snap->bodies[*i]) {
+            if (ImGui::MenuItem(std::format("Create body orbiting {}", snap->bodies[*i]->name).c_str(), nullptr, false, allowed)) {
+                draft.reference_index = *i;
+                ui_config::show_create_body = true;
+            }
+        }
+
+        ImGui::EndPopup();
+    }
+    imgui_style_cleanup();
+}
+
+void ui_helpers::draw_empty_scene_overlay() {
+    const ImVec2 center = ImGui::GetMainViewport()->GetCenter();
+
+    // Same font path as the 2D labels; background draw list: above the scene, below every ImGui window
+    draw_imgui_centered_text(
+        "No bodies. Tools > Create body... or right-click the scene (2D) to add one.",
+        {center.x, center.y}, 0.0f, 16.0f, GRAY
+    );
+}

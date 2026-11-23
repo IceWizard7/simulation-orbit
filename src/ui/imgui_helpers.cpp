@@ -1,13 +1,40 @@
 #include <algorithm>
 #include <cfloat>
 #include <cmath>
+#include <cstddef>
 #include <format>
 #include <imgui.h>
+#include <optional>
 #include <raylib.h>
 
 #include "ui.hpp"
 
-bool ui_helpers::imgui_double_input(ui_data::EditableDouble& edit, const double current_value, std::size_t i, const str& label, const str& id, int precision, const str& unit) {
+namespace {
+    struct ButtonPalette {
+        ImVec4 base, hovered, active, text;
+    };
+
+    ButtonPalette button_palette(const ui_helpers::ButtonTone tone, const bool dark_mode) {
+        using enum ui_helpers::ButtonTone;
+        constexpr ImVec4 white{1.0f, 1.0f, 1.0f, 1.0f};
+
+        switch (tone) {
+            case danger:
+                return dark_mode
+                           ? ButtonPalette{{0.62f, 0.16f, 0.16f, 1.0f}, {0.76f, 0.22f, 0.22f, 1.0f}, {0.50f, 0.12f, 0.12f, 1.0f}, white}
+                           : ButtonPalette{{0.80f, 0.22f, 0.22f, 1.0f}, {0.88f, 0.30f, 0.30f, 1.0f}, {0.68f, 0.16f, 0.16f, 1.0f}, white};
+            case success:
+                return dark_mode
+                           ? ButtonPalette{{0.16f, 0.48f, 0.26f, 1.0f}, {0.22f, 0.60f, 0.33f, 1.0f}, {0.12f, 0.40f, 0.21f, 1.0f}, white}
+                           : ButtonPalette{{0.20f, 0.62f, 0.32f, 1.0f}, {0.27f, 0.70f, 0.39f, 1.0f}, {0.16f, 0.52f, 0.27f, 1.0f}, white};
+        }
+
+        // Unreachable
+        return ButtonPalette{white, white, white, white};
+    }
+}
+
+bool ui_helpers::imgui_double_input(ui_data::EditableDouble& edit, const double current_value, const std::size_t i, const str& label, const str& id, int precision, const str& unit) {
     // Accepted values:
     // - All finite negative & positive values (& 0)
 
@@ -143,7 +170,26 @@ bool ui_helpers::imgui_double_input(ui_data::EditableDouble& edit, const double 
     return committed;
 }
 
-bool ui_helpers::begin_labeled_combo(const str &label, const str &id, const str &preview, const float width, const std::optional<Color>& color) {
+// Same look as imgui_double_input, but edits a local draft directly (no snapshot value)
+bool ui_helpers::imgui_draft_double_input(double& value, const str& label, const str& id, const int precision, const str& unit, const float label_width, const float field_width) {
+    ImGui::PushID(id.c_str());
+
+    ImGui::AlignTextToFramePadding();
+    ImGui::Text("%s:", label.c_str());
+    ImGui::SameLine(label_width); // Fixed column: All fields line up
+
+    ImGui::SetNextItemWidth(field_width);
+    const bool changed = ImGui::InputDouble("##value", &value, 0.0, 0.0, std::format("%.{}e", precision).c_str());
+
+    ImGui::SameLine(0.0f, 4.0f);
+    ImGui::TextUnformatted(unit.c_str());
+
+    ImGui::PopID();
+
+    return changed;
+}
+
+bool ui_helpers::begin_labeled_combo(const str& label, const str& id, const str& preview, const float width, const std::optional<Color>& color) {
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(label.c_str());
     ImGui::SameLine();
@@ -173,7 +219,7 @@ bool ui_helpers::begin_labeled_combo(const str &label, const str &id, const str 
                 start.y + height * 0.5f
             },
             4.0f,
-            ui_helpers::to_imgui_color(*color)
+            to_imgui_color(*color)
         );
     }
 
@@ -215,7 +261,7 @@ bool ui_helpers::body_selectable(const str& name, const bool selected, const std
     return clicked;
 }
 
-void ui_helpers::draw_imgui_text(const std::string& text, const Vec2 pos, const float font_size, const Color color) {
+void ui_helpers::draw_imgui_text(const str& text, const Vec2 pos, const float font_size, const Color color) {
     ImGui::GetBackgroundDrawList()->AddText(
         config::imgui_ui_font,
         font_size,
@@ -239,11 +285,11 @@ void ui_helpers::draw_imgui_centered_text(const str& text, const Vec2 center, co
 
     // For rotated text, draw at a safe location first to avoid clipping glyphs before their vertices are rotated.
     const ImVec2 pos = angle == 0.0f
-        ? ImVec2(target.x - size.x / 2, target.y - size.y / 2)
-        : ImVec2(
-            ImGui::GetMainViewport()->Pos.x + 20.0f,
-            ImGui::GetMainViewport()->Pos.y + 20.0f
-        );
+                           ? ImVec2(target.x - size.x / 2, target.y - size.y / 2)
+                           : ImVec2(
+                               ImGui::GetMainViewport()->Pos.x + 20.0f,
+                               ImGui::GetMainViewport()->Pos.y + 20.0f
+                           );
 
     const int start = draw_list->VtxBuffer.Size;
 
@@ -438,4 +484,46 @@ bool ui_helpers::reset_icon_button(const str& id) {
         color
     );
     return clicked;
+}
+
+bool ui_helpers::tinted_button(const char* label, const ButtonTone tone, const bool dark_mode, const ImVec2& size) {
+    const auto [base, hovered, active, text] = button_palette(tone, dark_mode);
+
+    ImGui::PushStyleColor(ImGuiCol_Button, base);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, hovered);
+    ImGui::PushStyleColor(ImGuiCol_ButtonActive, active);
+    ImGui::PushStyleColor(ImGuiCol_Text, text);
+
+    const bool clicked = ImGui::Button(label, size);
+
+    ImGui::PopStyleColor(4);
+
+    return clicked;
+}
+
+bool ui_helpers::confirm_delete_popup(const char* popup_id, const str& question, const char* detail, const bool dark_mode) {
+    bool confirmed = false;
+
+    if (ImGui::BeginPopup(popup_id)) {
+        ImGui::TextUnformatted(question.c_str());
+        if (detail) ImGui::TextDisabled("%s", detail);
+        ImGui::Spacing();
+
+        constexpr ImVec2 button_size{100.0f, 0.0f};
+
+        if (tinted_button("Delete", ButtonTone::danger, dark_mode, button_size)) {
+            confirmed = true;
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::SameLine();
+
+        if (ImGui::Button("Cancel", button_size) || ImGui::IsKeyPressed(ImGuiKey_Escape)) {
+            ImGui::CloseCurrentPopup();
+        }
+
+        ImGui::EndPopup();
+    }
+
+    return confirmed;
 }

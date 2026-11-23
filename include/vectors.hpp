@@ -11,7 +11,9 @@ public:
     double y = 0.0;
 
     Vec2() = default;
-    Vec2(const double x, const double y) : x(x), y(y) {}
+
+    Vec2(const double x, const double y) : x(x), y(y) {
+    }
 };
 
 
@@ -22,13 +24,15 @@ public:
     double z = 0.0;
 
     Vec3() = default;
-    Vec3(const double x, const double y, const double z) : x(x), y(y), z(z) {}
 
-    Vec3 operator+(const Vec3 &v) const {
+    Vec3(const double x, const double y, const double z) : x(x), y(y), z(z) {
+    }
+
+    Vec3 operator+(const Vec3& v) const {
         return {x + v.x, y + v.y, z + v.z};
     }
 
-    Vec3 operator-(const Vec3 &v) const {
+    Vec3 operator-(const Vec3& v) const {
         return {x - v.x, y - v.y, z - v.z};
     }
 
@@ -40,14 +44,14 @@ public:
         return {x / step, y / step, z / step};
     }
 
-    Vec3 &operator+=(const Vec3 & v) {
+    Vec3& operator+=(const Vec3& v) {
         x += v.x;
         y += v.y;
         z += v.z;
         return *this;
     }
 
-    Vec3 &operator-=(const Vec3 & v) {
+    Vec3& operator-=(const Vec3& v) {
         x -= v.x;
         y -= v.y;
         z -= v.z;
@@ -58,7 +62,7 @@ public:
         return sqrt(x * x + y * y + z * z);
     }
 
-    [[nodiscard]] double dot(const Vec3 &v) const {
+    [[nodiscard]] double dot(const Vec3& v) const {
         return x * v.x + y * v.y + z * v.z;
     }
 

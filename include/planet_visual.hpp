@@ -13,8 +13,9 @@ public:
     Texture2D texture{};
     std::optional<str> texture_path;
     bool loaded = false;
+    bool failed = false; // Decode/upload failed; !loaded && !failed && texture_path = still loading
 
-    // Main thread only (needs the GL context): mesh + texture from an already decoded image
+    // Renderer thread only (needs the GL context): Mesh + Texture from an already decoded image
     // The caller keeps ownership of `image`; an empty image (failed decode) logs and leaves the body untextured
     void upload_planet_visual(const Image& image);
 

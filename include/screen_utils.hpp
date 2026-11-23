@@ -68,7 +68,8 @@ inline bool circle_intersects_viewport(const Vector2 center, const double radius
     return std::hypot(center.x - closest_x, center.y - closest_y) <= radius;
 }
 
-inline Vector3 to_world(const Vec3& m) { // meters
+inline Vector3 to_world(const Vec3& m) {
+    // meters
     return {
         static_cast<float>(m.x / config::WORLD_UNIT_METERS), // x
         static_cast<float>(m.z / config::WORLD_UNIT_METERS), // physics z -> raylib y (up)

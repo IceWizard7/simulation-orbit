@@ -1,0 +1,6 @@
+Checks: '-*,misc-include-cleaner,readability-duplicate-include'
+CheckOptions:
+  misc-include-cleaner.MissingIncludes: true
+  misc-include-cleaner.UnusedIncludes: true
+  # libc++ implementation details (<__chrono/...>) and nlohmann's forward header are never the right include
+  misc-include-cleaner.IgnoreHeaders: '__.*;nlohmann/json_fwd\.hpp'

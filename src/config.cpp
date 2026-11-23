@@ -1,14 +1,22 @@
 #include "config.hpp"
 
 #include <algorithm>
+#include <atomic>
+#include <cctype>
 #include <cmath>
 #include <cstddef>
+#include <exception>
+#include <filesystem>
 #include <format>
 #include <iostream>
 #include <limits>
-#include <regex>
+#include <optional>
 #include <stdexcept>
+#include <string>
 #include <vector>
+
+#include "celestial_bodies.hpp"
+#include "utils.hpp"
 
 namespace runtime_config {
     str invocation_command;
@@ -17,7 +25,7 @@ namespace runtime_config {
     int time_step = 900;
     double half_dt_squared = 0.5 * time_step * time_step;
     double half_dt = 0.5 * time_step;
-    str time_step_string; // Gets overwritten by set_time_step_string anyways
+    str time_step_string; // Gets overwritten by set_time_step_string anyway
 
     double target_total_simulation_time = -1;
 #ifdef __EMSCRIPTEN__
@@ -25,11 +33,11 @@ namespace runtime_config {
 #else
     std::atomic<double> target_simulation_speed = -1.0;
 #endif
-    std::optional<std::size_t> target_steps = std::nullopt;
+    std::optional<step_t> target_steps = std::nullopt;
 
     std::optional<std::filesystem::path> csv_path = std::nullopt;
     std::optional<int> sample_csv_data_every_seconds = std::nullopt;
-    std::optional<std::size_t> sample_csv_data_every_steps = std::nullopt;
+    std::optional<step_t> sample_csv_data_every_steps = std::nullopt;
     bool csv_live = false;
 
     bool use_j2 = false;
@@ -66,7 +74,7 @@ const char* runtime_config::interaction_set_name() {
     return "unknown";
 }
 
-void runtime_config::update_body_set(CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES> & celestial_bodies) {
+void runtime_config::update_body_set(CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies) {
     switch (body_set) {
         case BodySet::all:
             for (std::size_t i = 0; i < NUM_CATALOG_BODIES; i++) {
@@ -164,8 +172,8 @@ static str shell_quote(const str& argument) {
     }
 
     const bool needs_quoting = std::ranges::any_of(argument, [](const char c) {
-        const auto uc = static_cast<unsigned char>(c);
-        return !(std::isalnum(uc) || Vector_Utils::contains(c, {'_', '-', '.', '/', '=', ':', '+', ',', '@', '%'}));
+        constexpr str_view SAFE = "_-./=:+,@%"; // Characters a POSIX shell never interprets
+        return !(std::isalnum(static_cast<unsigned char>(c)) || SAFE.find(c) != str_view::npos);
     });
 
     if (!needs_quoting) {
@@ -196,25 +204,25 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
 
     if (argc >= 2 && (str(argv[1]) == "--help" || str(argv[1]) == "-h")) {
         print_logo();
-        std::cout <<   "    -v, --version                 Show version                                                                                             [boolean] [default: false]\n";
-        std::cout <<   "    -h, --help                    Show help                                                                                                [boolean] [default: false]\n";
-        std::cout <<   "        --headless                Run without raylib window                                                                                [boolean] [default: false]\n";
-        std::cout <<   "        --dt                      Configure time step                                                                                      [number]  [default: 900]\n";
-        std::cout <<   "        --years                   Configure total simulation time, -1 for unlimited                                                        [number]  [default: -1]\n";
-        std::cout <<   "        --speed                   Target simulation speed in years per second, -1 for unlimited                                            [number]  [default: -1, browser: 1]\n";
-        std::cout <<   "        --csv                     Set CSV path for export of positions                                                                     [string]  [default: none]\n";
-        std::cout <<   "        --sample-every-seconds    Set the physical sampling interval. Must be a multiple of --dt                                           [number]  [default: none]\n";
-        std::cout <<   "        --csv-live                Stream CSV rows during simulation instead of writing at the end                                          [boolean] [default: false]\n";
-        std::cout <<   "        --j2                      Enable planetary oblateness (J2) perturbation on satellites                                              [boolean] [default: false]\n";
-        std::cout <<   "        --body-set                Enable only a subset of the available celestial bodies, planet-systems uses barycentric approximation    [string]  [default: \"all\"]\n";
+        std::cout << "    -v, --version                 Show version                                                                                             [boolean] [default: false]\n";
+        std::cout << "    -h, --help                    Show help                                                                                                [boolean] [default: false]\n";
+        std::cout << "        --headless                Run without raylib window                                                                                [boolean] [default: false]\n";
+        std::cout << "        --dt                      Configure time step                                                                                      [number]  [default: 900]\n";
+        std::cout << "        --years                   Configure total simulation time, -1 for unlimited                                                        [number]  [default: -1]\n";
+        std::cout << "        --speed                   Target simulation speed in years per second, -1 for unlimited                                            [number]  [default: -1, browser: 1]\n";
+        std::cout << "        --csv                     Set CSV path for export of positions                                                                     [string]  [default: none]\n";
+        std::cout << "        --sample-every-seconds    Set the physical sampling interval. Must be a multiple of --dt                                           [number]  [default: none]\n";
+        std::cout << "        --csv-live                Stream CSV rows during simulation instead of writing at the end                                          [boolean] [default: false]\n";
+        std::cout << "        --j2                      Enable planetary oblateness (J2) perturbation on satellites                                              [boolean] [default: false]\n";
+        std::cout << "        --body-set                Enable only a subset of the available celestial bodies, planet-systems uses barycentric approximation    [string]  [default: \"all\"]\n";
         std::cout << R"(            choices:          ["all", "planets", "dwarf", "planet-systems"])" << '\n';
-        std::cout <<   "        --disable-body            Disable a certain body; must come after --body-set; can be stacked                                       [string]  [default: none]\n";
-        std::cout <<   "        --interaction-set         Enable only a subset of all interactions                                                                 [string]  [default: \"full\"]\n";
+        std::cout << "        --disable-body            Disable a certain body; must come after --body-set; can be stacked                                       [string]  [default: none]\n";
+        std::cout << "        --interaction-set         Enable only a subset of all interactions                                                                 [string]  [default: \"full\"]\n";
         std::cout << R"(            choices:          ["full" (all forces), "no-moon-moon" (no interactions between moons),)" << '\n';
         std::cout << R"(                              "same-system-moons" (moon-moon interactions only within the same system),)" << '\n';
         std::cout << R"(                              "local-moon-systems" (moons only interact with the sun and members of their own system),)" << '\n';
         std::cout << R"(                              "parent-sun-only" (moons interact only with the sun and their parent planet)])" << '\n';
-        std::cout <<   "        --simd                    Use platform-specific SIMD optimizations\n";
+        std::cout << "        --simd                    Use platform-specific SIMD optimizations\n";
         exit_immediately = true;
         return 0;
     }
@@ -240,7 +248,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
             if (err != 0) return err;
             time_step = val;
             i++;
-        } else if  (arg == "--years") {
+        } else if (arg == "--years") {
             auto [val, err] = parse_double("--years", i, argc, argv);
             if (err != 0) return err;
             target_total_simulation_time = val;
@@ -410,7 +418,7 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
 
     if (body_set == BodySet::planet_systems && use_j2) {
         std::cerr << "Error: --j2 cannot be combined with --body-set planet-systems; "
-                     "the barycentric approximation is a spherical point-mass monopole.\n";
+            "the barycentric approximation is a spherical point-mass monopole.\n";
         return 1;
     }
 
@@ -463,30 +471,29 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
         return 1;
     }
 
+    // TODO: Implement SIMD for --j2, --interaction-set != full, --body-set != full
+
     if (use_simd) {
         if (use_j2) {
             std::cerr << "Error: --simd cannot be combined with --j2; "
-             "the SIMD optimization is not implemented for j2 yet.\n";
-            // TODO: Implement SIMD for this.
+                "the SIMD optimization is not implemented for j2 yet.\n";
             return 1;
         }
 
         if (interaction_set != InteractionSet::full) {
             std::cerr << "Error: --simd cannot be combined with a non-full --interaction-set.\n";
-            // TODO: Implement SIMD for this.
             return 1;
         }
 
         if (enabled_celestial_bodies != NUM_CATALOG_BODIES) {
             std::cerr << "Error: --simd requires all celestial bodies to be enabled.\n";
-            // TODO: Implement SIMD for this.
             return 1;
         }
 
-        #if !defined(__aarch64__) && !defined(__ARM_NEON)
+#if !defined(__aarch64__) && !defined(__ARM_NEON)
         std::cerr << "Error: --simd is not supported yet for this platform.\n";
         return 1;
-        #endif
+#endif
     }
 
     return 0;

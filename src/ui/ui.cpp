@@ -2,6 +2,12 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
+#include <imgui.h>
+#include <memory>
+#include <mutex>
+#include <optional>
+#include <raylib.h>
 #include <rlImGui.h>
 
 #ifdef __EMSCRIPTEN__
@@ -11,6 +17,34 @@
 
 #include "screen_utils.hpp"
 
+namespace {
+#ifdef __EMSCRIPTEN__
+    // On-screen keyboard bridge (web/shell.html): Pull typed text/keys from the hidden <input> into ImGui
+    void forward_on_screen_keyboard() {
+        ImGuiIO& io = ImGui::GetIO();
+
+        int c;
+        while ((c = EM_ASM_INT({return Module.pendingChars.length ? Module.pendingChars.shift() : 0; })) != 0) {
+            io.AddInputCharacter(static_cast<unsigned int>(c));
+        }
+
+        int k;
+        while ((k = EM_ASM_INT({return Module.pendingKeys.length ? Module.pendingKeys.shift() : 0; })) != 0) {
+            const ImGuiKey key = k == 1 ? ImGuiKey_Backspace : k == 2 ? ImGuiKey_Enter : ImGuiKey_Escape;
+            io.AddKeyEvent(key, true); // ImGui's event queue trickles press/release over frames
+            io.AddKeyEvent(key, false);
+        }
+
+        // Publish for the touchend handler; hide the keyboard when the field closes
+        static bool was_wanted = false;
+        const bool wanted = io.WantTextInput;
+        EM_ASM({Module.wantTextInput = !!$0; }, wanted);
+        if (was_wanted && !wanted) EM_ASM({document.getElementById("ime").blur(); });
+        was_wanted = wanted;
+    }
+#endif
+}
+
 void ui_helpers::UpdateDrawFrame() {
     std::shared_ptr<const ui_data::RenderSnapshot> snap;
     {
@@ -18,52 +52,93 @@ void ui_helpers::UpdateDrawFrame() {
         snap = config::latest_snapshot;
     }
 
+#ifdef __EMSCRIPTEN__
+    // Web keyboard inputs on touch-only displays
+    forward_on_screen_keyboard();
+#endif
+
+    // Automatic camera fitting
+    if (ui_config::pending_camera_fit && snap && snap->center_index == *ui_config::pending_camera_fit) {
+        if (ui_config::view_3d) {
+            fit_camera_to_planetary_system_3d(snap, *ui_config::pending_camera_fit);
+        }
+        ui_config::pending_camera_fit.reset();
+    }
+
+    // Reset escape consumed
+    ui_config::escape_consumed = false;
+
+#ifdef __EMSCRIPTEN__
+    arm_state_file_picker(false);
+    receive_picked_state_file();
+#endif
+
+    // Handle dropped files
+    receive_dropped_file();
+
+    // Finished background decodes -> GPU (At most 1 per frame; needs the GL context, before BeginDrawing)
+    poll_texture_uploads();
+
+    // Sync indices of bodies
+    sync_body_identities(snap);
+
+    // Some keybinds (0-9, KEY_FOLLOW_NONE)
     if (!ImGui::GetIO().WantCaptureKeyboard) {
         std::optional<std::size_t> new_center_i;
 
-        if (IsKeyPressed(KEY_ZERO)) { new_center_i=0; }
-        if (IsKeyPressed(KEY_ONE)) { new_center_i=1; }
-        if (IsKeyPressed(KEY_TWO)) { new_center_i=2; }
-        if (IsKeyPressed(KEY_THREE)) { new_center_i=3; }
-        if (IsKeyPressed(KEY_FOUR)) { new_center_i=4; }
-        if (IsKeyPressed(KEY_FIVE)) { new_center_i=5; }
-        if (IsKeyPressed(KEY_SIX)) { new_center_i=6; }
-        if (IsKeyPressed(KEY_SEVEN)) { new_center_i=7; }
-        if (IsKeyPressed(KEY_EIGHT)) { new_center_i=8; }
-        if (IsKeyPressed(KEY_NINE)) { new_center_i=9; }
-        if (IsKeyPressed(config::KEY_FOLLOW_NONE)) { new_center_i=config::NO_BODY_SELECTED;}
+        if (IsKeyPressed(KEY_ZERO)) { new_center_i = 0; }
+        if (IsKeyPressed(KEY_ONE)) { new_center_i = 1; }
+        if (IsKeyPressed(KEY_TWO)) { new_center_i = 2; }
+        if (IsKeyPressed(KEY_THREE)) { new_center_i = 3; }
+        if (IsKeyPressed(KEY_FOUR)) { new_center_i = 4; }
+        if (IsKeyPressed(KEY_FIVE)) { new_center_i = 5; }
+        if (IsKeyPressed(KEY_SIX)) { new_center_i = 6; }
+        if (IsKeyPressed(KEY_SEVEN)) { new_center_i = 7; }
+        if (IsKeyPressed(KEY_EIGHT)) { new_center_i = 8; }
+        if (IsKeyPressed(KEY_NINE)) { new_center_i = 9; }
+        if (IsKeyPressed(config::KEY_FOLLOW_NONE)) { new_center_i = config::NO_BODY_SELECTED; }
 
         // Don't allow bodies that are invisible in rendering
         if (new_center_i && (*new_center_i == config::NO_BODY_SELECTED ||
-            (snap && *new_center_i < snap->bodies.size() && snap->bodies[*new_center_i] && snap->bodies[*new_center_i]->rendering_visible))) {
-            set_coordinate_origin(snap, *new_center_i);
+                             (snap && *new_center_i < snap->bodies.size() && snap->bodies[*new_center_i] && snap->bodies[*new_center_i]->rendering_visible))) {
+            set_coordinate_origin(*new_center_i);
         }
     }
 
+    handle_placement_input(snap);
+
+    const bool placing_body = ui_config::body_placement_state != ui_config::BodyPlacementState::idle;
+    auto [mx, my] = GetMousePosition(); // Later modified to be used with pinch
+    const bool in_viewport_2d =
+        config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN &&
+        config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN;
+
+    if (!ui_config::view_3d && !placing_body && !ImGui::GetIO().WantCaptureMouse && in_viewport_2d && IsMouseButtonPressed(MOUSE_BUTTON_RIGHT)) {
+        ui_config::scene_context_menu_requested = true;
+        ui_config::scene_context_menu_point_m = screen_to_meters(GetMousePosition(), ui_config::get_2d_offset(snap));
+        ui_config::scene_context_menu_body = pick_body_at_mouse_2d(snap);
+    }
+
     // Cancel an existing gesture (3d drag)
-    if (!ui_config::view_3d ||
-        !IsWindowFocused() ||
-        !IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
+    if (!ui_config::view_3d || !IsWindowFocused() || !IsMouseButtonDown(MOUSE_BUTTON_LEFT)) {
         ui_config::panning_3d = false;
     }
 
     // Start only on a fresh press outside ImGui (3d drag)
-    if (ui_config::view_3d && IsWindowFocused() &&
+    if (ui_config::view_3d && !placing_body && IsWindowFocused() &&
         !ImGui::GetIO().WantCaptureMouse &&
         IsMouseButtonPressed(MOUSE_BUTTON_LEFT) &&
         !pick_body_at_mouse_3d(snap, make_camera_3d())) {
-
         ui_config::panning_3d = true;
         ui_config::drag_last_mouse_px = GetMousePosition();
     }
 
-    if (!ImGui::GetIO().WantCaptureMouse && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
+    if (!placing_body && !ImGui::GetIO().WantCaptureMouse && IsMouseButtonPressed(MOUSE_BUTTON_LEFT)) {
         std::optional<std::size_t> selected_body_i;
 
         if (ui_config::view_3d) {
             selected_body_i = pick_body_at_mouse_3d(snap, make_camera_3d());
-        }
-        else {
+        } else {
             selected_body_i = pick_body_at_mouse_2d(snap);
         }
 
@@ -102,7 +177,7 @@ void ui_helpers::UpdateDrawFrame() {
         cancel_camera_drag();
 
         if (ui_config::view_3d && config::center_celestial_body_index.load() != config::NO_BODY_SELECTED) {
-            fit_camera_to_planetary_system_3d(snap, config::center_celestial_body_index.load());
+            ui_config::pending_camera_fit = config::center_celestial_body_index.load();
         }
     }
 
@@ -117,7 +192,7 @@ void ui_helpers::UpdateDrawFrame() {
 
 #ifdef __EMSCRIPTEN__
     // Raw browser delta (pixels, + = down), drained every frame
-    const double raw_wheel = EM_ASM_DOUBLE({ const d = Module.wheelDeltaY; Module.wheelDeltaY = 0; return d; });
+    const double raw_wheel = EM_ASM_DOUBLE({const d = Module.wheelDeltaY; Module.wheelDeltaY = 0; return d; });
     const float wheel = static_cast<float>(-raw_wheel / config::WEB_WHEEL_PIXELS_PER_ZOOM_STEP);
 #else
     const float wheel = GetMouseWheelMoveV().y;
@@ -130,14 +205,20 @@ void ui_helpers::UpdateDrawFrame() {
     if (pinch.active) cancel_camera_drag();
     const bool pinch_ok = pinch.active && !ImGui::GetIO().WantCaptureMouse;
 
-    const auto [mx, my] = pinch.active ? pinch.center : GetMousePosition();
+    if (pinch.active) {
+        mx = pinch.center.x;
+        my = pinch.center.y;
+    } else {
+        mx = GetMousePosition().x;
+        my = GetMousePosition().y;
+    }
 
     // Signed zoom amount this frame: + = in, - = out
     const bool keys_ok = !ImGui::GetIO().WantCaptureKeyboard;
     const double zoom_steps = std::clamp(static_cast<double>(scroll), -3.0, 3.0) // limit huge flicks
-        + (pinch_ok ? pinch.log_scale / std::log(config::ZOOM_FACTOR) : 0.0)  // fingers track the scene 1:1
-        + (keys_ok && zoom_key_down(true) ? 1.0 : 0.0)
-        - (keys_ok && zoom_key_down(false) ? 1.0 : 0.0);
+                              + (pinch_ok ? pinch.log_scale / std::log(config::ZOOM_FACTOR) : 0.0) // fingers track the scene 1:1
+                              + (keys_ok && zoom_key_down(true) ? 1.0 : 0.0)
+                              - (keys_ok && zoom_key_down(false) ? 1.0 : 0.0);
     const bool shift = std::ranges::any_of(config::KEYS_SHIFT, IsKeyDown);
 
     if (ui_config::panning_2d && (!IsWindowFocused() || !IsMouseButtonDown(MOUSE_BUTTON_LEFT) || ui_config::view_3d)) {
@@ -182,10 +263,8 @@ void ui_helpers::UpdateDrawFrame() {
             ui_config::cam_elevation = std::clamp(ui_config::cam_elevation, -lim, lim);
         }
 
-        const float zoom_factor = std::ranges::any_of(config::KEYS_SHIFT, IsKeyDown) ? config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR : config::ZOOM_3D_FACTOR;
-
         if (zoom_steps != 0.0) {
-            const double base = shift ? config::ZOOM_3D_FACTOR*config::ZOOM_3D_FACTOR : config::ZOOM_3D_FACTOR;
+            const double base = shift ? config::ZOOM_3D_FACTOR * config::ZOOM_3D_FACTOR : config::ZOOM_3D_FACTOR;
             // zoom_steps > 0 -> closer (divide), < 0 -> farther (multiply)
             ui_config::cam_distance *= static_cast<float>(std::pow(base, -zoom_steps));
         }
@@ -195,12 +274,11 @@ void ui_helpers::UpdateDrawFrame() {
             reset_view();
         }
     } else {
-        if (!pinch.active && !ui_config::panning_2d && !ImGui::GetIO().WantCaptureMouse && // Currently not panning, ImGui doesn't consume mouse
+        if (!placing_body && !pinch.active && !ui_config::panning_2d && !ImGui::GetIO().WantCaptureMouse && // Currently not panning, ImGui doesn't consume mouse
             IsWindowFocused() && IsMouseButtonPressed(MOUSE_BUTTON_LEFT) && // Window focused & button is pressed
             !pick_body_at_mouse_2d(snap) && // Drag doesn't start on a celestial body
             config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN && // Mouse is in viewport (x & y)
             config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN) {
-
             ui_config::panning_2d = true;
             ui_config::drag_last_mouse_px = GetMousePosition();
         }
@@ -222,34 +300,15 @@ void ui_helpers::UpdateDrawFrame() {
 
         if (zoom_steps != 0.0) {
             const bool zoom_in = zoom_steps > 0;
-            const bool zoom_out = !zoom_in;
             const bool anchor_at_mouse = config::WINDOW_MARGIN <= mx && mx <= static_cast<float>(GetScreenWidth()) - config::WINDOW_MARGIN
-                && config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN;
+                                         && config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN;
             const Vec2 before = screen_to_meters({mx, my}, ui_config::get_2d_offset(snap));
             const double base = shift ? config::ZOOM_FACTOR * config::ZOOM_FACTOR : config::ZOOM_FACTOR;
             const double zoom_factor = std::pow(base, std::abs(zoom_steps));
 
-            if (zoom_in) {
-                // scrolled up (=> in)
-                if (config::AXIS_SCALING / zoom_factor < 4.0 / 3) {
-                    config::AXIS_SCALING *= 10;
-                    config::AXIS_SCALING /= zoom_factor;
-                    config::SCALING /= zoom_factor;
-                } else {
-                    config::AXIS_SCALING /= zoom_factor;
-                    config::SCALING /= zoom_factor;
-                }
-            } else if (zoom_out) {
-                // scrolled down (=> out)
-                if (config::AXIS_SCALING * zoom_factor > 10 * 4.0 / 3) {
-                    config::AXIS_SCALING /= 10;
-                    config::AXIS_SCALING *= zoom_factor;
-                    config::SCALING *= zoom_factor;
-                } else {
-                    config::AXIS_SCALING *= zoom_factor;
-                    config::SCALING *= zoom_factor;
-                }
-            }
+            // Zoom changes the visible half-extent; clamped in both directions
+            const double target = zoom_in ? config::SCALING / zoom_factor : config::SCALING * zoom_factor;
+            config::SCALING = std::clamp(target, config::MIN_SCALING_M, config::MAX_SCALING_M);
 
             if (anchor_at_mouse) {
                 const Vec2 after = screen_to_meters({mx, my}, ui_config::get_2d_offset(snap));
@@ -271,12 +330,21 @@ void ui_helpers::UpdateDrawFrame() {
         draw_2d(snap);
     }
 
+    if (snap && populated_body_count(*snap) == 0) draw_empty_scene_overlay();
+
     if (ui_config::view_debug) draw_debug_overlay(snap);
 
     draw_checkpoint_window(snap, ui_config::view_3d);
     draw_diagnostics_window(snap, ui_config::view_3d);
     draw_graph_windows(snap, ui_config::view_3d);
+    draw_create_body_window(snap, ui_config::view_3d);
+    draw_scene_context_menu(snap, ui_config::view_3d);
 
     rlImGuiEnd();
+
+    // Reads this frame's back buffer, so: After the UI is drawn, before the buffer swap
+    // -> Can use the drawn pixels to take screenshots correctly
+    capture_pending_graph();
+
     EndDrawing();
 }

@@ -2,25 +2,47 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <future>
+#include <optional>
 #include <raylib.h>
 #include <string>
 #include <system_error>
 #include <vector>
 
+#include "planet_visual.hpp"
 #include "simulation.hpp"
 #include "ui.hpp"
 
-// Startup resource loading: textures are decoded (CPU, no GL) on worker threads and uploaded on the
-// main thread, which owns the GL context, while a progress screen keeps the window responsive
+// Startup resource loading: Textures are decoded (CPU, no GL) on decode threads and uploaded on the
+// renderer thread, which owns the GL context, while a progress screen keeps the window responsive
 
 namespace {
+    struct PendingTexture {
+        std::size_t id;
+        std::future<Image> decoded;
+    };
+
+    std::vector<PendingTexture> pending_textures; // Renderer thread only
+
+    constexpr int MAX_TEXTURE_WIDTH = 4096; // GPU limit safety and VRAM
+
+    // Decode thread: CPU only (decode + downscale), no GL
+    Image decode_texture(const str& path) {
+        Image image = LoadImage(path.c_str());
+
+        if (image.data && image.width > MAX_TEXTURE_WIDTH) {
+            ImageResize(&image, MAX_TEXTURE_WIDTH, image.height * MAX_TEXTURE_WIDTH / image.width);
+        }
+        return image;
+    }
+
     struct LoadJob {
-        std::string path;
-        std::function<void(const Image&)> upload; // main thread only (needs the GL context)
-        std::uintmax_t bytes = 0;                  // progress weight: decode time ~ file size
+        str path;
+        std::function<void(const Image&)> upload; // Renderer thread only (needs the GL context)
+        std::uintmax_t bytes = 0; // progress weight: decode time ~ file size
         std::future<Image> decoded;
         bool done = false;
     };
@@ -28,17 +50,21 @@ namespace {
     std::vector<LoadJob> make_load_jobs() {
         std::vector<LoadJob> jobs;
 
-        jobs.push_back({ui_config::STAR_BACKGROUND_PATH, [](const Image& image) {
-            ui_helpers::upload_star_background(image);
-        }});
+        jobs.push_back({
+            ui_config::STAR_BACKGROUND_PATH, [](const Image& image) {
+                ui_helpers::upload_star_background(image);
+            }
+        });
 
-        for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-            PlanetVisual& visual = simulation::celestial_bodies.planet_visuals[i];
-            if (!simulation::celestial_bodies.enabled[i] || !visual.texture_path) continue;
+        for (auto& body_texture : ui_config::body_textures) {
+            PlanetVisual& visual = body_texture;
+            if (!visual.texture_path) continue;
 
-            jobs.push_back({*visual.texture_path, [&visual](const Image& image) {
-                visual.upload_planet_visual(image);
-            }});
+            jobs.push_back({
+                *visual.texture_path, [&body_texture](const Image& image) {
+                    body_texture.upload_planet_visual(image);
+                }
+            });
         }
 
         for (LoadJob& job : jobs) {
@@ -51,12 +77,12 @@ namespace {
     }
 
 #ifndef __EMSCRIPTEN__
-    void draw_centered_text(const Font& font, const std::string& text, const float y, const float size, const Color color) {
+    void draw_centered_text(const Font& font, const str& text, const float y, const float size, const Color color) {
         const Vector2 extent = MeasureTextEx(font, text.c_str(), size, 1.0f);
         DrawTextEx(font, text.c_str(), {(static_cast<float>(GetScreenWidth()) - extent.x) * 0.5f, y}, size, 1.0f, color);
     }
 
-    void draw_loading_frame(const Font& font, const float progress, const std::string& last_loaded) {
+    void draw_loading_frame(const Font& font, const float progress, const str& last_loaded) {
         // Recomputed every frame: MaximizeWindow() and user resizes change the size during loading
         const auto width = static_cast<float>(GetScreenWidth());
         const auto height = static_cast<float>(GetScreenHeight());
@@ -119,16 +145,17 @@ bool ui_helpers::load_resources_with_progress() {
     }
 
     // Each 8k texture decodes to ~100 MB of RGB; cap parallel decodes to bound peak memory
-    constexpr std::size_t MAX_IN_FLIGHT = 3;
     std::size_t next_to_start = 0;
     std::size_t in_flight = 0;
     std::size_t finished = 0;
     std::uintmax_t finished_bytes = 0;
-    std::string last_loaded = "Preparing";
+    str last_loaded = "Preparing";
 
     bool completed = true;
 
     while (finished < jobs.size()) {
+        constexpr std::size_t MAX_IN_FLIGHT = 3;
+
         if (WindowShouldClose()) {
             completed = false;
             break;
@@ -136,12 +163,12 @@ bool ui_helpers::load_resources_with_progress() {
 
         while (in_flight < MAX_IN_FLIGHT && next_to_start < jobs.size()) {
             LoadJob& job = jobs[next_to_start++];
-            // launch::async: a deferred task would only run at get(), on the main thread
+            // launch::async: a deferred task would only run at get(), on the renderer thread
             job.decoded = std::async(std::launch::async, [path = job.path] { return LoadImage(path.c_str()); });
             in_flight++;
         }
 
-        // Upload at most one finished image per frame: an 8k upload + mipmaps takes a noticeable moment
+        // Upload at most one finished image per frame: An 8k upload + mipmaps takes a noticeable moment
         for (LoadJob& job : jobs) {
             if (job.done || !job.decoded.valid()) continue;
             if (job.decoded.wait_for(std::chrono::seconds(0)) != std::future_status::ready) continue;
@@ -176,4 +203,65 @@ bool ui_helpers::load_resources_with_progress() {
     if (own_font) UnloadFont(font);
     return completed;
 #endif
+}
+
+void ui_helpers::register_catalog_textures() {
+    for (std::size_t i = 0; i < NUM_CATALOG_BODIES; i++) {
+        const auto& path = simulation::celestial_bodies.catalog_texture_paths[i];
+        if (!simulation::celestial_bodies.enabled[i] || !path) continue;
+
+        simulation::celestial_bodies.texture_ids[i] = ui_config::body_textures.size();
+        ui_config::body_textures.push_back(PlanetVisual{.texture_path = *path});
+    }
+}
+
+std::optional<std::size_t> ui_helpers::register_custom_texture_file(const str& path) {
+    for (std::size_t id = 0; id < ui_config::body_textures.size(); id++) {
+        const auto& visual = ui_config::body_textures[id];
+        // Loaded or still loading: reuse; a failed entry is retried as a new one
+        if (visual.texture_path == path && !visual.failed) return id;
+    }
+
+    // Cheap synchronous check, so a missing file still fails immediately (drop error, import warning)
+    if (!FileExists(path.c_str())) return std::nullopt;
+
+    const std::size_t id = ui_config::body_textures.size();
+    ui_config::body_textures.push_back(PlanetVisual{.texture_path = path}); // Placeholder: Drawn untextured until uploaded
+
+#ifdef __EMSCRIPTEN__
+    // Web: Synchronous, like the startup loader (thread pool is sized for the simulation thread)
+    Image image = decode_texture(path);
+    ui_config::body_textures[id].upload_planet_visual(image);
+    UnloadImage(image);
+    ui_config::body_textures[id].failed = !ui_config::body_textures[id].loaded;
+#else
+    // launch::async: Deferred would decode on the renderer thread at get()
+    pending_textures.push_back({id, std::async(std::launch::async, decode_texture, path)});
+#endif
+
+    return id;
+}
+
+void ui_helpers::poll_texture_uploads() {
+    // At most 1 upload per frame: An upload + mipmaps of a large image takes a noticeable moment
+    for (auto it = pending_textures.begin(); it != pending_textures.end(); ++it) {
+        if (it->decoded.wait_for(std::chrono::seconds(0)) != std::future_status::ready) continue;
+
+        const Image image = it->decoded.get();
+        PlanetVisual& visual = ui_config::body_textures[it->id];
+        visual.upload_planet_visual(image); // Empty image: logs and stays unloaded
+        visual.failed = !visual.loaded;
+        UnloadImage(image);
+
+        pending_textures.erase(it);
+        return;
+    }
+}
+
+void ui_helpers::discard_pending_textures() {
+    // get() waits for running decodes; their images were never uploaded
+    for (auto& pending : pending_textures) {
+        UnloadImage(pending.decoded.get());
+    }
+    pending_textures.clear();
 }

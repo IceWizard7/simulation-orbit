@@ -3,7 +3,6 @@
 #include <optional>
 #include <raylib.h>
 
-#include "planet_visual.hpp"
 #include "utils.hpp"
 #include "vectors.hpp"
 
@@ -19,10 +18,10 @@ struct CelestialBodyInit {
     const std::optional<str>& texture_path = std::nullopt;
     double j2 = 0.0;
     double equatorial_radius = 0.0;
-    const Vec3& pole_axis = {};
+    Vec3 pole_axis = {};
 };
 
-template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+template <std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 struct CelestialBodies {
     // Position
     alignas(16) double pos_x[NUM_CELESTIAL_BODIES]{};
@@ -46,7 +45,11 @@ struct CelestialBodies {
     float draw_radii_3d[NUM_CELESTIAL_BODIES]{};
     Color colors[NUM_CELESTIAL_BODIES]{};
 
-    PlanetVisual planet_visuals[NUM_CELESTIAL_BODIES]{};
+    std::optional<std::size_t> texture_ids[NUM_CELESTIAL_BODIES]{};
+    std::optional<str> catalog_texture_paths[NUM_CATALOG_BODIES]{};
+
+    std::uint64_t body_ids[NUM_CELESTIAL_BODIES]{};
+    std::uint64_t next_body_id = NUM_CATALOG_BODIES; // Never restored, so IDs stay unique across restores
 
     // Oblateness (zonal J2) parameters. 0 -> spherical point masses (ex. sun, moons, Pluto)
     // set for oblate planets so their satellites feel the equatorial-bulge perturbation.
@@ -57,9 +60,11 @@ struct CelestialBodies {
     explicit CelestialBodies(std::array<CelestialBodyInit, NUM_CATALOG_BODIES> bodies);
 
     [[nodiscard]] Vec3 position(std::size_t i) const;
+
     [[nodiscard]] Vec3 velocity(std::size_t i) const;
 
     void set_position(std::size_t i, const Vec3& position);
+
     void set_velocity(std::size_t i, const Vec3& velocity);
 
     [[nodiscard]] double distance_to(std::size_t i, std::size_t to) const;

@@ -3,22 +3,21 @@
 #include <cmath>
 #include <cstddef>
 #include <format>
-
-using str = std::string;
+#include <string>
 
 str to_power_of10(const double x) {
     if (x == 0) return "0";
 
     const int exponent = static_cast<int>(std::floor(std::log10(std::fabs(x))));
     const double mantissa = x / std::pow(10.0, exponent);
-    const str mantissaStr =
+    const str mantissa_str =
         std::fabs(mantissa - std::round(mantissa)) < 1e-9
             ? std::to_string(static_cast<long long>(std::round(mantissa)))
             : std::to_string(mantissa);
 
     if (std::fabs(mantissa - 1.0) < 1e-7) return "10^" + std::to_string(exponent);
 
-    return mantissaStr + " x 10^" + std::to_string(exponent);
+    return mantissa_str + " x 10^" + std::to_string(exponent);
 }
 
 str round_to_hundreds(const double x) {

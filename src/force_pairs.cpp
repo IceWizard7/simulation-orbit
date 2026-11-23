@@ -1,12 +1,15 @@
 #include "force_pairs.hpp"
 
+#include <array>
 #include <cstddef>
 #include <optional>
 
+#include "celestial_bodies.hpp"
 #include "config.hpp"
 #include "simulation.hpp"
 
-void force_pairs::initialize_all_pairs(const CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies) {
+void force_pairs::initialize_all_pairs(
+    const CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies) {
     // Call after celestial bodies have been enabled / disabled accordingly
 
     all_pairs.clear();
@@ -26,7 +29,7 @@ bool force_pairs::is_sun(const std::size_t body_index) {
     return body_index == 0;
 }
 
-bool force_pairs::is_moon(const std::size_t body_index, const std::array<PlanetarySystem, 7> &planetary_systems) {
+bool force_pairs::is_moon(const std::size_t body_index, const std::array<PlanetarySystem, 7>& planetary_systems) {
     for (const auto& [parent_index, moon_indices] : planetary_systems) {
         for (const auto& moon_index : moon_indices) {
             if (moon_index == body_index) return true;
@@ -35,12 +38,13 @@ bool force_pairs::is_moon(const std::size_t body_index, const std::array<Planeta
     return false;
 }
 
-bool force_pairs::is_primary(const std::size_t body_index, const std::array<PlanetarySystem, 7> &planetary_systems) {
+bool force_pairs::is_primary(const std::size_t body_index, const std::array<PlanetarySystem, 7>& planetary_systems) {
     // Sun, planet or dwarf planet
     return !is_moon(body_index, planetary_systems);
 }
 
-bool force_pairs::have_same_parent(const std::size_t body_index1, const std::size_t body_index2, const std::array<PlanetarySystem, 7> &planetary_systems) {
+bool force_pairs::have_same_parent(const std::size_t body_index1, const std::size_t body_index2,
+                                   const std::array<PlanetarySystem, 7>& planetary_systems) {
     if (is_primary(body_index1, planetary_systems)) return false;
     if (is_primary(body_index2, planetary_systems)) return false;
 
@@ -59,7 +63,8 @@ bool force_pairs::have_same_parent(const std::size_t body_index1, const std::siz
     return parent_index1.has_value() && parent_index2.has_value() && *parent_index1 == *parent_index2;
 }
 
-bool force_pairs::is_parent_moon_pair(const std::size_t body_index1, const std::size_t body_index2, const std::array<PlanetarySystem, 7> &planetary_systems) {
+bool force_pairs::is_parent_moon_pair(const std::size_t body_index1, const std::size_t body_index2,
+                                      const std::array<PlanetarySystem, 7>& planetary_systems) {
     // Either of the indices could be the parent of the other
 
     for (const auto& [parent_index, moon_indices] : planetary_systems) {
@@ -72,7 +77,8 @@ bool force_pairs::is_parent_moon_pair(const std::size_t body_index1, const std::
     return false;
 }
 
-bool force_pairs::belong_to_same_planetary_system(const std::size_t body_index1, const std::size_t body_index2, const std::array<PlanetarySystem, 7> &planetary_systems) {
+bool force_pairs::belong_to_same_planetary_system(const std::size_t body_index1, const std::size_t body_index2,
+                                                  const std::array<PlanetarySystem, 7>& planetary_systems) {
     // Checks if both are part of the same planetary system
 
     std::optional<std::size_t> planetary_index1;
@@ -122,8 +128,10 @@ void force_pairs::set_interaction_set(const std::array<PlanetarySystem, 7>& plan
         case runtime_config::InteractionSet::local_moon_systems:
             for (const auto& force_pair : all_pairs) {
                 if (is_sun(force_pair.first_index) || is_sun(force_pair.second_index) ||
-                    (is_primary(force_pair.first_index, planetary_systems) && is_primary(force_pair.second_index, planetary_systems)) ||
-                    belong_to_same_planetary_system(force_pair.first_index, force_pair.second_index, planetary_systems)) {
+                    (is_primary(force_pair.first_index, planetary_systems) && is_primary(
+                         force_pair.second_index, planetary_systems)) ||
+                    belong_to_same_planetary_system(force_pair.first_index, force_pair.second_index,
+                                                    planetary_systems)) {
                     active_pairs.emplace_back(force_pair);
                 }
             }
@@ -131,7 +139,8 @@ void force_pairs::set_interaction_set(const std::array<PlanetarySystem, 7>& plan
         case runtime_config::InteractionSet::parent_sun_only:
             for (const auto& force_pair : all_pairs) {
                 if (is_sun(force_pair.first_index) || is_sun(force_pair.second_index) ||
-                    (is_primary(force_pair.first_index, planetary_systems) && is_primary(force_pair.second_index, planetary_systems)) ||
+                    (is_primary(force_pair.first_index, planetary_systems) && is_primary(
+                         force_pair.second_index, planetary_systems)) ||
                     is_parent_moon_pair(force_pair.first_index, force_pair.second_index, planetary_systems)) {
                     active_pairs.emplace_back(force_pair);
                 }

@@ -1,8 +1,17 @@
 #include <algorithm>
+#include <array>
 #include <cmath>
+#include <cstddef>
 #include <format>
+#include <imgui.h>
+#include <memory>
+#include <raylib.h>
+#include <vector>
 
+#include <optional>
+#include "orbital_elements.hpp"
 #include "screen_utils.hpp"
+#include "time_units.hpp"
 #include "ui.hpp"
 
 // 2d only
@@ -48,14 +57,15 @@ namespace {
         const double min_y = offset.y - half_height_m;
         const double max_y = offset.y + half_height_m;
 
+        if (!std::isfinite(min_x) || !std::isfinite(max_x) || !std::isfinite(min_y) || !std::isfinite(max_y)) return;
+
+        // -> largest_coordinate is finite and > 0 (thanks to the zoom clamp)
         const double largest_coordinate = std::max({
             std::abs(min_x), std::abs(max_x),
             std::abs(min_y), std::abs(max_y)
         });
 
-        const int axis_exponent = largest_coordinate > 0.0 ? // TODO Try removing check
-            static_cast<int>(std::floor(std::log10(largest_coordinate)))
-            : 0;
+        const int axis_exponent = static_cast<int>(std::floor(std::log10(largest_coordinate)));
 
         const double axis_unit_m = std::pow(10.0, axis_exponent);
         const str scaling_string = to_power_of10(axis_unit_m);
@@ -98,7 +108,7 @@ namespace {
                     20,
                     BLACK
                 );
-                }
+            }
         }
 
         for (auto k = first_k_y; k <= last_k_y; k++) {
@@ -128,7 +138,7 @@ namespace {
                     20,
                     BLACK
                 );
-                }
+            }
         }
 
         draw_imgui_centered_text(
@@ -141,7 +151,10 @@ namespace {
 
         draw_imgui_centered_text(
             std::format("X Position ({} m)", scaling_string),
-            {static_cast<double>(GetScreenWidth()) / 2, GetScreenHeight() - static_cast<double>(config::WINDOW_MARGIN) / 2 + 20},
+            {
+                static_cast<double>(GetScreenWidth()) / 2,
+                GetScreenHeight() - static_cast<double>(config::WINDOW_MARGIN) / 2 + 20
+            },
             0,
             24,
             BLACK
@@ -169,7 +182,6 @@ namespace {
 
         // Draw moons first, then planets
         for (const bool draw_moons : {true, false}) {
-
             // snap->bodies positions are already relative to the center body (see publish_snapshot)
             for (std::size_t i = 0; i < snap->bodies.size(); i++) {
                 if (is_moon(*snap, i) != draw_moons) continue;
@@ -235,7 +247,6 @@ namespace {
         end = original_start + delta_vec * t_exit;
 
         return true;
-
     }
 
     void draw_orbits_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
@@ -326,6 +337,61 @@ namespace {
             }
         }
     }
+
+    void draw_create_ghost_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
+        const auto ghost = make_create_ghost(*snap);
+        if (!ghost) return;
+
+        const Color color = *ghost->color;
+        const Vector2 pos = to_raylib(ghost->relative_position, ui_config::get_2d_offset(snap));
+        const auto ghost_radius = static_cast<float>(body_radius_pixels_2d(*ghost));
+
+        // Two-body trajectory around the reference (instantaneous conic, reference position = now)
+        if (const auto conic = create_ghost_conic_section_path(*snap)) {
+            const Vec3 host = snap->bodies[*ui_config::create_body_draft.reference_index]->relative_position;
+            const Vec2 offset = ui_config::get_2d_offset(snap);
+            const Color line = Fade(color, 0.6f);
+
+            for (std::size_t i = 1; i < conic->samples.size(); i++) {
+                Vec3 start = host + conic->samples[i - 1].position;
+                Vec3 end = host + conic->samples[i].position;
+                if (!clip_segment_2d(start, end, snap)) continue;
+                DrawLineEx(to_raylib(start, offset), to_raylib(end, offset), 1.5f, line);
+            }
+
+            const double interval = conic->bound ? conic->orbital_period / 8.0 : conic->samples.back().time / 6.0;
+            for (const auto& tick : conic_section_ticks(*conic, interval)) {
+                const Vector2 p = to_raylib(host + tick.position, offset);
+                if (!circle_intersects_viewport(p, ghost_radius)) continue;
+                DrawCircleV(p, ghost_radius, ColorAlpha(color, 0.3f));
+                draw_imgui_outlined_text(
+                    "+" + time_units::format_duration(tick.time, 2),
+                    {p.x + 5, p.y - 8},
+                    18,
+                    color,
+                    {0, 0, 0, 125}
+                );
+            }
+        }
+
+        // Translucent fill + solid outline ("not real yet")
+        DrawCircleV(pos, ghost_radius, ColorAlpha(color, 0.3f));
+        DrawRing(pos, ghost_radius, ghost_radius + 1.5f, 0.0f, 360.0f, 48, color);
+
+        // Velocity direction + physical length
+        const Vec3& v = ui_config::create_body_draft.velocity;
+        if (const double speed = std::hypot(v.x, v.y); speed > 0.0 && std::isfinite(speed)) {
+            const Vec3 tip_m = ghost->relative_position + ui_config::create_body_draft.velocity * placement_tau(*snap);
+            const Vector2 tip = to_raylib(tip_m, ui_config::get_2d_offset(snap));
+            if (const float dx = tip.x - pos.x, dy = tip.y - pos.y; dx * dx + dy * dy > 4.0f) {
+                DrawLineEx(pos, tip, 2.0f, color);
+                DrawCircleV(tip, 3.0f, color); // Simple arrowhead; a triangle via DrawTriangle is optional polish
+            }
+        }
+
+        draw_imgui_outlined_text(ghost->name + " (preview)", {pos.x - 10, pos.y - 10 - ghost_radius}, 18, color,
+                                 {0, 0, 0, 125});
+    }
 }
 
 // Shared 2d
@@ -347,7 +413,8 @@ std::optional<std::size_t> ui_helpers::pick_body_at_mouse_2d(const std::shared_p
         const float dy = my - sy;
         const float dist_sq = dx * dx + dy * dy;
 
-        const double hit_radius = std::max(body_radius_pixels_2d(*body), static_cast<double>(ui_config::MIN_CLICK_RADIUS_PX_2D));
+        const double hit_radius = std::max(body_radius_pixels_2d(*body),
+                                           static_cast<double>(ui_config::MIN_CLICK_RADIUS_PX_2D));
 
         // If cursor is considered too far away from that celestial body, don't consider it
         if (dist_sq > hit_radius * hit_radius) continue;
@@ -378,10 +445,23 @@ std::optional<std::size_t> ui_helpers::pick_body_at_mouse_2d(const std::shared_p
     return best;
 }
 
+bool ui_helpers::mouse_on_create_ghost_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
+    const auto ghost = make_create_ghost(*snap);
+    if (!ghost) return false;
+
+    const auto [x, y] = to_raylib(ghost->relative_position, ui_config::get_2d_offset(snap));
+
+    // same minimum hit radius as bodies
+    const float r = std::max(static_cast<float>(body_radius_pixels_2d(*ghost)), 8.0f);
+    const auto [mx, my] = GetMousePosition();
+    return (mx - x) * (mx - x) + (my - y) * (my - y) <= r * r;
+}
+
 void ui_helpers::draw_2d(const std::shared_ptr<const RenderSnapshot>& snap) {
     if (snap) {
         draw_orbits_2d(snap);
         draw_planets_2d(snap);
+        draw_create_ghost_2d(snap);
 
         double screen_width = GetScreenWidth();
         double screen_height = GetScreenHeight();

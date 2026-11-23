@@ -12,6 +12,7 @@
 
 #include "config.hpp"
 #include "force_pairs.hpp"
+#include "planet_visual.hpp"
 #include "simulation.hpp"
 #include "ui.hpp"
 
@@ -51,6 +52,8 @@ int main(const int argc, char* argv[]) {
         return csv_output_succeeded ? 0 : 1;
     }
 
+    ui_helpers::register_catalog_textures();
+
     // Save initial checkpoint (0)
     simulation::save_checkpoint();
 
@@ -76,7 +79,7 @@ int main(const int argc, char* argv[]) {
 
 #ifdef __EMSCRIPTEN__
     // Touch devices (coarse pointer): enlarge ImGui hit areas without changing the layout
-    if (EM_ASM_INT({ return matchMedia("(pointer: coarse)").matches ? 1 : 0; }) != 0) {
+    if (EM_ASM_INT({return matchMedia("(pointer: coarse)").matches ? 1 : 0; }) != 0) {
         ImGui::GetStyle().TouchExtraPadding = {6.0f, 6.0f};
     }
 #endif
@@ -102,8 +105,6 @@ int main(const int argc, char* argv[]) {
         11.0f
     );
 
-    // io.IniFilename = nullptr;
-
     // Loading done
 
     // Window closed during loading: Skip the run, but still unload what was loaded and report the (step 0) final state
@@ -113,14 +114,14 @@ int main(const int argc, char* argv[]) {
         simulation::publish_snapshot();
         std::jthread cpu_thread(simulation::simulate_cpu);
 
-        #ifdef __EMSCRIPTEN__
+#ifdef __EMSCRIPTEN__
         emscripten_set_main_loop(ui_helpers::UpdateDrawFrame, 0, 1);
-        #else
+#else
 
         while (!WindowShouldClose()) {
             ui_helpers::UpdateDrawFrame();
         }
-        #endif
+#endif
 
         cpu_thread.request_stop();
         config::timer.pause();
@@ -129,9 +130,8 @@ int main(const int argc, char* argv[]) {
 
     // Unloading begin
 
-    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        if (simulation::celestial_bodies.enabled[i]) simulation::celestial_bodies.planet_visuals[i].unload_planet_visual();
-    }
+    ui_helpers::discard_pending_textures(); // Waits for running decodes and frees their never-uploaded images
+    for (PlanetVisual& visual : ui_config::body_textures) visual.unload_planet_visual();
 
     ui_helpers::unload_star_background();
 

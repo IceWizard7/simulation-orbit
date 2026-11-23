@@ -53,14 +53,25 @@
             z-index: 1;
             opacity: 0.5;
         }
-        #fullscreen:hover { opacity: 1; }
+
+        #fullscreen:hover {
+            opacity: 1;
+        }
+
         :fullscreen #fullscreen,
-        :-webkit-full-screen #fullscreen { display: none; }   /* Hide while fullscreen; Esc exits */
+        :-webkit-full-screen #fullscreen {
+            display: none;
+        }
+
+        /* Hide while fullscreen; Esc exits */
 
         #status {
-            position: fixed; inset: 0;
-            display: grid; place-items: center;
-            color: #9aa4b2; font: 14px system-ui, sans-serif;
+            position: fixed;
+            inset: 0;
+            display: grid;
+            place-items: center;
+            color: #9aa4b2;
+            font: 14px system-ui, sans-serif;
             pointer-events: none;
             padding: 16px;
             box-sizing: border-box;
@@ -69,115 +80,193 @@
     </style>
 </head>
 <body>
-    <canvas id="canvas"
-            width="900"
-            height="900"
-            tabindex="-1"
-            oncontextmenu="event.preventDefault()">
-    </canvas>
+<canvas id="canvas"
+        width="900"
+        height="900"
+        tabindex="-1"
+        oncontextmenu="event.preventDefault()">
+</canvas>
 
-    <div id="status" data-bytes="__DATA_BYTES__">Loading…</div>
 
-    <button id="fullscreen" title="Fullscreen">⛶</button>
+<input id="ime" type="text" tabindex="-1" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="off"
+       spellcheck="false"
+       style="position:fixed; top:0; left:0; width:1px; height:1px; opacity:0; border:0; padding:0; font-size:16px;">
 
-    <script>
-        let startupFailed = false; // Emscripten clears the status right after main() has started
+<input id="state-file" type="file" accept=".json,application/json" style="display:none">
 
-        var Module = {
-            canvas: document.getElementById("canvas"),
+<div id="status" data-bytes="__DATA_BYTES__">Loading…</div>
 
-            // simulation-orbit.html?--dt&900&--body-set&all -> argv = ["--dt", "900", "--body-set", "all"]
-            arguments: location.search.slice(1).split("&").filter(Boolean).map(decodeURIComponent),
-            print: (...args) => console.log(...args),
-            printErr: (...args) => {
-                const message = args.join(" ");
-                console.error(message);
+<button id="fullscreen" title="Fullscreen">⛶</button>
 
-                if (message.startsWith("Error:")) {
-                    startupFailed = true;
-                    document.getElementById("status").textContent = message;
-                }
-            },
+<script>
+    let startupFailed = false; // Emscripten clears the status right after main() has started
 
-            onAbort: (reason) => {
-                console.error("Simulation aborted:", reason);
-            },
+    var Module = {
+        canvas: document.getElementById("canvas"),
 
-            // Emscripten calls this with e.g. "Downloading data... (1234/9000)" and "" when done
-            setStatus: (text) => {
-                if (startupFailed) return;
+        // simulation-orbit.html?--dt&900&--body-set&all -> argv = ["--dt", "900", "--body-set", "all"]
+        arguments: location.search.slice(1).split("&").filter(Boolean).map(decodeURIComponent),
+        print: (...args) => console.log(...args),
+        printErr: (...args) => {
+            const message = args.join(" ");
+            console.error(message);
 
-                const el = document.getElementById("status");
-                const download = text.match(/^Downloading data\.\.\. \((\d+)\/(\d+)\)/);
-
-                if (download) {
-                    // Real size from CI; local builds have no number here and use Emscripten's total
-                    const total = Number(el.dataset.bytes) || Number(download[2]);
-                    const percent = Math.min(100, Math.floor(100 * download[1] / total));
-                    el.textContent = `Loading… ${percent}%`;
-                } else {
-                    el.textContent = text;
-                }
-
-                el.hidden = !text;
-            },
-        };
-
-        Module.wheelDeltaY = 0;
-        Module.canvas.addEventListener("wheel", (e) => {
-            Module.wheelDeltaY += (e.deltaMode === 0) ? e.deltaY : e.deltaY * 33; // lines -> approx. pixels
-        }, { passive: true });
-
-        // Layout-independent zoom keys: Emscripten's GLFW maps by keyCode, and Firefox drops "+" on QWERTZ
-        Module.heldKeys = [false, false]; // [zoom in, zoom out]
-        const keyActions = { "+": 0, "-": 1 }; // numpad +/- also report e.key "+"/"-"
-        const heldByCode = new Map(); // e.code -> action (keyup may report another e.key, e.g. "*")
-        window.addEventListener("keydown", (e) => {
-            const a = keyActions[e.key];
-            if (a !== undefined) { heldByCode.set(e.code, a); Module.heldKeys[a] = true; }
-        });
-        window.addEventListener("keyup", (e) => {
-            const a = heldByCode.get(e.code);
-            if (a !== undefined) { heldByCode.delete(e.code); Module.heldKeys[a] = false; }
-        });
-        window.addEventListener("blur", () => { heldByCode.clear(); Module.heldKeys.fill(false); });
-
-        // Fullscreen: standard API, WebKit prefix (iPad Safari); unsupported on iPhone -> hide the button
-        const fullscreenButton = document.getElementById("fullscreen");
-        const root = document.documentElement;
-        const requestFullscreen = root.requestFullscreen ?? root.webkitRequestFullscreen;
-
-        if (requestFullscreen) {
-            fullscreenButton.addEventListener("click", () => requestFullscreen.call(root)?.catch?.(() => {}));
-        } else {
-            fullscreenButton.hidden = true;
-        }
-
-        // Emscripten's GLFW forces the canvas to screen.width * screen.height when entering fullscreen, which exceeds the visible area on displays with a notch
-        // A follow-up resize applies the real viewport
-        for (const type of ["fullscreenchange", "webkitfullscreenchange"]) {
-            document.addEventListener(type, () => {
-                requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
-            });
-        }
-
-        // iOS: rotation keeps the old zoom with a fixed-width viewport, and innerWidth/innerHeight update late
-        // Re-apply the viewport, then resize again after the layout has settled
-        const refitAfterRotation = () => {
-            if (smallScreen) {
-                viewportMeta.content = "width=800, initial-scale=1, user-scalable=no"; // Different string forces re-evaluation
-                applyViewport();
+            if (message.startsWith("Error:")) {
+                startupFailed = true;
+                document.getElementById("status").textContent = message;
             }
-            for (const delay of [0, 150, 500]) {
-                setTimeout(() => window.dispatchEvent(new Event("resize")), delay);
-            }
-        };
-        screen.orientation?.addEventListener("change", refitAfterRotation);
-        window.addEventListener("orientationchange", refitAfterRotation); // older iOS
-    </script>
+        },
 
-    <!-- Emscripten placeholder -->
-    {{{ SCRIPT }}}
+        onAbort: (reason) => {
+            console.error("Simulation aborted:", reason);
+        },
+
+        // Emscripten calls this with e.g. "Downloading data... (1234/9000)" and "" when done
+        setStatus: (text) => {
+            if (startupFailed) return;
+
+            const el = document.getElementById("status");
+            const download = text.match(/^Downloading data\.\.\. \((\d+)\/(\d+)\)/);
+
+            if (download) {
+                // Real size from CI; local builds have no number here and use Emscripten's total
+                const total = Number(el.dataset.bytes) || Number(download[2]);
+                const percent = Math.min(100, Math.floor(100 * download[1] / total));
+                el.textContent = `Loading… ${percent}%`;
+            } else {
+                el.textContent = text;
+            }
+
+            el.hidden = !text;
+        },
+    };
+
+    Module.wheelDeltaY = 0;
+    Module.canvas.addEventListener("wheel", (e) => {
+        Module.wheelDeltaY += (e.deltaMode === 0) ? e.deltaY : e.deltaY * 33; // lines -> approx. pixels
+    }, {passive: true});
+
+    // Layout-independent zoom keys: Emscripten's GLFW maps by keyCode, and Firefox drops "+" on QWERTZ
+    Module.heldKeys = [false, false]; // [zoom in, zoom out]
+    const keyActions = {"+": 0, "-": 1}; // numpad +/- also report e.key "+"/"-"
+    const heldByCode = new Map(); // e.code -> action (keyup may report another e.key, e.g. "*")
+    window.addEventListener("keydown", (e) => {
+        const a = keyActions[e.key];
+        if (a !== undefined) {
+            heldByCode.set(e.code, a);
+            Module.heldKeys[a] = true;
+        }
+    });
+    window.addEventListener("keyup", (e) => {
+        const a = heldByCode.get(e.code);
+        if (a !== undefined) {
+            heldByCode.delete(e.code);
+            Module.heldKeys[a] = false;
+        }
+    });
+    window.addEventListener("blur", () => {
+        heldByCode.clear();
+        Module.heldKeys.fill(false);
+    });
+
+    // Fullscreen: standard API, WebKit prefix (iPad Safari); unsupported on iPhone -> hide the button
+    const fullscreenButton = document.getElementById("fullscreen");
+    const root = document.documentElement;
+    const requestFullscreen = root.requestFullscreen ?? root.webkitRequestFullscreen;
+
+    if (requestFullscreen) {
+        fullscreenButton.addEventListener("click", () => requestFullscreen.call(root)?.catch?.(() => {
+        }));
+    } else {
+        fullscreenButton.hidden = true;
+    }
+
+    // Emscripten's GLFW forces the canvas to screen.width * screen.height when entering fullscreen, which exceeds the visible area on displays with a notch
+    // A follow-up resize applies the real viewport
+    for (const type of ["fullscreenchange", "webkitfullscreenchange"]) {
+        document.addEventListener(type, () => {
+            requestAnimationFrame(() => window.dispatchEvent(new Event("resize")));
+        });
+    }
+
+    // On-screen keyboard bridge: ImGui text fields live in the canvas, so the browser only shows a keyboard for a focused real <input>
+    // iOS allows focus() only inside a user gesture -> touchend
+    const ime = document.getElementById("ime");
+    Module.wantTextInput = false; // Written by C++ every frame (ImGui's io.WantTextInput)
+    Module.pendingChars = []; // Unicode code points -> io.AddInputCharacter
+    Module.pendingKeys = []; // 1 = Backspace, 2 = Enter, 3 = Escape -> io.AddKeyEvent
+
+    // Keep one character in the field: otherwise Backspace on an empty input fires no event
+    const resetIme = () => {
+        ime.value = " ";
+        ime.setSelectionRange(1, 1);
+    };
+
+    Module.canvas.addEventListener("touchend", () => {
+        if (Module.wantTextInput && document.activeElement !== ime) {
+            resetIme();
+            ime.focus();
+        }
+    });
+
+    ime.addEventListener("beforeinput", (e) => {
+        e.preventDefault(); // Field content never changes; forward instead
+        if (e.inputType === "insertText" && e.data) {
+            for (const ch of e.data) Module.pendingChars.push(ch.codePointAt(0));
+        } else if (e.inputType === "deleteContentBackward") {
+            Module.pendingKeys.push(1);
+        }
+    });
+
+    // Keys without text; stopPropagation keeps GLFW's window listeners (and +/- zoom) from seeing them twice
+    ime.addEventListener("keydown", (e) => {
+        if (e.key === "Enter") Module.pendingKeys.push(2);
+        else if (e.key === "Escape") Module.pendingKeys.push(3);
+        e.stopPropagation();
+    });
+    ime.addEventListener("keypress", (e) => e.stopPropagation());
+    ime.addEventListener("keyup", (e) => e.stopPropagation());
+
+    // State import picker: Browsers (iOS Safari strictly) open a file dialog only inside a user gesture,
+    // so C++ arms it while the menu item is hovered and the real touchend/mouseup handler opens it
+    const stateFile = document.getElementById("state-file");
+    Module.filePickerArmed = false; // Written by C++ every frame
+    Module.pendingImport = null;    // {name, text}, consumed by C++
+
+    const openPickerIfArmed = () => {
+        if (Module.filePickerArmed) {
+            Module.filePickerArmed = false;
+            stateFile.click();
+        }
+    };
+    Module.canvas.addEventListener("touchend", openPickerIfArmed);
+    Module.canvas.addEventListener("mouseup", openPickerIfArmed);
+
+    stateFile.addEventListener("change", () => {
+        const file = stateFile.files[0];
+        stateFile.value = ""; // Picking the same file again must fire "change" again
+        if (file) file.text().then((text) => {
+            Module.pendingImport = {name: file.name, text};
+        });
+    });
+
+    // iOS: rotation keeps the old zoom with a fixed-width viewport, and innerWidth/innerHeight update late
+    // Re-apply the viewport, then resize again after the layout has settled
+    const refitAfterRotation = () => {
+        if (smallScreen) {
+            viewportMeta.content = "width=800, initial-scale=1, user-scalable=no"; // Different string forces re-evaluation
+            applyViewport();
+        }
+        for (const delay of [0, 150, 500]) {
+            setTimeout(() => window.dispatchEvent(new Event("resize")), delay);
+        }
+    };
+    screen.orientation?.addEventListener("change", refitAfterRotation);
+    window.addEventListener("orientationchange", refitAfterRotation); // older iOS
+</script>
+
+<!-- Emscripten placeholder -->
+{{{ SCRIPT }}}
 </body>
 </html>
 

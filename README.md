@@ -28,27 +28,29 @@
 
 ## 1. Features
 
-- Double-precision Newtonian gravity for 38 bodies, using Velocity Verlet integration
-- Optional planetary J2, barycentric planet-system approximations, and interaction pruning
-- Interactive 2D/3D views with textures, orbit trails, physical-size/schematic modes, and camera following
-- Runtime editing of mass, position, and velocity in absolute or body-relative coordinates
-- Customizable graphs with selectable axes, bodies, and reference frames
-- Orbital elements: Semi-major/minor axes, eccentricity, linear eccentricity, period, and inclination
-- Checkpoints, simulation reset, and single/N-step execution
-- Energy, linear-momentum, and barycentre-drift diagnostics
-- Desktop and browser support, headless runs with sampled CSV export
-- Endpoint and time-series comparisons against reference runs and NASA/JPL Horizons
+- Double-precision Newtonian gravity for 38 bodies (Velocity Verlet)
+- Optional planetary J2, barycentric planet systems, and interaction pruning
+- Interactive 2D/3D views with textures, orbit trails, and camera following
+- Edit, create, and delete bodies at runtime, with a trajectory preview
+- Customizable graphs and orbital elements
+- Checkpoints, reset, and single/N-step execution
+- Energy, momentum, and barycentre-drift diagnostics
+- State import/export (JSON), history and graph export (CSV, PNG)
+- Simulated date and local time
+- Desktop and browser support, headless runs with CSV export
+- Comparisons against reference runs and NASA/JPL Horizons
 
 ### 1.1 Initial conditions
 
 Initial positions and velocities represent:
 
-- Epoch: 1800-01-03
+- Epoch: 1800-01-03 00:00 TDB
 - Origin: Solar-system barycentre
 - Frame: J2000 ecliptic
 
-A project year is defined as exactly 365 days:
-`1 year = 365 * 86,400 seconds`
+A project year is defined as exactly 365 days: `1 year = 365 * 86,400 seconds`
+
+This only affects the `TIME` counter. Hover it to see the real calendar date and your local time (including leap years and leap seconds).
 
 ### 1.2 Model limitations
 
@@ -147,6 +149,8 @@ Start the simulator visualization:
 | Left-click body or legend name          | Open or close its inspector                              |
 | Left-click legend circle                | Show or hide the body and its trails                     |
 | Left-drag on empty scene space          | Pan in 2D; rotate in 3D                                  |
+| Right-click empty space (2D)            | Create a body there                                      |
+| Drop an image / `.json`                 | Set a texture (Create window, inspector) / import state  |
 | Arrow keys / `WASD`                     | Rotate the 3D camera                                     |
 | `Shift`                                 | Accelerate zoom and keyboard camera rotation             |
 | `F3`                                    | Toggle the developer debug overlay                       |
@@ -160,7 +164,9 @@ Open Tools to:
 - Open Diagnostics for energy, linear momentum, and barycentre drift
 - Create customizable Graphs
 - Orbital elements can include a planet's bound moons ("Include moons")
-- Advance one or N simulation steps while paused
+  Advance one or N steps while paused
+- Create bodies
+- Export history (CSV) or state (JSON), and import a state
 
 Body inspectors provide:
 - Edit relative to: Choose absolute or body-relative position and velocity
@@ -170,8 +176,15 @@ Body inspectors provide:
 - Go to (2D), Follow, and Stop following: Control the camera
 - Set origin: Change the coordinate frame used by the scene and trails
 - New graph: Open a graph for the selected body
+- Rename, recolor, retexture, or delete the body
 
-Camera following, the scene's coordinate origin, and the inspector's editing reference are independent. Reset view (R) changes the camera; Reset simulation under Checkpoints restores the physical state.
+The Create body window places a new body by click (position) and drag (velocity), and previews its two-body orbit.
+Textures: Drop an equirectangular PNG/JPG image (2:1); They show in 3D only.
+
+Camera following, the scene's coordinate origin, and the inspector's editing reference are independent.
+Reset view (R) changes the camera; Reset simulation under Checkpoints restores the physical state.
+
+Exports go to `exports/` on desktop and are downloaded in the browser. They are for exploring; For research data, use `--headless --csv`.
 
 ### 2.6 CLI arguments
 
@@ -222,7 +235,7 @@ emrun build-web/simulation-orbit.html -- --dt 900 --body-set planets
 
 They also work on the live site (ex. https://icewizard7.github.io/simulation-orbit/?--body-set&planets).
 
-`--simd` is unavailable in the browser. `--headless` and `--csv` are not useful there, because files are written to Emscripten's in-memory filesystem.
+`--simd` is unavailable in the browser. Interactive exports are downloaded; `--headless` and `--csv` only write to Emscripten's in-memory filesystem.
 
 ## 3. Analysis
 
@@ -295,6 +308,10 @@ NASA and JPL do not endorse this project.
 ### 5.2 Software and font
 
 - [raylib](https://www.raylib.com/) by Ramon Santamaria and contributors, used under the [raylib zlib/libpng license](https://github.com/raysan5/raylib/blob/master/LICENSE).
+- [Dear ImGui](https://github.com/ocornut/imgui) by Omar Cornut and contributors (MIT).
+- [ImPlot](https://github.com/epezent/implot) by Evan Pezent and contributors (MIT).
+- [rlImGui](https://github.com/raylib-extras/rlImGui) by Jeffery Myers and contributors (zlib).
+- [JSON for Modern C++](https://github.com/nlohmann/json) by Niels Lohmann (MIT).
 - [JetBrains Mono](https://www.jetbrains.com/lp/mono/) by JetBrains, distributed under the [SIL Open Font License 1.1](resources/licenses/JetBrainsMono-OFL-1.1.txt).
 
 ### 5.3 Visual assets

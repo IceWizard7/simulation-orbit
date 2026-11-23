@@ -3,18 +3,24 @@
 #include <cfloat>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <cstdio>
 #include <format>
 #include <imgui.h>
 #include <implot.h>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <numbers>
 #include <optional>
+#include <raylib.h>
 #include <span>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "graph_history.hpp"
+#include "hierarchy.hpp"
 #include "orbital_elements.hpp"
 #include "simulation.hpp"
 #include "time_units.hpp"
@@ -120,12 +126,12 @@ namespace {
 
             const PointMass& ref = *masses[*reference];
             const PointMass orbiter = merge_moons && can_merge(s.hierarchy, body, reference)
-                ? system_barycenter(masses, s.hierarchy, body)
-                : *masses[body];
+                                          ? system_barycenter(masses, s.hierarchy, body)
+                                          : *masses[body];
 
             const double mu = (orbiter.mass + ref.mass) * config::GRAVITATIONAL_CONSTANT;
             const auto orbit = orbital_elements(orbiter.position - ref.position, orbiter.velocity - ref.velocity, mu);
-            return orbit ? (*orbit).*field : NaN;
+            return orbit ? *orbit.*field : NaN;
         };
 
         switch (quantity) {
@@ -148,16 +154,16 @@ namespace {
             case GraphQuantity::body_kinetic_energy: return 0.5 * s.mass[body] * velocity.dot(velocity);
             case GraphQuantity::body_momentum: return s.mass[body] * velocity.length();
             case GraphQuantity::angular_momentum: return Vec3{
-                position.y * velocity.z - position.z * velocity.y,
-                position.z * velocity.x - position.x * velocity.z,
-                position.x * velocity.y - position.y * velocity.x
-            }.length();
+                    position.y * velocity.z - position.z * velocity.y,
+                    position.z * velocity.x - position.x * velocity.z,
+                    position.x * velocity.y - position.y * velocity.x
+                }.length();
             case GraphQuantity::semi_major_axis: return orbital_element(&OrbitalElements::semi_major_axis);
             case GraphQuantity::semi_minor_axis: return orbital_element(&OrbitalElements::semi_minor_axis);
             case GraphQuantity::eccentricity: return orbital_element(&OrbitalElements::eccentricity);
             case GraphQuantity::linear_eccentricity: return orbital_element(&OrbitalElements::linear_eccentricity);
             case GraphQuantity::orbital_period: return orbital_element(&OrbitalElements::orbital_period);
-            case GraphQuantity::inclination: return orbital_element(&OrbitalElements::inclination) * 180.0 / std::numbers::pi;;
+            case GraphQuantity::inclination: return orbital_element(&OrbitalElements::inclination) * 180.0 / std::numbers::pi;
             case GraphQuantity::energy: return s.energy;
             case GraphQuantity::kinetic_energy: return s.kinetic_energy;
             case GraphQuantity::potential_energy: return s.energy - s.kinetic_energy;
@@ -207,7 +213,7 @@ namespace {
         std::vector<double> xs, ys, ts;
         std::size_t next_sample = 0;
         std::uint64_t seen_generation = 0;
-        std::size_t every_steps = 1;
+        step_t every_steps = 1;
         bool rebuild = true;
         bool fit_next_frame = false;
         bool plot_hovered = false; // from the previous frame
@@ -215,7 +221,18 @@ namespace {
 
         double fastest_period = std::numeric_limits<double>::quiet_NaN();
         std::size_t fastest_body = 0;
+
+        ui_config::FileStatus export_status;
+        bool capture_requested = false; // PNG: Set by the button, consumed after this frame is rendered
     };
+
+    struct PendingCapture {
+        Rectangle rect; // Logical (ImGui) coordinates
+        str filename;
+        std::size_t window_id;
+    };
+
+    std::optional<PendingCapture> pending_capture; // Renderer thread only; at most one per frame
 
     std::vector<GraphWindow> graph_windows;
     std::size_t next_graph_id = 1;
@@ -231,10 +248,10 @@ namespace {
         return !std::isfinite(value(GraphQuantity::semi_major_axis)) && std::isfinite(value(GraphQuantity::eccentricity));
     }
 
-    void sync(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, GraphWindow &w) {
+    void sync(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, GraphWindow& w) {
         if (!snap) return;
 
-        simulation::graph_history.read([&](const std::span<const GraphSample> samples, const std::uint64_t generation, const std::size_t every_steps) {
+        simulation::graph_history.read([&](const std::span<const GraphSample> samples, const std::uint64_t generation, const step_t every_steps) {
             w.every_steps = every_steps;
 
             if (w.rebuild || w.seen_generation != generation) {
@@ -275,7 +292,8 @@ namespace {
                 // Check one body; keep it if its period is the shortest so far
                 const auto consider = [&](const std::size_t i) {
                     const double tau = own_period(latest, i);
-                    if (std::isfinite(tau) && !(tau >= w.fastest_period)) { // also true while fastest_period is NaN
+                    if (std::isfinite(tau) && !(tau >= w.fastest_period)) {
+                        // also true while fastest_period is NaN
                         w.fastest_period = tau;
                         w.fastest_body = i;
                     }
@@ -287,7 +305,7 @@ namespace {
 
                 if (is_global(w.x) || is_global(w.y)) {
                     for (std::size_t i = 0; i < snap->bodies.size(); i++) {
-                        if (snap->bodies[i]) consider(i);  // only populated (enabled) bodies
+                        if (snap->bodies[i]) consider(i); // only populated (enabled) bodies
                     }
                 } else {
                     consider(w.body);
@@ -339,6 +357,8 @@ namespace {
         return snap->bodies[i] ? snap->bodies[i]->name : "N/A";
     }
 
+    // Signature fixed by ImPlotFormatter (void*, not const void*): ImPlot passes user_data back unchanged
+    // ReSharper disable once CppParameterMayBeConstPtrOrRef
     int format_time_tick(const double seconds, char* buffer, const int size, void* user_data) {
         const auto* unit = static_cast<const time_units::TimeUnit*>(user_data);
         return std::snprintf(buffer, static_cast<std::size_t>(size), "%.6g %s", seconds / unit->seconds, unit->suffix);
@@ -347,6 +367,63 @@ namespace {
     void setup_duration_axis(const ImAxis axis, const ImPlotRange& visible) {
         const time_units::TimeUnit& unit = time_units::choose(std::max(std::abs(visible.Min), std::abs(visible.Max)));
         ImPlot::SetupAxisFormat(axis, format_time_tick, const_cast<void*>(static_cast<const void*>(&unit)));
+    }
+
+
+    // CSV field quoting: Names chosen by the user may contain commas or quotes
+    str csv_field(const str& text) {
+        if (text.find_first_of(",\"\n") == str::npos) {
+            return text;
+        }
+        str quoted = "\"";
+        for (const char c : text) {
+            if (c == '"') {
+                quoted += '"';
+            }
+            quoted += c;
+        }
+
+        return quoted + '"';
+    }
+
+    // Moons that would currently merge with w.body
+    std::vector<std::size_t> system_members(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w) {
+        return can_merge(snap->hierarchy, w.body, w.reference) ? members_of(snap->hierarchy, w.body) : std::vector<std::size_t>{};
+    }
+
+    str axis_label(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w, const GraphQuantity q) {
+        const QuantityInfo& item = info(q);
+
+        if (!item.per_body) {
+            return q == GraphQuantity::time || q == GraphQuantity::steps ? item.name : std::format("{} (inertial frame)", item.name);
+        }
+
+        if (q == GraphQuantity::mass) return std::format("{}: {}", item.name, body_name(snap, w.body));
+
+        const bool merged = is_orbital_element(q) && w.merge_moons && !system_members(snap, w).empty();
+        const str name = merged ? std::format("{} system", body_name(snap, w.body)) : body_name(snap, w.body);
+        const str frame = w.reference ? std::format("rel. {}", body_name(snap, *w.reference)) : "inertial";
+        return std::format("{}: {} ({})", item.name, name, frame);
+    }
+
+    // One row per cached point; NaN separators (segment breaks) become a segment counter, other NaN values empty fields
+    str graph_csv(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w) {
+        const auto field = [](const double v) { return std::isfinite(v) ? std::format("{}", v) : str{}; };
+
+        str out = std::format("simulated_seconds,segment,{},{}\n",
+                              csv_field(axis_label(snap, w, w.x)), csv_field(axis_label(snap, w, w.y)));
+
+        std::size_t segment = 0;
+        for (std::size_t i = 0; i < w.ts.size(); i++) {
+            // Separator row, not a sample
+            if (std::isnan(w.ts[i])) {
+                segment++;
+                continue;
+            }
+
+            out += std::format("{},{},{},{}\n", field(w.ts[i]), segment, field(w.xs[i]), field(w.ys[i]));
+        }
+        return out;
     }
 
     // ImPlot picks round ticks in seconds (ex. 1e7 s = 115.741 d), so place them at round values of the chosen unit
@@ -389,11 +466,6 @@ namespace {
         char buffer[64];
         std::snprintf(buffer, sizeof(buffer), info(q).format, value);
         return buffer;
-    }
-
-    // Moons that would currently merge with w.body
-    std::vector<std::size_t> system_members(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w) {
-        return can_merge(snap->hierarchy, w.body, w.reference) ? members_of(snap->hierarchy, w.body) : std::vector<std::size_t>{};
     }
 
     void draw_controls(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, GraphWindow& w) {
@@ -463,6 +535,18 @@ namespace {
             }
         }
 
+        if (ImGui::Button("CSV")) {
+            const str filename = std::format("graph{}_step{}.csv", w.id, snap->step);
+            const auto saved = ui_helpers::save_user_file(filename, graph_csv(snap, w), "text/csv");
+            w.export_status = {saved ? std::format("Saved: {}", *saved) : "Export failed", !saved};
+        }
+        ImGui::SameLine();
+        if (ImGui::Button("PNG")) w.capture_requested = true;
+
+        if (!w.export_status.text.empty()) {
+            ImGui::TextWrapped("%s", w.export_status.text.c_str()); // Narrow controls column: wrap the path
+        }
+
         ImGui::TextDisabled("%zu points", w.xs.size());
         if (w.unbound_points > 0) {
             ImGui::TextDisabled(w.currently_unbound ? "Unbound now (%zu points)" : "Unbound for %zu points", w.unbound_points);
@@ -476,7 +560,7 @@ namespace {
 
             if (per_orbit < 10.0) {
                 ImGui::TextColored(ImVec4(0.95f, 0.35f, 0.3f, 1.0f),
-                    "Low-detail: %.1f samples/orbit", per_orbit
+                                   "Low-detail: %.1f samples/orbit", per_orbit
                 );
                 ImGui::SetItemTooltip(
                     "%s orbits every %s, but samples are %s apart.\nLines between samples cut corners.",
@@ -484,21 +568,6 @@ namespace {
                 );
             }
         }
-    }
-
-    str axis_label(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w, const GraphQuantity q) {
-        const QuantityInfo& item = info(q);
-
-        if (!item.per_body) {
-            return q == GraphQuantity::time || q == GraphQuantity::steps ? item.name : std::format("{} (inertial frame)", item.name);
-        }
-
-        if (q == GraphQuantity::mass) return std::format("{}: {}", item.name, body_name(snap, w.body));
-
-        const bool merged = is_orbital_element(q) && w.merge_moons && !system_members(snap, w).empty();
-        const str name = merged ? std::format("{} system", body_name(snap, w.body)) : body_name(snap, w.body);
-        const str frame = w.reference ? std::format("rel. {}", body_name(snap, *w.reference)) : "inertial";
-        return std::format("{}: {} ({})", item.name, name, frame);
     }
 
     ImVec4 graph_color(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w) {
@@ -596,8 +665,8 @@ namespace {
     void draw_plot(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, GraphWindow& w) {
         // Auto-fit locks the axes, so the first zoom or drag has to switch it off before BeginPlot
         const bool user_moved_view = ImGui::GetIO().MouseWheel != 0.0f
-                                  || ImGui::IsMouseDragging(ImGuiMouseButton_Left)
-                                  || ImGui::IsMouseDragging(ImGuiMouseButton_Right);
+                                     || ImGui::IsMouseDragging(ImGuiMouseButton_Left)
+                                     || ImGui::IsMouseDragging(ImGuiMouseButton_Right);
 
         if (w.plot_hovered && user_moved_view) w.auto_fit = false;
 
@@ -650,6 +719,18 @@ namespace {
             w.plot_hovered = ImPlot::IsPlotHovered() || ImPlot::IsAxisHovered(ImAxis_X1) || ImPlot::IsAxisHovered(ImAxis_Y1);
 
             ImPlot::EndPlot();
+
+            // The whole plot frame incl. axes and labels is the last ImGui item after EndPlot
+            if (w.capture_requested) {
+                const ImVec2 min = ImGui::GetItemRectMin();
+                const ImVec2 max = ImGui::GetItemRectMax();
+                pending_capture = PendingCapture{
+                    .rect      = {min.x, min.y, max.x - min.x, max.y - min.y},
+                    .filename  = std::format("graph{}_step{}.png", w.id, snap->step),
+                    .window_id = w.id,
+                };
+                w.capture_requested = false;
+            }
         }
 
         ImPlot::PopStyleVar(3);
@@ -673,7 +754,7 @@ namespace {
         // ### keeps the ImGui ID stable if the visible title changes later
         const str title = std::format("Graph {}###graph_{}", w.id, w.id);
 
-        if (ImGui::Begin(title.c_str(), &w.open,  ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
+        if (ImGui::Begin(title.c_str(), &w.open, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse)) {
             if (ImGui::BeginChild("##controls", ImVec2(CONTROLS_WIDTH, 0.0f))) {
                 draw_controls(snap, w);
             }
@@ -735,4 +816,160 @@ void ui_helpers::draw_graph_windows(const std::shared_ptr<const ui_data::RenderS
     imgui_style_cleanup();
 
     std::erase_if(graph_windows, [](const GraphWindow& w) { return !w.open; });
+}
+
+void ui_helpers::forget_graph_body(const std::size_t i) {
+    for (auto& w : graph_windows) {
+        // Body is gone: Close the window
+        if (w.body == i) w.open = false;
+
+        // Body is gone: Reset reference of that window & rebuild
+        if (w.reference == i) {
+            w.reference = std::nullopt;
+            w.rebuild = true;
+        }
+    }
+}
+
+std::optional<double> ui_helpers::create_draft_mu(const ui_data::RenderSnapshot& snap) {
+    const auto& draft = ui_config::create_body_draft;
+    if (!draft.reference_index || !snap.bodies[*draft.reference_index]) return std::nullopt;
+
+    const double mu = config::GRAVITATIONAL_CONSTANT * (snap.bodies[*draft.reference_index]->mass + draft.mass);
+    return std::isfinite(mu) && mu > 0.0 ? std::optional{mu} : std::nullopt;
+}
+
+double ui_helpers::placement_tau(const ui_data::RenderSnapshot& snap) {
+    constexpr double FALLBACK_TAU = 86'400.0; // None / invalid: No host, arbitrary 1 day
+
+    const auto mu = create_draft_mu(snap);
+    const double r = ui_config::create_body_draft.position.length();
+    if (!mu || !(r > 0.0)) return FALLBACK_TAU;
+
+    const double tau = std::sqrt(r * r * r / *mu);
+    return std::isfinite(tau) && tau > 0.0 ? tau : FALLBACK_TAU;
+}
+
+std::optional<ConicSectionPath> ui_helpers::create_ghost_conic_section_path(const ui_data::RenderSnapshot& snap) {
+    if (!ui_config::show_create_body) return std::nullopt;
+
+    const auto& draft = ui_config::create_body_draft;
+    if (!draft.reference_index) return std::nullopt; // None: no host to orbit
+
+    const std::optional<double> mu = create_draft_mu(snap);
+    if (!mu) return std::nullopt;
+
+    constexpr std::size_t CONIC_SAMPLES = 512;
+    const double max_distance = 20.0 * draft.position.length(); // Hyperbola cut-off
+
+    return sample_conic_section(draft.position, draft.velocity, *mu, CONIC_SAMPLES, max_distance);
+}
+
+str ui_helpers::full_state_csv(const std::shared_ptr<const ui_data::RenderSnapshot>& snap) {
+    str out;
+    const auto put = std::back_inserter(out);
+
+    simulation::graph_history.read([&](const std::span<const GraphSample> samples, std::uint64_t, step_t) {
+        // One column group per body ID that appears anywhere, in order of first appearance
+        std::vector<std::uint64_t> ids;
+        std::unordered_map<std::uint64_t, std::size_t> column;
+
+        for (const GraphSample& s : samples) {
+            for (const std::uint64_t id : s.body_id) {
+                if (id != config::NO_BODY_ID && column.try_emplace(id, ids.size()).second) {
+                    ids.push_back(id);
+                }
+            }
+        }
+
+        const auto name_of = [&](const std::uint64_t id) -> str {
+            for (const auto& body : snap->bodies) {
+                if (body && body->id == id) {
+                    return body->name;
+                }
+            }
+            return std::format("deleted_{}", id);
+        };
+
+        // CSV global column lines
+        out += "step,simulated_seconds,segment";
+
+        // CSV column lines for each body
+        for (const std::uint64_t id : ids) {
+            const str name = name_of(id);
+            for (const char* field : {"position_x", "position_y", "position_z", "velocity_x", "velocity_y", "velocity_z", "mass"}) {
+                out += ',';
+                out += csv_field(std::format("{}_{}", name, field));
+            }
+        }
+        out += '\n';
+
+        std::size_t segment = 0;
+        std::vector<std::optional<std::size_t>> slot(ids.size());
+
+        for (std::size_t k = 0; k < samples.size(); k++) {
+            const GraphSample& s = samples[k];
+            if (s.starts_segment && k > 0) segment++;
+
+            std::ranges::fill(slot, std::nullopt);
+            for (std::size_t i = 0; i < s.body_id.size(); i++) {
+                if (s.body_id[i] != config::NO_BODY_ID) {
+                    slot[column.at(s.body_id[i])] = i;
+                }
+            }
+
+            std::format_to(put, "{},{},{}", s.step, static_cast<double>(s.step) * runtime_config::time_step, segment);
+            for (const auto& i : slot) {
+                // Disabled slot, empty data
+                if (!i) {
+                    out += ",,,,,,,";
+                    continue;
+                }
+
+                const Vec3& p = s.position[*i];
+                const Vec3& v = s.velocity[*i];
+
+                std::format_to(put, ",{},{},{},{},{},{},{}", p.x, p.y, p.z, v.x, v.y, v.z, s.mass[*i]);
+            }
+            out += '\n';
+        }
+    });
+
+    return out;
+}
+
+void ui_helpers::capture_pending_graph() {
+    if (!pending_capture) return;
+    const PendingCapture capture = std::move(*pending_capture);
+    pending_capture.reset();
+
+    // Back buffer of this frame, in framebuffer pixels (Retina/web HiDPI: Larger than the logical window)
+    Image image = LoadImageFromScreen();
+    const float sx = static_cast<float>(image.width) / static_cast<float>(GetScreenWidth());
+    const float sy = static_cast<float>(image.height) / static_cast<float>(GetScreenHeight());
+
+    ImageCrop(
+        &image,
+        {
+            std::round(capture.rect.x * sx), std::round(capture.rect.y * sy),
+            std::round(capture.rect.width * sx), std::round(capture.rect.height * sy)
+        }
+    );
+
+    int size = 0;
+    unsigned char* png = ExportImageToMemory(image, ".png", &size);
+    UnloadImage(image);
+
+    std::optional<str> saved;
+    if (png) {
+        saved = save_user_file(capture.filename, str_view(reinterpret_cast<const char*>(png), static_cast<std::size_t>(size)), "image/png");
+        MemFree(png);
+    }
+
+    // The window may have been closed in the meantime
+    for (GraphWindow& w : graph_windows) {
+        if (w.id == capture.window_id) {
+            w.export_status = {saved ? std::format("Saved: {}", *saved) : "PNG export failed", !saved};
+        }
+    }
 }

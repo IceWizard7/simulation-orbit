@@ -1,13 +1,19 @@
 #include "celestial_bodies.hpp"
 
-#include "config.hpp"
+#include <array>
+#include <cstddef>
 
-template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+#include "config.hpp"
+#include "vectors.hpp"
+
+template <std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::CelestialBodies(std::array<CelestialBodyInit, NUM_CATALOG_BODIES> bodies) {
     for (std::size_t i = 0; i < NUM_CATALOG_BODIES; i++) {
         original_gravitational_masses[i] = bodies[i].gravitational_mass;
         gravitational_masses[i] = bodies[i].gravitational_mass;
         names[i] = bodies[i].name;
+
+        body_ids[i] = i; // Catalog ID = catalog index; Custom bodies continue at NUM_CATALOG_BODIES (next_body_id)
 
         pos_x[i] = bodies[i].position.x;
         pos_y[i] = bodies[i].position.y;
@@ -30,46 +36,46 @@ CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::CelestialBodies(std::
         equatorial_radii[i] = bodies[i].equatorial_radius;
         pole_axes[i] = bodies[i].pole_axis;
 
-        planet_visuals[i].texture_path = bodies[i].texture_path;
+        catalog_texture_paths[i] = bodies[i].texture_path;
     }
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+template <std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 Vec3 CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::position(const std::size_t i) const {
     return {pos_x[i], pos_y[i], pos_z[i]};
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+template <std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 void CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::set_position(const std::size_t i, const Vec3& position) {
     pos_x[i] = position.x;
     pos_y[i] = position.y;
     pos_z[i] = position.z;
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+template <std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 Vec3 CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::velocity(const std::size_t i) const {
     return {vel_x[i], vel_y[i], vel_z[i]};
 }
 
 
-template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+template <std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 void CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::set_velocity(const std::size_t i, const Vec3& velocity) {
     vel_x[i] = velocity.x;
     vel_y[i] = velocity.y;
     vel_z[i] = velocity.z;
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+template <std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 double CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::distance_to(const std::size_t i, const std::size_t to) const {
     return (position(i) - position(to)).length();
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+template <std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 double CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::get_mass(const std::size_t i) const {
     return gravitational_masses[i] / config::GRAVITATIONAL_CONSTANT;
 }
 
-template<std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
+template <std::size_t NUM_CELESTIAL_BODIES, std::size_t NUM_CATALOG_BODIES>
 Vec3 CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::j2_acceleration_at(
     std::size_t i,
     const Vec3& source_to_target_direction,
@@ -93,15 +99,11 @@ Vec3 CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>::j2_acceleration_
     // i.e. extra inward pull -> prograde apsidal precession, as expected.
     if (j2[i] == 0.0) return {};
 
-    // TODO: Implement SIMD for this.
-
     const double u = source_to_target_direction.dot(pole_axes[i]);
-    const double coefficient = -1.5 * j2[i] * gravitational_masses[i]
-        * equatorial_radii[i] * equatorial_radii[i]
-        / (distance * distance * distance * distance);
-    return (source_to_target_direction * (1.0 - 5.0 * u * u) + pole_axes[i] * (2.0 * u))
-        * coefficient;
+    const double coefficient = -1.5 * j2[i] * gravitational_masses[i] * equatorial_radii[i] * equatorial_radii[i]
+                               / (distance * distance * distance * distance);
+    return (source_to_target_direction * (1.0 - 5.0 * u * u) + pole_axes[i] * (2.0 * u)) * coefficient;
 }
 
-// Prevents linker errors, because now the implementation for exactly NUM_CELESTIAL_BODIES is visible
+// Prevents linker errors; This makes the implementation for exactly NUM_CELESTIAL_BODIES visible
 template class CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>;

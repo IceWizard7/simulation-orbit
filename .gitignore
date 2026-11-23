@@ -1,18 +1,39 @@
-.idea
+# --- IDE and OS state ---
+.idea/
 .DS_Store
-Three_Body_Problem.pdf
-media/
-cmake-build-debug
-cmake-build-release
-build-web
-raylib
-llm-chats
-solar_system_textures
-plan
-AGENTS.md
-__pycache__
-paper
-possible-moons
-error-analysis
-screenshots/demo.mp4
+
+# --- Build output (regenerate with cmake / emcmake) ---
+# CLion profiles (debug, release, ...)
+cmake-build-*/
+# Emscripten build
+build-web/
+# Optional local raylib checkout (usually fetched via FetchContent)
+raylib/
+# Python cache
+__pycache__/
+
+# --- Runtime-generated files ---
+# ImGui window layout, rewritten on exit
 imgui.ini
+# CSV/JSON/PNG exports from the application
+exports/
+
+# --- Separate repositories ---
+# Research paper (ABA) has its own git repository
+paper/
+
+# --- Large or third-party material, not needed to build ---
+# 8k source pack (very large); Runtime textures live in resources/
+solar_system_textures/
+# Old recordings and screenshots
+media/
+# Local demo video (Old README link to the YouTube video)
+screenshots/demo.mp4
+# University reference paper
+Three_Body_Problem.pdf
+
+# --- Local notes, plans and AI material ---
+AGENTS.md
+plan/
+llm-chats/
+possible-moons/

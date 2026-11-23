@@ -24,18 +24,29 @@ namespace force_pairs {
     void initialize_all_pairs(const CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies);
 
     bool is_sun(std::size_t body_index);
-    bool is_moon(std::size_t body_index, const std::array<PlanetarySystem, 7> &planetary_systems);
-    bool is_primary(std::size_t body_index, const std::array<PlanetarySystem, 7> &planetary_systems);
-    bool have_same_parent(std::size_t body_index1, std::size_t body_index2, const std::array<PlanetarySystem, 7>& planetary_systems);
-    bool is_parent_moon_pair(std::size_t body_index1, std::size_t body_index2, const std::array<PlanetarySystem, 7>& planetary_systems);
-    bool belong_to_same_planetary_system(std::size_t body_index1, std::size_t body_index2, const std::array<PlanetarySystem, 7>& planetary_systems);
+
+    bool is_moon(std::size_t body_index, const std::array<PlanetarySystem, 7>& planetary_systems);
+
+    bool is_primary(std::size_t body_index, const std::array<PlanetarySystem, 7>& planetary_systems);
+
+    bool have_same_parent(std::size_t body_index1, std::size_t body_index2,
+                          const std::array<PlanetarySystem, 7>& planetary_systems);
+
+    bool is_parent_moon_pair(std::size_t body_index1, std::size_t body_index2,
+                             const std::array<PlanetarySystem, 7>& planetary_systems);
+
+    bool belong_to_same_planetary_system(std::size_t body_index1, std::size_t body_index2,
+                                         const std::array<PlanetarySystem, 7>& planetary_systems);
 
     void set_interaction_set(const std::array<PlanetarySystem, 7>& planetary_systems);
 
     std::size_t active_pair_count();
+
     std::size_t skipped_pair_count();
 
     void record_acceleration_evaluation();
+
     std::size_t acceleration_evaluation_count();
+
     std::size_t pair_evaluation_count();
 }

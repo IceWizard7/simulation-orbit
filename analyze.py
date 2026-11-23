@@ -572,72 +572,84 @@ def parse_physical_radius_m(physical: str) -> float:
 
     raise ValueError("No supported physical radius found in Horizons physical data")
 
+# Schematic marker sizes (display only), chosen from the physical radius so the same rule holds for every body.
+# radius_2d is in pixels; radius_3d = radius_2d * SCHEMATIC_3D_PER_2D world units (adaptively clamped in 3D).
+# Custom bodies use the "large bodies" class (config::CUSTOM_BODY_RADIUS_2D/3D).
+SCHEMATIC_CLASSES_M: list[tuple[float, int]] = [
+    (1.0e8, 10),  # stars          (R >= 100 000 km)
+    (1.0e7, 8),   # giant planets  (R >= 10 000 km)
+    (1.0e6, 5),   # large bodies   (R >= 1 000 km): terrestrial planets, Pluto, large moons
+    (0.0, 3),     # small bodies
+]
+SCHEMATIC_3D_PER_2D = 0.002
+
+def schematic_radii(physical_radius_m: float) -> tuple[int, float]:
+    """(radius_2d in px, radius_3d in world units) for a physical radius in meters."""
+    for minimum_m, radius_2d in SCHEMATIC_CLASSES_M:
+        if physical_radius_m >= minimum_m:
+            return radius_2d, round(radius_2d * SCHEMATIC_3D_PER_2D, 6)
+    raise ValueError(f"Invalid physical radius: {physical_radius_m}")
+
+
 def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
     res: list[str] = []
     positions: list[Vec3] = []
 
-    # radius_2d, radius_3d, color [, texture]
-    # NASA/NSSDCA Planetary Fact Sheets, David R. Williams, accessed 2026-10-04:
-    # https://nssdc.gsfc.nasa.gov/planetary/planetfact.html
-    # Preserve all published decimal places; these are tabulated approximations,
-    # not exact physical constants. R marks retrograde motion (Phoebe, Triton);
-    # trail sampling uses the positive duration. Integer days use .0 for C++ double
-    # multiplication, avoiding integer overflow for Pluto and the Sun.
+    # color [, texture] per body; schematic radii come from schematic_radii(physical radius)
     fix_code: dict[str, str] = {
         # Planets + Pluto
-        "Sun": "10, 0.03, (Color){255, 230,  40, 255}, \"resources/sun.jpg\"",
-        "Mercury": "5, 0.01, (Color){150, 150, 150, 255}, \"resources/mercury.jpg\"",
-        "Venus": "5, 0.01, (Color){245, 190,  70, 255}, \"resources/venus.jpg\"",
-        "Earth": "5, 0.01, (Color){ 40, 120, 204, 255}, \"resources/earth.jpg\"",
-        "Mars": "10, 0.02, (Color){220,  60,  40, 255}, \"resources/mars.jpg\"",
-        "Jupiter": "10, 0.15, (Color){220, 150,  85, 255}, \"resources/jupiter.jpg\"",
-        "Saturn": "10, 0.15, (Color){235, 205, 120, 255}, \"resources/saturn.jpg\"",
-        "Uranus": "10, 0.15, (Color){ 80, 220, 220, 255}, \"resources/uranus.jpg\"",
-        "Neptune": "10, 0.15, (Color){ 40,  80, 230, 255}, \"resources/neptune.jpg\"",
-        "Pluto": "10, 0.15, (Color){185, 155, 130, 255}",
+        "Sun": "(Color){255, 230,  40, 255}, \"resources/sun.jpg\"",
+        "Mercury": "(Color){150, 150, 150, 255}, \"resources/mercury.jpg\"",
+        "Venus": "(Color){245, 190,  70, 255}, \"resources/venus.jpg\"",
+        "Earth": "(Color){ 40, 120, 204, 255}, \"resources/earth.jpg\"",
+        "Mars": "(Color){220,  60,  40, 255}, \"resources/mars.jpg\"",
+        "Jupiter": "(Color){220, 150,  85, 255}, \"resources/jupiter.jpg\"",
+        "Saturn": "(Color){235, 205, 120, 255}, \"resources/saturn.jpg\"",
+        "Uranus": "(Color){ 80, 220, 220, 255}, \"resources/uranus.jpg\"",
+        "Neptune": "(Color){ 40,  80, 230, 255}, \"resources/neptune.jpg\"",
+        "Pluto": "(Color){185, 155, 130, 255}",
 
         # Earth
-        "Moon": "5, 0.01, (Color){200, 200, 200, 255}, \"resources/moon.jpg\"",
+        "Moon": "(Color){200, 200, 200, 255}, \"resources/moon.jpg\"",
 
         # Mars
-        "Phobos": "5, 0.01, (Color){105, 93, 82, 255}",
-        "Deimos": "5, 0.01, (Color){139, 118, 99, 255}",
+        "Phobos": "(Color){105, 93, 82, 255}",
+        "Deimos": "(Color){139, 118, 99, 255}",
 
         # Jupiter
-        "Io": "5, 0.01, (Color){240, 197, 79, 255}, \"resources/io.jpg\"",
-        "Europa": "5, 0.01, (Color){210, 199, 174, 255}, \"resources/europa.jpg\"",
-        "Ganymede": "5, 0.01, (Color){139, 126, 112, 255}, \"resources/ganymede.jpg\"",
-        "Callisto": "5, 0.01, (Color){76, 66, 60, 255}, \"resources/callisto.jpg\"",
+        "Io": "(Color){240, 197, 79, 255}, \"resources/io.jpg\"",
+        "Europa": "(Color){210, 199, 174, 255}, \"resources/europa.jpg\"",
+        "Ganymede": "(Color){139, 126, 112, 255}, \"resources/ganymede.jpg\"",
+        "Callisto": "(Color){76, 66, 60, 255}, \"resources/callisto.jpg\"",
 
         # Saturn
-        "Mimas": "5, 0.01, (Color){207, 208, 197, 255}",
-        "Enceladus": "5, 0.01, (Color){231, 240, 242, 255}",
-        "Tethys": "5, 0.01, (Color){202, 203, 191, 255}",
-        "Dione": "5, 0.01, (Color){190, 190, 180, 255}",
-        "Rhea": "5, 0.01, (Color){180, 180, 170, 255}",
-        "Titan": "5, 0.01, (Color){201, 141, 71, 255}",
-        "Hyperion": "5, 0.01, (Color){136, 99, 70, 255}",
-        "Iapetus": "5, 0.01, (Color){154, 137, 108, 255}",
-        "Phoebe": "5, 0.01, (Color){71, 68, 67, 255}",
+        "Mimas": "(Color){207, 208, 197, 255}",
+        "Enceladus": "(Color){231, 240, 242, 255}",
+        "Tethys": "(Color){202, 203, 191, 255}",
+        "Dione": "(Color){190, 190, 180, 255}",
+        "Rhea": "(Color){180, 180, 170, 255}",
+        "Titan": "(Color){201, 141, 71, 255}",
+        "Hyperion": "(Color){136, 99, 70, 255}",
+        "Iapetus": "(Color){154, 137, 108, 255}",
+        "Phoebe": "(Color){71, 68, 67, 255}",
 
         # Uranus
-        "Ariel": "5, 0.01, (Color){188, 203, 205, 255}",
-        "Umbriel": "5, 0.01, (Color){79, 85, 91, 255}",
-        "Titania": "5, 0.01, (Color){150, 153, 160, 255}",
-        "Oberon": "5, 0.01, (Color){102, 97, 92, 255}",
-        "Miranda": "5, 0.01, (Color){169, 174, 163, 255}",
+        "Ariel": "(Color){188, 203, 205, 255}",
+        "Umbriel": "(Color){79, 85, 91, 255}",
+        "Titania": "(Color){150, 153, 160, 255}",
+        "Oberon": "(Color){102, 97, 92, 255}",
+        "Miranda": "(Color){169, 174, 163, 255}",
 
         # Neptune
-        "Triton": "5, 0.01, (Color){194, 190, 183, 255}",
-        "Nereid": "5, 0.01, (Color){164, 171, 174, 255}",
-        "Proteus": "5, 0.01, (Color){89, 91, 89, 255}",
+        "Triton": "(Color){194, 190, 183, 255}",
+        "Nereid": "(Color){164, 171, 174, 255}",
+        "Proteus": "(Color){89, 91, 89, 255}",
 
         # Pluto
-        "Charon": "5, 0.01, (Color){126, 117, 109, 255}",
-        "Nix": "5, 0.01, (Color){184, 183, 175, 255}",
-        "Hydra": "5, 0.01, (Color){164, 165, 157, 255}",
-        "Kerberos": "5, 0.01, (Color){84, 80, 78, 255}",
-        "Styx": "5, 0.01, (Color){123, 120, 113, 255}"
+        "Charon": "(Color){126, 117, 109, 255}",
+        "Nix": "(Color){184, 183, 175, 255}",
+        "Hydra": "(Color){164, 165, 157, 255}",
+        "Kerberos": "(Color){84, 80, 78, 255}"
     }
 
     planet_to_code: dict[str, str] = {planet: "" for planet in planet_to_horizon_id.keys()}
@@ -751,9 +763,11 @@ def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
                 scientific_notation_to_float(z)
             ))
 
+            radius_2d, radius_3d = schematic_radii(physical_radius_m)
+
             planet_to_code[planet_name] = (
                 f"{{\"{planet_name}\", {{{x}, {y}, {z}}}, {{{vx}, {vy}, {vz}}}, {gm}, {physical_radius_m}, "
-                f"{fix_code[planet_name]}{oblateness_code(planet_name)}}},"
+                f"{radius_2d}, {radius_3d}, {fix_code[planet_name]}{oblateness_code(planet_name)}}},"
             )
         except Exception as e:
             print(f"Exception {e} occurred with planet {planet_name} ({horizon_id=})")
@@ -769,9 +783,9 @@ def fetch_vectors(start_date: datetime.date) -> tuple[list[str], list[Vec3]]:
 
 def print_code() -> None:
     start_values: tuple[list[str], list[Vec3]] = fetch_vectors(START)
-    print(f"#define NUM_CELESTIAL_BODIES {len(start_values[0])}\n")
-    print("CelestialBodies<NUM_CELESTIAL_BODIES> simulation::celestial_bodies{")
-    print("    std::array<CelestialBodyInit, NUM_CELESTIAL_BODIES>{{")
+    print()
+    print("CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES> simulation::celestial_bodies{")
+    print("    std::array<CelestialBodyInit, NUM_CATALOG_BODIES>{{")
     for val in start_values[0]:
         print(f"        {val}")
     print("    }}")

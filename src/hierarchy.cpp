@@ -8,6 +8,8 @@
 #include <span>
 #include <vector>
 
+#include "orbital_elements.hpp"
+
 bool orbits(const Hierarchy& h, std::size_t i, const std::size_t ancestor) {
     // Terminates: every host is strictly heavier, so the chain can't loop
     while (h.host[i]) {
@@ -86,7 +88,7 @@ PointMass system_barycenter(const std::span<const std::optional<PointMass>> bodi
     Vec3 weighted_velocity = p.velocity * p.mass;
     double mass = p.mass;
 
-    for (const std::size_t c: members_of(h, planet)) {
+    for (const std::size_t c : members_of(h, planet)) {
         weighted_position += bodies[c]->position * bodies[c]->mass;
         weighted_velocity += bodies[c]->velocity * bodies[c]->mass;
         mass += bodies[c]->mass;

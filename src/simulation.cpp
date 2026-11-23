@@ -1,9 +1,13 @@
 #include "simulation.hpp"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdint>
+#include <deque>
 #include <format>
 #include <fstream>
 #include <iostream>
@@ -11,12 +15,22 @@
 #include <memory>
 #include <mutex>
 #include <numbers>
-#include <regex>
+#include <optional>
+#include <raylib.h>
+#include <stop_token>
 #include <thread>
 #include <utility>
+#include <variant>
 #include <vector>
 
+#include "celestial_bodies.hpp"
+#include "config.hpp"
 #include "force_pairs.hpp"
+#include "graph_history.hpp"
+#include "hierarchy.hpp"
+#include "orbital_elements.hpp"
+#include "ui.hpp"
+#include "utils.hpp"
 
 #if defined(__aarch64__)
 #include <arm_neon.h>
@@ -26,44 +40,44 @@
 // Period source URLs and access date are documented in analyze.py (fix_code).
 CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES> simulation::celestial_bodies{
     std::array<CelestialBodyInit, NUM_CATALOG_BODIES>{{
-        {"Sun", {5.254258484891016e8, -8.691526594804802e8, -1.013312408460682e7}, {1.486418097392948e1, 1.867348026651063e0, -4.030379227978539e-1}, 1.3271244004193937e+20, 695700000.0, 10, 0.03, (Color){255, 230,  40, 255}, "resources/sun.jpg"},
+        {"Sun", {5.254258484891016e8, -8.691526594804802e8, -1.013312408460682e7}, {1.486418097392948e1, 1.867348026651063e0, -4.030379227978539e-1}, 1.3271244004193937e+20, 695700000.0, 10, 0.02, (Color){255, 230,  40, 255}, "resources/sun.jpg"},
         {"Mercury", {-3.863295206424535e10, 3.095205136713375e10, 6.195274889256019e9}, {-4.061253084483177e4, -3.574724011520127e4, 8.385974494151380e2}, 22031868550000.0, 2439400.0, 5, 0.01, (Color){150, 150, 150, 255}, "resources/mercury.jpg"},
         {"Venus", {-9.442641552608661e10, 4.918920270156867e10, 6.142101433096975e9}, {-1.646745669837079e4, -3.114773688845666e4, 5.450657096441862e2}, 324858592000000.0, 6051840.0, 5, 0.01, (Color){245, 190,  70, 255}, "resources/venus.jpg"},
         {"Earth", {-3.821000604658472e10, 1.410274684528763e11, 5.275940805160999e7}, {-2.920909465286638e4, -7.960531594616490e3, -6.079433916260868e0}, 398600435436000.0, 6371010.0, 5, 0.01, (Color){ 40, 120, 204, 255}, "resources/earth.jpg", 0.00108263, 6378136.6, {0.00000000, 0.39777716, 0.91748206}},
-        {"Mars", {-1.603072902891413e11, -1.693943532268408e11, 4.939584574298635e8}, {1.848810083914610e4, -1.467137544186248e4, -7.687147050137604e2}, 42828375662000.0, 3389920.0, 10, 0.02, (Color){220,  60,  40, 255}, "resources/mars.jpg", 0.00196045, 3396190.0, {0.44615053, -0.05550828, 0.89323487}},
-        {"Jupiter", {-6.174066213916292e9, 7.669935543317993e11, -2.919675836705565e9}, {-1.321414969549137e4, 4.963533982492354e2, 2.948696326167778e2}, 1.266865319e+17, 69911000.0, 10, 0.15, (Color){220, 150,  85, 255}, "resources/jupiter.jpg", 0.014736, 71492000.0, {-0.01459926, -0.03581847, 0.99925167}},
-        {"Saturn", {-8.515017102896239e11, 1.061724056177945e12, 1.475763099241823e10}, {-8.067709138805704e3, -6.064681250795719e3, 4.267881978436692e2}, 3.7931206234e+16, 58232000.0, 10, 0.15, (Color){235, 205, 120, 255}, "resources/saturn.jpg", 0.016298, 60268000.0, {0.08547883, 0.46244168, 0.88251972}},
-        {"Uranus", {-2.732875467120085e12, 1.447663723744908e11, 3.619086410308249e10}, {-4.165944517727502e2, -7.115869467058308e3, -2.130718237900275e1}, 5793950610300000.0, 25362000.0, 10, 0.15, (Color){ 80, 220, 220, 255}, "resources/uranus.jpg", 0.00334343, 25559000.0, {-0.21199958, -0.96798900, 0.13436320}},
-        {"Neptune", {-3.037152106379823e12, -3.366575290468045e12, 1.392493881819084e11}, {4.002400188245791e3, -3.608893091439345e3, -1.753848336826191e1}, 6835099970000000.0, 24624000.0, 10, 0.15, (Color){ 40,  80, 230, 255}, "resources/neptune.jpg", 0.003411, 24764000.0, {0.35588326, -0.30681030, 0.88273130}},
-        {"Pluto", {5.435493283758588e12, -2.498597656155004e12, -1.304284834205698e12}, {2.629139130853487e3, 3.571607925259364e3, -1.120892268633253e3}, 869326000000.0, 1188300.0, 10, 0.15, (Color){185, 155, 130, 255}},
+        {"Mars", {-1.603072902891413e11, -1.693943532268408e11, 4.939584574298635e8}, {1.848810083914610e4, -1.467137544186248e4, -7.687147050137604e2}, 42828375662000.0, 3389920.0, 5, 0.01, (Color){220,  60,  40, 255}, "resources/mars.jpg", 0.00196045, 3396190.0, {0.44615053, -0.05550828, 0.89323487}},
+        {"Jupiter", {-6.174066213916292e9, 7.669935543317993e11, -2.919675836705565e9}, {-1.321414969549137e4, 4.963533982492354e2, 2.948696326167778e2}, 1.266865319e+17, 69911000.0, 8, 0.016, (Color){220, 150,  85, 255}, "resources/jupiter.jpg", 0.014736, 71492000.0, {-0.01459926, -0.03581847, 0.99925167}},
+        {"Saturn", {-8.515017102896239e11, 1.061724056177945e12, 1.475763099241823e10}, {-8.067709138805704e3, -6.064681250795719e3, 4.267881978436692e2}, 3.7931206234e+16, 58232000.0, 8, 0.016, (Color){235, 205, 120, 255}, "resources/saturn.jpg", 0.016298, 60268000.0, {0.08547883, 0.46244168, 0.88251972}},
+        {"Uranus", {-2.732875467120085e12, 1.447663723744908e11, 3.619086410308249e10}, {-4.165944517727502e2, -7.115869467058308e3, -2.130718237900275e1}, 5793950610300000.0, 25362000.0, 8, 0.016, (Color){ 80, 220, 220, 255}, "resources/uranus.jpg", 0.00334343, 25559000.0, {-0.21199958, -0.96798900, 0.13436320}},
+        {"Neptune", {-3.037152106379823e12, -3.366575290468045e12, 1.392493881819084e11}, {4.002400188245791e3, -3.608893091439345e3, -1.753848336826191e1}, 6835099970000000.0, 24624000.0, 8, 0.016, (Color){ 40,  80, 230, 255}, "resources/neptune.jpg", 0.003411, 24764000.0, {0.35588326, -0.30681030, 0.88273130}},
+        {"Pluto", {5.435493283758588e12, -2.498597656155004e12, -1.304284834205698e12}, {2.629139130853487e3, 3.571607925259364e3, -1.120892268633253e3}, 869326000000.0, 1188300.0, 5, 0.01, (Color){185, 155, 130, 255}},
         {"Moon", {-3.782417827609404e10, 1.411362073094813e11, 3.993214356346428e7}, {-2.943549761633117e4, -7.016310635821375e3, 7.358756789024357e1}, 4902800066000.0, 1737530.0, 5, 0.01, (Color){200, 200, 200, 255}, "resources/moon.jpg"},
-        {"Phobos", {-1.603144727827997e11, -1.693895510926101e11, 4.979424081231654e8}, {1.748181894901772e4, -1.648636466442317e4, -4.084555018062686e2}, 708754.6066894452, 11058.402868477722, 5, 0.01, (Color){105, 93, 82, 255}},
-        {"Deimos", {-1.603285635818097e11, -1.693959085793375e11, 5.037242108345851e8}, {1.852373428359592e4, -1.601519698639884e4, -9.046220102407760e2}, 96155.69648120314, 6203.050874487248, 5, 0.01, (Color){139, 118, 99, 255}},
+        {"Phobos", {-1.603144727827997e11, -1.693895510926101e11, 4.979424081231654e8}, {1.748181894901772e4, -1.648636466442317e4, -4.084555018062686e2}, 708754.6066894452, 11058.402868477722, 3, 0.006, (Color){105, 93, 82, 255}},
+        {"Deimos", {-1.603285635818097e11, -1.693959085793375e11, 5.037242108345851e8}, {1.852373428359592e4, -1.601519698639884e4, -9.046220102407760e2}, 96155.69648120314, 6203.050874487248, 3, 0.006, (Color){139, 118, 99, 255}},
         {"Io", {-6.233966160638074e9, 7.665746591434332e11, -2.935518177157819e9}, {3.880765477003187e3, -1.934781545909256e3, 4.632707592579830e2}, 5959915500000.0, 1821490.0, 5, 0.01, (Color){240, 197, 79, 255}, "resources/io.jpg"},
         {"Europa", {-5.524824063946516e9, 7.668193677270226e11, -2.921204185672104e9}, {-9.538034154701794e3, 1.370099415341497e4, 8.680637549578591e2}, 3202712100000.0, 1560800.0, 5, 0.01, (Color){210, 199, 174, 255}, "resources/europa.jpg"},
         {"Ganymede", {-5.723547525943480e9, 7.660214110618627e11, -2.944168016637921e9}, {-3.356350373049795e3, 5.063255070955623e3, 5.911561261992728e2}, 9887832800000.0, 2631200.0, 5, 0.01, (Color){139, 126, 112, 255}, "resources/ganymede.jpg"},
         {"Callisto", {-6.727058694929393e9, 7.687975581029507e11, -2.865250786776066e9}, {-2.101874814219247e4, -1.952231661511678e3, 1.802771219350360e2}, 7179283400000.0, 2410300.0, 5, 0.01, (Color){76, 66, 60, 255}, "resources/callisto.jpg"},
-        {"Mimas", {-8.516636581629769e11, 1.061807980517000e12, 1.472360319106400e10}, {-1.474897014376366e4, -1.697383155305549e4, 6.853184301229338e3}, 2503489000.0, 198800.0, 5, 0.01, (Color){207, 208, 197, 255}},
-        {"Enceladus", {-8.515107031148618e11, 1.061512709436290e12, 1.486921881305206e10}, {4.450800374170360e3, -6.989483977905879e3, -2.979779046934832e2}, 7210367000.0, 252300.0, 5, 0.01, (Color){231, 240, 242, 255}},
-        {"Tethys", {-8.512188824985989e11, 1.061642053707790e12, 1.476698511971587e10}, {-5.115510688254963e3, 3.511397721990353e3, -4.909965695299988e3}, 41210000000.0, 536300.0, 5, 0.01, (Color){202, 203, 191, 255}},
-        {"Dione", {-8.518781555267210e11, 1.061732633450093e12, 1.478965692075050e10}, {-7.858318030862320e3, -1.494278928583686e4, 5.057131541893256e3}, 73116000000.0, 562500.0, 5, 0.01, (Color){190, 190, 180, 255}},
-        {"Rhea", {-8.512081243267576e11, 1.061324823121111e12, 1.493666597036761e10}, {-1.049824839418538e3, -2.120834237853587e3, -2.262008728035155e3}, 153940000000.0, 764500.0, 5, 0.01, (Color){180, 180, 170, 255}},
+        {"Mimas", {-8.516636581629769e11, 1.061807980517000e12, 1.472360319106400e10}, {-1.474897014376366e4, -1.697383155305549e4, 6.853184301229338e3}, 2503489000.0, 198800.0, 3, 0.006, (Color){207, 208, 197, 255}},
+        {"Enceladus", {-8.515107031148618e11, 1.061512709436290e12, 1.486921881305206e10}, {4.450800374170360e3, -6.989483977905879e3, -2.979779046934832e2}, 7210367000.0, 252300.0, 3, 0.006, (Color){231, 240, 242, 255}},
+        {"Tethys", {-8.512188824985989e11, 1.061642053707790e12, 1.476698511971587e10}, {-5.115510688254963e3, 3.511397721990353e3, -4.909965695299988e3}, 41210000000.0, 536300.0, 3, 0.006, (Color){202, 203, 191, 255}},
+        {"Dione", {-8.518781555267210e11, 1.061732633450093e12, 1.478965692075050e10}, {-7.858318030862320e3, -1.494278928583686e4, 5.057131541893256e3}, 73116000000.0, 562500.0, 3, 0.006, (Color){190, 190, 180, 255}},
+        {"Rhea", {-8.512081243267576e11, 1.061324823121111e12, 1.493666597036761e10}, {-1.049824839418538e3, -2.120834237853587e3, -2.262008728035155e3}, 153940000000.0, 764500.0, 3, 0.006, (Color){180, 180, 170, 255}},
         {"Titan", {-8.522235383588899e11, 1.062636909412597e12, 1.435545804601282e10}, {-1.243404316489154e4, -8.910715502593630e3, 2.274078165657974e3}, 8978140000000.0, 2575500.0, 5, 0.01, (Color){201, 141, 71, 255}},
-        {"Hyperion", {-8.498936584797186e11, 1.061657170549778e12, 1.463885077849942e10}, {-8.302698690947226e3, -1.957528662676872e3, -1.687587676827684e3}, 370500000.0, 133000.0, 5, 0.01, (Color){136, 99, 70, 255}},
-        {"Iapetus", {-8.500748912276926e11, 1.058599343338804e12, 1.540162810358328e10}, {-5.123261858488538e3, -4.828112583515693e3, -4.944844931578785e2}, 120520000000.0, 734500.0, 5, 0.01, (Color){154, 137, 108, 255}},
-        {"Phoebe", {-8.596026791222472e11, 1.074004499023409e12, 1.536507341007924e10}, {-6.776370060222495e3, -5.315086922292050e3, 4.729529789854172e2}, 554800000.0, 106600.0, 5, 0.01, (Color){71, 68, 67, 255}},
-        {"Ariel", {-2.732926592440873e12, 1.448027471019274e11, 3.637137283902641e10}, {4.757137601380178e3, -8.020697343188287e3, 1.624044551554098e3}, 83430000000.0, 578897.9066892539, 5, 0.01, (Color){188, 203, 205, 255}},
-        {"Umbriel", {-2.732675563041831e12, 1.447467928691133e11, 3.636333632755692e10}, {2.493028286681002e3, -8.245372951301391e3, -3.520939634330069e3}, 85400000000.0, 584700.0, 5, 0.01, (Color){79, 85, 91, 255}},
-        {"Titania", {-2.732787677630899e12, 1.448064216307254e11, 3.661602093365331e10}, {3.070103306269134e3, -7.968837078556122e3, -6.678648147948683e2}, 222800000000.0, 788900.0, 5, 0.01, (Color){150, 153, 160, 255}},
-        {"Oberon", {-2.732558933353387e12, 1.447666066918093e11, 3.668055480000018e10}, {2.150769994181039e3, -7.902392191027546e3, -1.675388617524444e3}, 205340000000.0, 761400.0, 5, 0.01, (Color){102, 97, 92, 255}},
-        {"Miranda", {-2.732777161966636e12, 1.447492623984428e11, 3.627381035799313e10}, {3.688720362717225e3, -8.339561536683586e3, -5.153670218630429e3}, 4300000000.0, 235679.89734197358, 5, 0.01, (Color){169, 174, 163, 255}},
+        {"Hyperion", {-8.498936584797186e11, 1.061657170549778e12, 1.463885077849942e10}, {-8.302698690947226e3, -1.957528662676872e3, -1.687587676827684e3}, 370500000.0, 133000.0, 3, 0.006, (Color){136, 99, 70, 255}},
+        {"Iapetus", {-8.500748912276926e11, 1.058599343338804e12, 1.540162810358328e10}, {-5.123261858488538e3, -4.828112583515693e3, -4.944844931578785e2}, 120520000000.0, 734500.0, 3, 0.006, (Color){154, 137, 108, 255}},
+        {"Phoebe", {-8.596026791222472e11, 1.074004499023409e12, 1.536507341007924e10}, {-6.776370060222495e3, -5.315086922292050e3, 4.729529789854172e2}, 554800000.0, 106600.0, 3, 0.006, (Color){71, 68, 67, 255}},
+        {"Ariel", {-2.732926592440873e12, 1.448027471019274e11, 3.637137283902641e10}, {4.757137601380178e3, -8.020697343188287e3, 1.624044551554098e3}, 83430000000.0, 578897.9066892539, 3, 0.006, (Color){188, 203, 205, 255}},
+        {"Umbriel", {-2.732675563041831e12, 1.447467928691133e11, 3.636333632755692e10}, {2.493028286681002e3, -8.245372951301391e3, -3.520939634330069e3}, 85400000000.0, 584700.0, 3, 0.006, (Color){79, 85, 91, 255}},
+        {"Titania", {-2.732787677630899e12, 1.448064216307254e11, 3.661602093365331e10}, {3.070103306269134e3, -7.968837078556122e3, -6.678648147948683e2}, 222800000000.0, 788900.0, 3, 0.006, (Color){150, 153, 160, 255}},
+        {"Oberon", {-2.732558933353387e12, 1.447666066918093e11, 3.668055480000018e10}, {2.150769994181039e3, -7.902392191027546e3, -1.675388617524444e3}, 205340000000.0, 761400.0, 3, 0.006, (Color){102, 97, 92, 255}},
+        {"Miranda", {-2.732777161966636e12, 1.447492623984428e11, 3.627381035799313e10}, {3.688720362717225e3, -8.339561536683586e3, -5.153670218630429e3}, 4300000000.0, 235679.89734197358, 3, 0.006, (Color){169, 174, 163, 255}},
         {"Triton", {-3.036849327642753e12, -3.366751911600176e12, 1.391945940467093e11}, {1.719779322935817e3, -7.085360285245934e3, -1.421920964079227e3}, 1428495000000.0, 1352600.0, 5, 0.01, (Color){194, 190, 183, 255}},
-        {"Nereid", {-3.038398735205438e12, -3.359192069808491e12, 1.397450502344244e11}, {3.562841709325018e3, -4.230299935844265e3, -8.167482805650472e1}, 2070000000.0, 170000.0, 5, 0.01, (Color){164, 171, 174, 255}},
-        {"Proteus", {-3.037148682780139e12, -3.366463893257564e12, 1.392870454662285e11}, {-3.159672291805094e3, -4.248840637528186e3, 2.515053078162541e3}, 2580000000.0, 208000.0, 5, 0.01, (Color){89, 91, 89, 255}},
-        {"Charon", {5.435507571739943e12, -2.498585169590914e12, -1.304289714788928e12}, {2.649794155054928e3, 3.470637020560921e3, -1.318807330374422e3}, 106100000000.0, 606000.0, 5, 0.01, (Color){126, 117, 109, 255}},
-        {"Nix", {5.435506231426013e12, -2.498562926832713e12, -1.304251732310032e12}, {2.730701004502762e3, 3.613724687258064e3, -1.230248067585195e3}, 1496000.0, 18000.0, 5, 0.01, (Color){184, 183, 175, 255}},
-        {"Hydra", {5.435541905260762e12, -2.498564246715345e12, -1.304315503974369e12}, {2.619335786799016e3, 3.486905755936516e3, -1.240844499188735e3}, 2010000.0, 18500.0, 5, 0.01, (Color){164, 165, 157, 255}},
-        {"Kerberos", {5.435454730070845e12, -2.498637906440255e12, -1.304282146787419e12}, {2.598784079825089e3, 3.601093273190158e3, -1.023177596881631e3}, 60380.0, 6000.0, 5, 0.01, (Color){84, 80, 78, 255}},
+        {"Nereid", {-3.038398735205438e12, -3.359192069808491e12, 1.397450502344244e11}, {3.562841709325018e3, -4.230299935844265e3, -8.167482805650472e1}, 2070000000.0, 170000.0, 3, 0.006, (Color){164, 171, 174, 255}},
+        {"Proteus", {-3.037148682780139e12, -3.366463893257564e12, 1.392870454662285e11}, {-3.159672291805094e3, -4.248840637528186e3, 2.515053078162541e3}, 2580000000.0, 208000.0, 3, 0.006, (Color){89, 91, 89, 255}},
+        {"Charon", {5.435507571739943e12, -2.498585169590914e12, -1.304289714788928e12}, {2.649794155054928e3, 3.470637020560921e3, -1.318807330374422e3}, 106100000000.0, 606000.0, 3, 0.006, (Color){126, 117, 109, 255}},
+        {"Nix", {5.435506231426013e12, -2.498562926832713e12, -1.304251732310032e12}, {2.730701004502762e3, 3.613724687258064e3, -1.230248067585195e3}, 1496000.0, 18000.0, 3, 0.006, (Color){184, 183, 175, 255}},
+        {"Hydra", {5.435541905260762e12, -2.498564246715345e12, -1.304315503974369e12}, {2.619335786799016e3, 3.486905755936516e3, -1.240844499188735e3}, 2010000.0, 18500.0, 3, 0.006, (Color){164, 165, 157, 255}},
+        {"Kerberos", {5.435454730070845e12, -2.498637906440255e12, -1.304282146787419e12}, {2.598784079825089e3, 3.601093273190158e3, -1.023177596881631e3}, 60380.0, 6000.0, 3, 0.006, (Color){84, 80, 78, 255}},
     }}
 };
 
@@ -78,15 +92,17 @@ namespace {
 }
 
 // Used for research models
-const std::array<PlanetarySystem, 7> simulation::planetary_systems{{
-    {3, earth_moons},
-    {4, mars_moons},
-    {5, jupiter_moons},
-    {6, saturn_moons},
-    {7, uranus_moons},
-    {8, neptune_moons},
-    {9, pluto_moons},
-}};
+const std::array<PlanetarySystem, 7> simulation::planetary_systems{
+    {
+        {3, earth_moons},
+        {4, mars_moons},
+        {5, jupiter_moons},
+        {6, saturn_moons},
+        {7, uranus_moons},
+        {8, neptune_moons},
+        {9, pluto_moons},
+    }
+};
 
 namespace {
     // Ancestor just below a root (ex. Earth for the Moon, Earth for Earth); roots return themselves
@@ -106,15 +122,16 @@ namespace {
     // nullopt outside the covered range
     class HistoryCursor {
         const std::deque<OrbitSample>& history;
-        std::size_t head_step;
+        step_t head_step;
         Vec3 head;
         std::size_t k = 0; // history[k].step <= step of the last query
 
     public:
-        HistoryCursor(const std::deque<OrbitSample>& history, const std::size_t head_step, const Vec3& head)
-            : history(history), head_step(head_step), head(head) {}
+        HistoryCursor(const std::deque<OrbitSample>& history, const step_t head_step, const Vec3& head)
+        : history(history), head_step(head_step), head(head) {
+        }
 
-        [[nodiscard]] std::optional<Vec3> at(const std::size_t step) {
+        [[nodiscard]] std::optional<Vec3> at(const step_t step) {
             if (history.empty() || step < history.front().step || step > head_step) return std::nullopt;
 
             const OrbitSample& newest = history.back();
@@ -141,7 +158,8 @@ namespace {
         std::size_t k = 0;
 
     public:
-        explicit StepWalker(const std::deque<OrbitSample>& history) : history(history) {}
+        explicit StepWalker(const std::deque<OrbitSample>& history) : history(history) {
+        }
 
         void for_each_between(const std::size_t lo, const std::size_t hi, auto&& f) {
             while (k < history.size() && history[k].step <= lo) k++;
@@ -168,16 +186,17 @@ namespace {
     struct CommandBatch {
         bool bodies_changed = false;
         bool physical_edit = false;
+        bool position_jump = false; // Only teleports break trails; mass/velocity/create/delete keep continuous history
         bool restored_checkpoint = false;
         bool checkpoints_changed = false;
         bool clear_graphs = false;
-        std::optional<std::size_t> requested_steps;
+        std::optional<step_t> requested_steps;
         bool stop = false; // StepN: stop processing further commands in this batch
 
         void apply(const ui_data::UpdateBodyCommand& cmd) {
             const auto valid = [](const std::optional<double>& value) {
-                    return !value || std::isfinite(*value);
-                };
+                return !value || std::isfinite(*value);
+            };
 
             if (cmd.i >= NUM_CELESTIAL_BODIES) return;
 
@@ -205,12 +224,15 @@ namespace {
 
             if (!valid(absolute.mass) ||
                 !valid(absolute.px) || !valid(absolute.py) || !valid(absolute.pz) ||
-                !valid(absolute.vx) || !valid(absolute.vy) || !valid(absolute.vz)) {
+                !valid(absolute.vx) || !valid(absolute.vy) || !valid(absolute.vz) ||
+                !valid(cmd.physical_radius_m) || (cmd.physical_radius_m && *cmd.physical_radius_m < 0.0) ||
+                (cmd.name && is_blank(*cmd.name))) {
                 return;
             }
 
             bodies_changed = true;
-            physical_edit |= cmd.mass || cmd. px || cmd.py || cmd.pz || cmd.vx || cmd.vy || cmd.vz;
+            position_jump |= cmd.px || cmd.py || cmd.pz;
+            physical_edit |= cmd.mass || cmd.px || cmd.py || cmd.pz || cmd.vx || cmd.vy || cmd.vz;
 
             if (cmd.mass) simulation::celestial_bodies.gravitational_masses[cmd.i] = *cmd.mass * config::GRAVITATIONAL_CONSTANT;
             if (absolute.px) simulation::celestial_bodies.pos_x[cmd.i] = *absolute.px;
@@ -221,6 +243,11 @@ namespace {
             if (absolute.vz) simulation::celestial_bodies.vel_z[cmd.i] = *absolute.vz;
             if (cmd.disable_rendering) simulation::celestial_bodies.rendering_visible[cmd.i] = false;
             if (cmd.enable_rendering) simulation::celestial_bodies.rendering_visible[cmd.i] = true;
+            if (cmd.name) simulation::celestial_bodies.names[cmd.i] = *cmd.name;
+            if (cmd.physical_radius_m) simulation::celestial_bodies.physical_radius_m[cmd.i] = *cmd.physical_radius_m;
+            if (cmd.color) simulation::celestial_bodies.colors[cmd.i] = *cmd.color;
+            if (cmd.clear_texture) simulation::celestial_bodies.texture_ids[cmd.i].reset();
+            else if (cmd.texture_id) simulation::celestial_bodies.texture_ids[cmd.i] = cmd.texture_id;
         }
 
         void apply(const ui_data::CaptureCheckpoint&) {
@@ -232,6 +259,13 @@ namespace {
             if (simulation::load_checkpoint(cmd.id)) {
                 checkpoints_changed = true;
                 restored_checkpoint = true;
+            }
+        }
+
+        void apply(const ui_data::ImportStateCommand& cmd) {
+            if (simulation::import_state(cmd)) {
+                checkpoints_changed = true;
+                restored_checkpoint = true; // Same follow-up as a restore: baselines, graph history, pause, publish
             }
         }
 
@@ -260,18 +294,24 @@ namespace {
             clear_graphs = true;
         }
 
-        void apply(const ui_data::CreateBodyCommand&) {
-            // TODO
+        void apply(const ui_data::CreateBodyCommand& cmd) {
+            if (simulation::create_body(cmd)) {
+                bodies_changed = true;
+                physical_edit = true;
+            }
         }
 
-        void apply(const ui_data::DeleteBodyCommand&) {
-            // TODO
+        void apply(const ui_data::DeleteBodyCommand& cmd) {
+            if (simulation::delete_body(cmd.i)) {
+                bodies_changed = true;
+                physical_edit = true;
+            }
         }
     };
 }
 
 void simulation::apply_planet_systems_approximation() {
-    for (const auto&[parent_index, moon_indices] : planetary_systems) {
+    for (const auto& [parent_index, moon_indices] : planetary_systems) {
         double total_gravitational_mass = celestial_bodies.original_gravitational_masses[parent_index];
         Vec3 weighted_position = celestial_bodies.position(parent_index) * celestial_bodies.original_gravitational_masses[parent_index];
         Vec3 weighted_velocity = celestial_bodies.velocity(parent_index) * celestial_bodies.original_gravitational_masses[parent_index];
@@ -292,7 +332,7 @@ void simulation::apply_planet_systems_approximation() {
 }
 
 std::ofstream simulation::live_csv_file;
-std::optional<std::size_t> simulation::last_csv_sample_step;
+std::optional<step_t> simulation::last_csv_sample_step;
 bool simulation::csv_output_initialized = false;
 bool simulation::live_csv_write_failed = false;
 
@@ -316,11 +356,11 @@ void simulation::write_csv_header(std::ostream& output) {
     for (std::size_t i = 0; i < NUM_CATALOG_BODIES; i++) {
         if (!celestial_bodies.enabled[i]) continue;
         output << ',' << celestial_bodies.names[i] << "_position_x"
-               << ',' << celestial_bodies.names[i] << "_position_y"
-               << ',' << celestial_bodies.names[i] << "_position_z"
-               << ',' << celestial_bodies.names[i] << "_velocity_x"
-               << ',' << celestial_bodies.names[i] << "_velocity_y"
-               << ',' << celestial_bodies.names[i] << "_velocity_z";
+            << ',' << celestial_bodies.names[i] << "_position_y"
+            << ',' << celestial_bodies.names[i] << "_position_z"
+            << ',' << celestial_bodies.names[i] << "_velocity_x"
+            << ',' << celestial_bodies.names[i] << "_velocity_y"
+            << ',' << celestial_bodies.names[i] << "_velocity_z";
     }
     output << '\n';
 }
@@ -336,20 +376,20 @@ void simulation::write_csv_entry(std::ostream& output, const CSVEntry& entry) {
         if (!velocity.has_value()) continue;
 
         output << ',' << position->x
-               << ',' << position->y
-               << ',' << position->z
-               << ',' << velocity->x
-               << ',' << velocity->y
-               << ',' << velocity->z;
+            << ',' << position->y
+            << ',' << position->z
+            << ',' << velocity->x
+            << ',' << velocity->y
+            << ',' << velocity->z;
     }
 
     output << '\n';
 }
 
-bool simulation::report_live_csv_write_failure(const std::size_t step) {
+bool simulation::report_live_csv_write_failure(const step_t step) {
     if (!live_csv_write_failed) {
         std::cerr << "Error: Failed to write CSV sample at step " << step
-                  << " to " << *runtime_config::csv_path << ".\n";
+            << " to " << *runtime_config::csv_path << ".\n";
         live_csv_write_failed = true;
     }
     return false;
@@ -359,13 +399,13 @@ bool simulation::record_csv_sample(const bool force) {
     if (!csv_output_initialized || !runtime_config::csv_path.has_value()) return true;
     if (live_csv_write_failed) return false;
 
-    const std::size_t step = config::steps_simulated.load();
+    const step_t step = config::steps_simulated.load();
     if (last_csv_sample_step.has_value() && *last_csv_sample_step == step) return true;
 
     if (!force) {
         if (!runtime_config::sample_csv_data_every_steps.has_value()) return true;
 
-        const std::size_t cadence = *runtime_config::sample_csv_data_every_steps;
+        const step_t cadence = *runtime_config::sample_csv_data_every_steps;
         if (cadence == 0 || step % cadence != 0) return true;
     }
 
@@ -417,11 +457,121 @@ void simulation::clear_orbit_histories() {
     orbit_turn_since_sample.fill(0.0);
 }
 
+void simulation::clear_orbit_history(const std::size_t i) {
+    orbit_history[i].clear();
+    orbit_center_reference_history[i].clear();
+    orbit_turn_since_sample[i] = 0.0;
+}
+
+std::optional<std::size_t> simulation::create_body(const ui_data::CreateBodyCommand& cmd) {
+    // Don't allow SIMD / non-full interation sets
+    if (runtime_config::use_simd || runtime_config::interaction_set != runtime_config::InteractionSet::full) return std::nullopt;
+
+    // Compute absolut position & velocity (changes if reference was set)
+    Vec3 position = cmd.position;
+    Vec3 velocity = cmd.velocity;
+
+    if (cmd.reference_index) {
+        const std::size_t r = *cmd.reference_index;
+        if (r >= NUM_CELESTIAL_BODIES || !celestial_bodies.enabled[r]) return std::nullopt;
+        position += celestial_bodies.position(r);
+        velocity += celestial_bodies.velocity(r);
+    }
+
+    // Finite values (zero/negative masses stay allowed, like edits)
+    const auto finite = [](const Vec3& value) {
+        return std::isfinite(value.x) && std::isfinite(value.y) && std::isfinite(value.z);
+    };
+
+    // Finite: position, velocity, mass, physical_radius_m
+    // physical_radius_m must be >= 0
+    if (!finite(position) || !finite(velocity) || !std::isfinite(cmd.mass)
+        || !std::isfinite(cmd.physical_radius_m) || cmd.physical_radius_m < 0
+        || is_blank(cmd.name)) {
+        return std::nullopt;
+    }
+
+    // Free slot for the new (custom) body
+    std::optional<std::size_t> slot;
+
+    // Custom bodies live only in the custom range: slot < NUM_CATALOG_BODIES always means "this is a catalog body"
+    for (std::size_t i = NUM_CATALOG_BODIES; i < NUM_CELESTIAL_BODIES; i++) {
+        if (!celestial_bodies.enabled[i]) {
+            slot = i;
+            break;
+        }
+    }
+
+    if (!slot) return std::nullopt;
+    const std::size_t i = *slot;
+
+    // Overwrite every field (the slot may contain a deleted body's leftovers)
+    celestial_bodies.set_position(i, position);
+    celestial_bodies.set_velocity(i, velocity);
+
+    celestial_bodies.physical_radius_m[i] = cmd.physical_radius_m;
+
+    celestial_bodies.enabled[i] = true;
+    celestial_bodies.rendering_visible[i] = true;
+
+    const double gravitational_mass = cmd.mass * config::GRAVITATIONAL_CONSTANT;
+    celestial_bodies.original_gravitational_masses[i] = gravitational_mass;
+    celestial_bodies.gravitational_masses[i] = gravitational_mass;
+
+    celestial_bodies.names[i] = cmd.name;
+
+    celestial_bodies.draw_radii_2d[i] = config::CUSTOM_BODY_RADIUS_2D;
+    celestial_bodies.draw_radii_3d[i] = config::CUSTOM_BODY_RADIUS_3D;
+
+    celestial_bodies.colors[i] = cmd.color;
+
+    celestial_bodies.texture_ids[i] = cmd.texture_id;
+
+    celestial_bodies.j2[i] = 0.0;
+    celestial_bodies.equatorial_radii[i] = 0.0;
+    celestial_bodies.pole_axes[i] = Vec3{};
+
+    celestial_bodies.body_ids[i] = celestial_bodies.next_body_id++;
+
+    // Slot-specific state
+    clear_orbit_history(i);
+    graph_history.invalidate_body(i);
+
+    // Rebuild the pairs
+    force_pairs::initialize_all_pairs(celestial_bodies);
+    force_pairs::set_interaction_set(planetary_systems);
+
+    return i;
+}
+
+bool simulation::delete_body(const std::size_t i) {
+    // Don't allow SIMD / non-full interation sets
+    if (runtime_config::use_simd || runtime_config::interaction_set != runtime_config::InteractionSet::full) return false;
+
+    if (i >= NUM_CELESTIAL_BODIES || !celestial_bodies.enabled[i]) return false;
+
+    // Deleting the last body is allowed: An empty simulation can be the starting point for a custom scenario
+
+    celestial_bodies.enabled[i] = false;
+    clear_orbit_history(i);
+
+    // The coordinate origin must not stay on a (frozen) deleted body
+    if (config::center_celestial_body_index.load() == i) {
+        config::center_celestial_body_index = config::NO_BODY_SELECTED;
+    }
+
+    // Rebuild the pairs
+    force_pairs::initialize_all_pairs(celestial_bodies);
+    force_pairs::set_interaction_set(planetary_systems);
+
+    return true;
+}
+
 void simulation::save_orbit_points() {
     // Trails are rendering-only; headless runs never draw them
     if (runtime_config::headless) return;
 
-    const std::size_t step = config::steps_simulated.load();
+    const step_t step = config::steps_simulated.load();
 
     // Velocity-direction turn per primary sample (1024 samples per circular orbit)
     constexpr double TURN_PER_SAMPLE = 2.0 * std::numbers::pi / config::ORBIT_POINTS_PER_REVOLUTION;
@@ -460,8 +610,8 @@ void simulation::save_orbit_points() {
         auto& history = orbit_history[i];
 
         const bool due = history.empty()
-            || orbit_turn_since_sample[i] >= TURN_PER_SAMPLE
-            || step - history.back().step >= orbit_max_gap_steps;
+                         || orbit_turn_since_sample[i] >= TURN_PER_SAMPLE
+                         || step - history.back().step >= orbit_max_gap_steps;
         if (!due) continue;
 
         history.push_back({step, celestial_bodies.position(i)});
@@ -561,8 +711,8 @@ namespace {
                 const auto factor_j = vmulq_f64(gm_i, inv_r3);
 
                 auto update_axis = [&](double* accelerations,
-                    const float64x2_t delta,
-                    float64x2_t& sum_i) {
+                                       const float64x2_t delta,
+                                       float64x2_t& sum_i) {
                     sum_i = vaddq_f64(sum_i, vmulq_f64(delta, factor_i));
 
                     // Retroactive effect on j and j + 1
@@ -616,14 +766,14 @@ Accelerations simulation::compute_accelerations() {
     force_pairs::record_acceleration_evaluation();
 
     if (runtime_config::use_simd) {
-        #if defined(__aarch64__)
+#if defined(__aarch64__)
         return compute_accelerations_full_neon();
-        #endif
+#endif
     }
 
     Accelerations accelerations = {};
 
-    for (const auto&[i, j] : force_pairs::active_pairs) {
+    for (const auto& [i, j] : force_pairs::active_pairs) {
         const Vec3 separation{
             celestial_bodies.pos_x[j] - celestial_bodies.pos_x[i],
             celestial_bodies.pos_y[j] - celestial_bodies.pos_y[i],
@@ -687,7 +837,7 @@ void simulation::simulate_step() {
         accelerations_at_current_positions = compute_accelerations();
     }
 
-    const auto&[acc_x, acc_y, acc_z] = *accelerations_at_current_positions;
+    const auto& [acc_x, acc_y, acc_z] = *accelerations_at_current_positions;
 
     // Velocity Verlet: keep the orbit phase stable over many short-period inner-planet revolutions
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
@@ -725,11 +875,11 @@ void simulation::simulate_step() {
 void simulation::publish_snapshot() {
     auto snap = std::make_shared<ui_data::RenderSnapshot>();
 
-    const std::size_t center_index = config::center_celestial_body_index.load();
-    const bool has_center_body = center_index != config::NO_BODY_SELECTED;
+    snap->center_index = config::center_celestial_body_index.load();
+    const bool has_center_body = snap->center_index != config::NO_BODY_SELECTED;
 
-    const std::size_t current_step = config::steps_simulated.load();
-    const Vec3 center = has_center_body ? celestial_bodies.position(center_index) : Vec3{0, 0, 0};
+    snap->step = config::steps_simulated.load();
+    const Vec3 center = has_center_body ? celestial_bodies.position(snap->center_index) : Vec3{0, 0, 0};
 
     // Computed first: the trails below decide by it which center history they may use
     snap->hierarchy = compute_hierarchy(current_point_masses());
@@ -740,27 +890,32 @@ void simulation::publish_snapshot() {
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
         if (!celestial_bodies.enabled[i]) continue;
 
-        Vec3 pos = celestial_bodies.position(i);
-        pos -= center;
+        const Vec3 absolute_pos = celestial_bodies.position(i);
+        const Vec3 relative_pos = absolute_pos - center;
         snap->bodies[i] = {
-            celestial_bodies.names[i],
-            pos,
-            celestial_bodies.position(i),
-            celestial_bodies.velocity(i),
-            celestial_bodies.get_mass(i),
-            celestial_bodies.physical_radius_m[i],
-            celestial_bodies.draw_radii_2d[i],
-            celestial_bodies.draw_radii_3d[i],
-            celestial_bodies.colors[i],
-            &celestial_bodies.planet_visuals[i],
-            celestial_bodies.rendering_visible[i]
+            .id                      = celestial_bodies.body_ids[i],
+            .name                    = celestial_bodies.names[i],
+            .relative_position       = relative_pos,
+            .absolute_position       = absolute_pos,
+            .velocity                = celestial_bodies.velocity(i),
+            .mass                    = celestial_bodies.get_mass(i),
+            .physical_radius_m       = celestial_bodies.physical_radius_m[i],
+            .radius_2d               = celestial_bodies.draw_radii_2d[i],
+            .radius_3d               = celestial_bodies.draw_radii_3d[i],
+            .color                   = celestial_bodies.colors[i],
+            .texture_id              = celestial_bodies.texture_ids[i],
+            .rendering_visible       = celestial_bodies.rendering_visible[i],
+            .gravitational_parameter = celestial_bodies.gravitational_masses[i],
+            .j2                      = celestial_bodies.j2[i],
+            .j2_reference_radius_m   = celestial_bodies.equatorial_radii[i],
+            .pole_axis               = celestial_bodies.pole_axes[i],
         };
 
         const auto& history = orbit_history[i];
         max_used = std::max(max_used, history.size());
 
         // Don't include center in snapshot
-        if (i == center_index) continue;
+        if (i == snap->center_index) continue;
         if (history.size() < 2) continue;
 
         snap->orbits[i].color = celestial_bodies.colors[i];
@@ -775,17 +930,17 @@ void simulation::publish_snapshot() {
             continue;
         }
 
-        const auto& center_history = orbit_history[center_index];
-        const auto& center_reference_history = orbit_center_reference_history[center_index];
+        const auto& center_history = orbit_history[snap->center_index];
+        const auto& center_reference_history = orbit_center_reference_history[snap->center_index];
 
         // Bodies in the same planet-level system (planet + moons, siblings) need the center's high-resolution
         // history. Distant bodies may fall back to the coarse, centuries-long center history: its interpolation
         // error is invisible at planetary distances and allows complete outer orbits
-        const bool allow_coarse = !share_local_system(snap->hierarchy, center_index, i);
-        const std::size_t fine_start = center_history.empty() ? current_step : center_history.front().step;
+        const bool allow_coarse = !share_local_system(snap->hierarchy, snap->center_index, i);
+        const step_t fine_start = center_history.empty() ? snap->step : center_history.front().step;
 
-        HistoryCursor body_at(history, current_step, body_now);
-        HistoryCursor center_fine_at(center_history, current_step, center);
+        HistoryCursor body_at(history, snap->step, body_now);
+        HistoryCursor center_fine_at(center_history, snap->step, center);
         // The coarse history only covers the past and ends at its newest sample
         HistoryCursor center_coarse_at(
             center_reference_history,
@@ -793,10 +948,12 @@ void simulation::publish_snapshot() {
             center_reference_history.empty() ? Vec3{} : center_reference_history.back().position
         );
 
-        auto emit = [&](const std::size_t step) {
+        auto emit = [&](const step_t step) {
             const std::optional<Vec3> c = step >= fine_start
-                ? center_fine_at.at(step)
-                : allow_coarse ? center_coarse_at.at(step) : std::nullopt;
+                                              ? center_fine_at.at(step)
+                                              : allow_coarse
+                                              ? center_coarse_at.at(step)
+                                              : std::nullopt;
             if (!c) return; // outside the center's coverage
 
             if (const std::optional<Vec3> body = body_at.at(step)) points.push_back(*body - *c);
@@ -811,8 +968,8 @@ void simulation::publish_snapshot() {
         points.reserve(history.size() + center_history.size() + 1);
 
         for (std::size_t j = 0; j < history.size(); j++) {
-            const std::size_t lo = history[j].step;
-            const std::size_t hi = j + 1 < history.size() ? history[j + 1].step : current_step;
+            const step_t lo = history[j].step;
+            const step_t hi = j + 1 < history.size() ? history[j + 1].step : snap->step;
 
             emit(lo);
             if (allow_coarse && lo < fine_start) {
@@ -822,7 +979,7 @@ void simulation::publish_snapshot() {
         }
 
         // Connect the trail head to the body's current position
-        if (history.back().step != current_step) points.push_back(body_now - center);
+        if (history.back().step != snap->step) points.push_back(body_now - center);
     }
 
     snap->max_orbit_points_used = max_used;
@@ -884,7 +1041,23 @@ void simulation::save_checkpoint() {
         state.vz[i] = celestial_bodies.vel_z[i];
 
         state.enabled[i] = celestial_bodies.enabled[i];
+        state.physical_radius_m[i] = celestial_bodies.physical_radius_m[i];
+
         state.gravitational_masses[i] = celestial_bodies.gravitational_masses[i];
+        state.original_gravitational_masses[i] = celestial_bodies.original_gravitational_masses[i];
+        state.names[i] = celestial_bodies.names[i];
+
+        state.draw_radii_2d[i] = celestial_bodies.draw_radii_2d[i];
+        state.draw_radii_3d[i] = celestial_bodies.draw_radii_3d[i];
+        state.colors[i] = celestial_bodies.colors[i];
+
+        state.texture_ids[i] = celestial_bodies.texture_ids[i];
+
+        state.j2[i] = celestial_bodies.j2[i];
+        state.equatorial_radii[i] = celestial_bodies.equatorial_radii[i];
+        state.pole_axes[i] = celestial_bodies.pole_axes[i];
+
+        state.body_ids[i] = celestial_bodies.body_ids[i];
     }
 
     state.steps_simulated = config::steps_simulated;
@@ -902,7 +1075,7 @@ void simulation::save_checkpoint() {
     );
 }
 
-bool simulation::delete_checkpoint(const std::size_t id) {
+bool simulation::delete_checkpoint(const std::uint64_t id) {
     // Preserve the initial scenario for Reset simulation
     if (id == 0) return false;
 
@@ -914,7 +1087,7 @@ bool simulation::delete_checkpoint(const std::size_t id) {
     return true;
 }
 
-bool simulation::load_checkpoint(const std::size_t id) {
+bool simulation::load_checkpoint(const std::uint64_t id) {
     const auto it = std::ranges::find(checkpoints, id, &SimulationCheckpoint::id);
 
     if (it == checkpoints.end()) return false;
@@ -922,16 +1095,32 @@ bool simulation::load_checkpoint(const std::size_t id) {
     const auto& checkpoint = *it;
 
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-         celestial_bodies.pos_x[i] = checkpoint.px[i];
-         celestial_bodies.pos_y[i] = checkpoint.py[i];
-         celestial_bodies.pos_z[i] = checkpoint.pz[i];
+        celestial_bodies.pos_x[i] = checkpoint.px[i];
+        celestial_bodies.pos_y[i] = checkpoint.py[i];
+        celestial_bodies.pos_z[i] = checkpoint.pz[i];
 
-         celestial_bodies.vel_x[i] = checkpoint.vx[i];
-         celestial_bodies.vel_y[i] = checkpoint.vy[i];
-         celestial_bodies.vel_z[i] = checkpoint.vz[i];
+        celestial_bodies.vel_x[i] = checkpoint.vx[i];
+        celestial_bodies.vel_y[i] = checkpoint.vy[i];
+        celestial_bodies.vel_z[i] = checkpoint.vz[i];
 
-         celestial_bodies.enabled[i] = checkpoint.enabled[i];
-         celestial_bodies.gravitational_masses[i] = checkpoint.gravitational_masses[i];
+        celestial_bodies.physical_radius_m[i] = checkpoint.physical_radius_m[i];
+        celestial_bodies.enabled[i] = checkpoint.enabled[i];
+
+        celestial_bodies.gravitational_masses[i] = checkpoint.gravitational_masses[i];
+        celestial_bodies.original_gravitational_masses[i] = checkpoint.original_gravitational_masses[i];
+        celestial_bodies.names[i] = checkpoint.names[i];
+
+        celestial_bodies.draw_radii_2d[i] = checkpoint.draw_radii_2d[i];
+        celestial_bodies.draw_radii_3d[i] = checkpoint.draw_radii_3d[i];
+        celestial_bodies.colors[i] = checkpoint.colors[i];
+
+        celestial_bodies.texture_ids[i] = checkpoint.texture_ids[i];
+
+        celestial_bodies.j2[i] = checkpoint.j2[i];
+        celestial_bodies.equatorial_radii[i] = checkpoint.equatorial_radii[i];
+        celestial_bodies.pole_axes[i] = checkpoint.pole_axes[i];
+
+        celestial_bodies.body_ids[i] = checkpoint.body_ids[i];
     }
 
     config::steps_simulated = checkpoint.steps_simulated;
@@ -949,6 +1138,7 @@ bool simulation::load_checkpoint(const std::size_t id) {
 
     clear_orbit_histories();
 
+    // Rebuild the pairs
     force_pairs::initialize_all_pairs(celestial_bodies);
     force_pairs::set_interaction_set(planetary_systems);
 
@@ -957,11 +1147,93 @@ bool simulation::load_checkpoint(const std::size_t id) {
     return true;
 }
 
-bool simulation::rename_checkpoint(const std::size_t id, const str& new_label) {
+std::optional<std::uint64_t> simulation::import_state(const ui_data::ImportStateCommand& cmd) {
+    // Same gate as body creation: SIMD and pruned profiles assume the fixed catalog (so we aren't allowed to modify it)
+    if (runtime_config::use_simd || runtime_config::interaction_set != runtime_config::InteractionSet::full) return std::nullopt;
+
+    const auto initial = std::ranges::find(checkpoints, 0, &SimulationCheckpoint::id);
+    if (initial == checkpoints.end()) return std::nullopt;
+
+    SimulationCheckpoint state = *initial; // Catalog defaults for every catalog slot (names, colors, radii, J2, textures)
+    state.id = next_checkpoint_id++;
+    state.label = cmd.label;
+    std::ranges::fill(state.enabled, false); // Bodies not in the file stay disabled
+
+    // Not part of checkpoints: Applied after the restore below
+    std::vector<std::pair<std::size_t, bool>> visibility;
+
+    std::size_t next_custom_slot = NUM_CATALOG_BODIES; // The parser allows at most MAX_CUSTOM_BODIES
+
+    for (const auto& body : cmd.bodies) {
+        const bool catalog = body.catalog_index.has_value();
+        const std::size_t i = catalog ? *body.catalog_index : next_custom_slot++;
+
+        state.enabled[i] = true;
+        state.body_ids[i] = catalog ? i : celestial_bodies.next_body_id++; // Custom: fresh ID, never reused
+        state.names[i] = body.name;
+
+        state.px[i] = body.position.x;
+        state.py[i] = body.position.y;
+        state.pz[i] = body.position.z;
+        state.vx[i] = body.velocity.x;
+        state.vy[i] = body.velocity.y;
+        state.vz[i] = body.velocity.z;
+
+        state.gravitational_masses[i] = body.gravitational_parameter;
+        state.original_gravitational_masses[i] = body.gravitational_parameter; // Only used for planet-systems aggregation at startup
+
+        if (!catalog) {
+            // Custom defaults: the template slot holds whatever was there at startup
+            state.physical_radius_m[i] = 0.0;
+            state.draw_radii_2d[i] = config::CUSTOM_BODY_RADIUS_2D;
+            state.draw_radii_3d[i] = config::CUSTOM_BODY_RADIUS_3D;
+            state.colors[i] = config::CUSTOM_BODY_DEFAULT_COLOR;
+            state.texture_ids[i].reset();
+            state.j2[i] = 0.0;
+            state.equatorial_radii[i] = 0.0;
+            state.pole_axes[i] = Vec3{};
+        }
+
+        if (body.texture_id) state.texture_ids[i] = *body.texture_id; // Inner std::nullopt = no texture
+
+        // Key present in the file: overrides the catalog/custom default
+        if (body.radius_m) state.physical_radius_m[i] = *body.radius_m;
+
+        if (body.oblateness) {
+            const auto& o = *body.oblateness; // nullopt here = explicit null = no oblateness
+            state.j2[i] = o ? o->j2 : 0.0;
+            state.equatorial_radii[i] = o ? o->reference_radius_m : 0.0;
+            state.pole_axes[i] = o ? o->pole : Vec3{};
+        }
+
+        if (body.color) {
+            state.colors[i] = body.color->value_or(catalog ? initial->colors[i] : config::CUSTOM_BODY_DEFAULT_COLOR);
+        }
+
+        visibility.emplace_back(i, body.visible);
+    }
+
+    const double dt = runtime_config::time_step;
+    state.steps_simulated = static_cast<std::size_t>(std::llround(cmd.simulated_seconds / dt));
+    state.run_time_seconds = 0.0;
+
+    checkpoints.push_back(std::move(state));
+    const std::size_t id = checkpoints.back().id;
+
+    if (!load_checkpoint(id)) return std::nullopt;
+
+    for (const auto& [i, visible] : visibility) {
+        celestial_bodies.rendering_visible[i] = visible;
+    }
+
+    return id;
+}
+
+bool simulation::rename_checkpoint(const std::uint64_t id, const str& new_label) {
     // Preserve the initial scenario for Reset simulation
     if (id == 0) return false;
 
-    const bool valid = std::string_view(new_label).find_first_not_of(" \t\r\n") != std::string_view::npos;
+    const bool valid = str_view(new_label).find_first_not_of(" \t\r\n") != str_view::npos;
     if (!valid) return false;
 
     const auto it = std::ranges::find(checkpoints, id, &SimulationCheckpoint::id);
@@ -1096,17 +1368,17 @@ Vec3 simulation::calculate_barycenter(const double total_mass) {
     return weighted_positions / (total_mass * config::GRAVITATIONAL_CONSTANT);
 }
 
-Vec3 simulation::calculate_expected_barycenter(const Vec3 &baseline_barycenter, const Vec3 &initial_linear_momentum, const double total_mass, const std::size_t baseline_steps_simulated) {
+Vec3 simulation::calculate_expected_barycenter(const Vec3& baseline_barycenter, const Vec3& initial_linear_momentum, const double total_mass, const std::uint64_t baseline_steps_simulated) {
     const double elapsed_seconds = (static_cast<double>(config::steps_simulated.load()) - static_cast<double>(baseline_steps_simulated)) * runtime_config::time_step;
-    return baseline_barycenter + (initial_linear_momentum / total_mass) * elapsed_seconds;
+    return baseline_barycenter + initial_linear_momentum / total_mass * elapsed_seconds;
 }
 
 void simulation::reset_diagnostics_baseline() {
     const double total_mass = calculate_total_mass();
     diagnostics_baseline = {
-        .total_energy = calculate_total_energy(),
+        .total_energy    = calculate_total_energy(),
         .linear_momentum = calculate_linear_momentum(),
-        .barycenter = std::isfinite(total_mass) && total_mass != 0.0 ? calculate_barycenter(total_mass) : Vec3{},
+        .barycenter      = std::isfinite(total_mass) && total_mass != 0.0 ? calculate_barycenter(total_mass) : Vec3{},
         .steps_simulated = config::steps_simulated.load()
     };
 }
@@ -1124,11 +1396,21 @@ GraphSample simulation::make_graph_sample() {
     const auto& accelerations = *accelerations_at_current_positions;
 
     for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
-        // Disabled bodies keep stale values, so the UI must only offer populated bodies
-        sample.position[i] = celestial_bodies.position(i);
-        sample.velocity[i] = celestial_bodies.velocity(i);
-        sample.mass[i] = celestial_bodies.gravitational_masses[i] / config::GRAVITATIONAL_CONSTANT;
-        sample.acceleration[i] = {accelerations.x[i], accelerations.y[i], accelerations.z[i]};
+        if (celestial_bodies.enabled[i]) {
+            sample.body_id[i] = celestial_bodies.body_ids[i]; // enabled
+
+            sample.position[i] = celestial_bodies.position(i);
+            sample.velocity[i] = celestial_bodies.velocity(i);
+            sample.mass[i] = celestial_bodies.gravitational_masses[i] / config::GRAVITATIONAL_CONSTANT;
+            sample.acceleration[i] = {accelerations.x[i], accelerations.y[i], accelerations.z[i]};
+        } else {
+            sample.body_id[i] = config::NO_BODY_ID; // disabled
+
+            // Disabled bodies keep NaN values
+            constexpr double NaN = std::numeric_limits<double>::quiet_NaN();
+            sample.position[i] = sample.velocity[i] = sample.acceleration[i] = {NaN, NaN, NaN};
+            sample.mass[i] = NaN;
+        }
     }
 
     sample.energy = calculate_total_energy();
@@ -1151,8 +1433,8 @@ GraphSample simulation::make_graph_sample() {
 
         sample.barycenter_drift = barycenter - expected;
         sample.barycenter_valid = std::isfinite(sample.barycenter_drift.x)
-                               && std::isfinite(sample.barycenter_drift.y)
-                               && std::isfinite(sample.barycenter_drift.z);
+                                  && std::isfinite(sample.barycenter_drift.y)
+                                  && std::isfinite(sample.barycenter_drift.z);
     }
 
     sample.hierarchy = compute_hierarchy(current_point_masses());
@@ -1178,7 +1460,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
     while (!stop_token.stop_requested()) {
         // If the **animation** appears laggy / slow, try lowering this
         // It does not affect CPU simulation speed
-        constexpr std::size_t MAX_STEPS_PER_BATCH = 4096;
+        constexpr step_t MAX_STEPS_PER_BATCH = 4096;
         constexpr double MAX_CATCH_UP_SECONDS = 0.25;
 
         CommandBatch batch;
@@ -1204,9 +1486,11 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
         if (batch.bodies_changed) {
             accelerations_at_current_positions.reset(); // Reset stale accelerations
 
-            // If a physical edit happened: Clear all orbits
-            if (batch.physical_edit && config::CLEAR_ORBITS_AFTER_PHYSICAL_EDIT) {
-                clear_orbit_histories();
+            // If a position "jump" happened: Clear all orbit trails
+            if constexpr (config::CLEAR_ORBITS_AFTER_POSITION_EDIT) {
+                if (batch.position_jump) {
+                    clear_orbit_histories();
+                }
             }
 
             // Publish
@@ -1238,20 +1522,20 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
 
             if (batch.requested_steps) {
-                const std::size_t current = config::steps_simulated.load();
+                const step_t current = config::steps_simulated.load();
 
-                const std::size_t remaining = runtime_config::target_steps
-                    ? (current < *runtime_config::target_steps
-                        ? *runtime_config::target_steps - current
-                        : 0)
-                    : *batch.requested_steps;
+                const step_t remaining = runtime_config::target_steps
+                                             ? (current < *runtime_config::target_steps
+                                                    ? *runtime_config::target_steps - current
+                                                    : 0)
+                                             : *batch.requested_steps;
 
-                const std::size_t steps_to_simulate = std::min(remaining, *batch.requested_steps);
+                const step_t steps_to_simulate = std::min(remaining, *batch.requested_steps);
 
                 ui_data::set_step_progress({
-                    .busy = true,
+                    .busy      = true,
                     .completed = 0,
-                    .total = steps_to_simulate
+                    .total     = steps_to_simulate
                 });
 
                 std::size_t completed = 0;
@@ -1264,9 +1548,9 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
 
                     if (completed % MAX_STEPS_PER_BATCH == 0) {
                         ui_data::set_step_progress({
-                            .busy = true,
+                            .busy      = true,
                             .completed = completed,
-                            .total = steps_to_simulate
+                            .total     = steps_to_simulate
                         });
 
                         publish_if_due();
@@ -1276,9 +1560,9 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
                 config::timer.pause();
 
                 ui_data::set_step_progress({
-                    .busy = true,
+                    .busy      = true,
                     .completed = completed,
-                    .total = steps_to_simulate
+                    .total     = steps_to_simulate
                 });
 
                 config::republish_needed = true;
@@ -1367,7 +1651,7 @@ bool simulation::finalize_csv_output() {
             live_csv_file.close();
             if (!live_csv_file && !live_csv_write_failed) {
                 std::cerr << "Error: Failed to finish writing CSV data to "
-                          << *runtime_config::csv_path << ".\n";
+                    << *runtime_config::csv_path << ".\n";
                 write_succeeded = false;
             }
         }

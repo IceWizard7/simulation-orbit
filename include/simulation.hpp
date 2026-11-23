@@ -2,9 +2,11 @@
 
 #include <array>
 #include <cstddef>
+#include <cstdint>
 #include <deque>
 #include <iosfwd>
 #include <optional>
+#include <raylib.h>
 #include <span>
 #include <stop_token>
 #include <vector>
@@ -16,7 +18,7 @@
 
 struct CSVEntry {
     std::size_t simulated_seconds{};
-    std::size_t step{};
+    step_t step{};
     std::array<std::optional<Vec3>, NUM_CELESTIAL_BODIES> positions{};
     std::array<std::optional<Vec3>, NUM_CELESTIAL_BODIES> velocities{};
 };
@@ -34,12 +36,12 @@ struct Accelerations {
 
 // Rendering-only trail sample
 struct OrbitSample {
-    std::size_t step;
+    step_t step;
     Vec3 position;
 };
 
 struct SimulationCheckpoint {
-    std::size_t id = 0;
+    std::uint64_t id = 0;
     str label;
 
     // Per body
@@ -51,11 +53,27 @@ struct SimulationCheckpoint {
     alignas(16) double vy[NUM_CELESTIAL_BODIES];
     alignas(16) double vz[NUM_CELESTIAL_BODIES];
 
+    double physical_radius_m[NUM_CELESTIAL_BODIES];
     bool enabled[NUM_CELESTIAL_BODIES];
+
     double gravitational_masses[NUM_CELESTIAL_BODIES];
+    double original_gravitational_masses[NUM_CELESTIAL_BODIES];
+    str names[NUM_CELESTIAL_BODIES];
+
+    float draw_radii_2d[NUM_CELESTIAL_BODIES];
+    float draw_radii_3d[NUM_CELESTIAL_BODIES];
+    Color colors[NUM_CELESTIAL_BODIES];
+
+    std::optional<std::size_t> texture_ids[NUM_CELESTIAL_BODIES];
+
+    double j2[NUM_CELESTIAL_BODIES];
+    double equatorial_radii[NUM_CELESTIAL_BODIES];
+    Vec3 pole_axes[NUM_CELESTIAL_BODIES];
+
+    std::uint64_t body_ids[NUM_CELESTIAL_BODIES];
 
     // Simulation
-    std::size_t steps_simulated;
+    step_t steps_simulated;
     int time_step;
     double run_time_seconds = 0.0;
 
@@ -82,13 +100,13 @@ namespace simulation {
     // dynamic host from the latest hierarchy (stale by at most one publication, which is fine for sampling)
     inline std::array<double, NUM_CELESTIAL_BODIES> orbit_turn_since_sample{};
     inline std::array<std::optional<std::size_t>, NUM_CELESTIAL_BODIES> orbit_sampling_host{};
-    inline std::size_t orbit_max_gap_steps = 1;
+    inline step_t orbit_max_gap_steps = 1;
 
     // Coarse center-reference sampling (fixed cadence)
-    inline std::size_t orbit_center_reference_sample_every_steps = 1;
+    inline step_t orbit_center_reference_sample_every_steps = 1;
     inline std::size_t orbit_center_reference_max_points = 2;
 
-    inline std::size_t next_checkpoint_id = 0;
+    inline std::uint64_t next_checkpoint_id = 0;
     inline std::vector<SimulationCheckpoint> checkpoints;
 
     inline ui_data::DiagnosticsBaseline diagnostics_baseline;
@@ -107,6 +125,12 @@ namespace simulation {
     // Clears both trail histories and the sampling state (restore, physical edits)
     void clear_orbit_histories();
 
+    void clear_orbit_history(std::size_t i); // One slot only
+
+    std::optional<std::size_t> create_body(const ui_data::CreateBodyCommand& cmd); // Returns slot index or nullopt
+
+    bool delete_body(std::size_t i);
+
     bool initialize_csv_output();
 
     void update_csv_data();
@@ -124,11 +148,15 @@ namespace simulation {
     // Checkpoints
     void save_checkpoint();
 
-    bool delete_checkpoint(std::size_t id);
+    bool delete_checkpoint(std::uint64_t id);
 
-    bool load_checkpoint(std::size_t id);
+    bool load_checkpoint(std::uint64_t id);
 
-    bool rename_checkpoint(std::size_t id, const str& new_label);
+    // Builds a checkpoint from an imported state (catalog defaults from checkpoint 0) and restores it
+    // Returns the new checkpoint's ID, or nullopt (SIMD / pruned interaction set / no checkpoint 0)
+    std::optional<std::uint64_t> import_state(const ui_data::ImportStateCommand& cmd);
+
+    bool rename_checkpoint(std::uint64_t id, const str& new_label);
 
     // Physical metrics (diagnostics)
     Vec3 calculate_linear_momentum();
@@ -141,7 +169,8 @@ namespace simulation {
 
     Vec3 calculate_barycenter(double total_mass);
 
-    Vec3 calculate_expected_barycenter(const Vec3 &barycenter, const Vec3 &initial_linear_momentum, double total_mass, std::size_t baseline_steps_simulated);
+    Vec3 calculate_expected_barycenter(const Vec3& baseline_barycenter, const Vec3& initial_linear_momentum,
+                                       double total_mass, step_t baseline_steps_simulated);
 
     void reset_diagnostics_baseline();
 
@@ -156,7 +185,7 @@ namespace simulation {
 
     // CSV
     extern std::ofstream live_csv_file;
-    extern std::optional<std::size_t> last_csv_sample_step;
+    extern std::optional<step_t> last_csv_sample_step;
     extern bool csv_output_initialized;
     extern bool live_csv_write_failed;
 
@@ -166,7 +195,7 @@ namespace simulation {
 
     void write_csv_entry(std::ostream& output, const CSVEntry& entry);
 
-    bool report_live_csv_write_failure(std::size_t step);
+    bool report_live_csv_write_failure(step_t step);
 
     bool record_csv_sample(bool force);
 }

@@ -57,7 +57,13 @@ FetchContent_Declare(
         GIT_TAG 72de27832d1e6299bcc930ce01073d899d420392
 )
 
-FetchContent_MakeAvailable(imgui rlimgui implot)
+FetchContent_Declare(
+        json
+        URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+        DOWNLOAD_EXTRACT_TIMESTAMP OFF
+)
+
+FetchContent_MakeAvailable(imgui rlimgui implot json)
 
 if(EMSCRIPTEN AND NOT USE_SYSTEM_RAYLIB)
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/patch_web_hidpi.cmake")
@@ -71,8 +77,8 @@ add_library(imgui STATIC
         ${imgui_SOURCE_DIR}/imgui_tables.cpp
         ${imgui_SOURCE_DIR}/imgui_widgets.cpp
         ${imgui_SOURCE_DIR}/imgui_demo.cpp
+        ${imgui_SOURCE_DIR}/misc/cpp/imgui_stdlib.cpp
 )
-
 
 # 16-bit indices limit a window to 65,535 vertices, and rlImGui doesn't support VtxOffset to go beyond
 # A full graph (default: 16,384 points x 4 vertices per segment + background, text, etc.) exceeds that limit and wraps indices into some triangles
@@ -96,6 +102,7 @@ add_library(rlimgui STATIC
         ${rlimgui_SOURCE_DIR}/rlImGui.cpp
 )
 
+target_compile_definitions(rlimgui PRIVATE RLIMGUI_ALWAYS_TRACK_MOUSE)
 target_include_directories(rlimgui PUBLIC ${rlimgui_SOURCE_DIR})
 
 target_link_libraries(rlimgui PUBLIC imgui raylib)
@@ -110,6 +117,7 @@ add_executable(simulation-orbit
         src/force_pairs.cpp
         src/orbital_elements.cpp
         src/hierarchy.cpp
+        src/time_units.cpp
 
         src/ui/2d.cpp
         src/ui/3d.cpp
@@ -119,6 +127,7 @@ add_executable(simulation-orbit
         src/ui/graphs.cpp
         src/ui/loading.cpp
         src/ui/ui.cpp
+        src/ui/state_io.cpp
 )
 
 # Emscripten specific definitions
@@ -154,6 +163,7 @@ target_link_libraries(simulation-orbit PRIVATE
         rlimgui
         implot
         raylib
+        nlohmann_json::nlohmann_json
 )
 
 target_include_directories(simulation-orbit PRIVATE include)

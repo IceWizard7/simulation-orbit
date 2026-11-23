@@ -1,9 +1,12 @@
 #pragma once
 
+#include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <filesystem>
 #include <imgui.h>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -44,9 +47,9 @@ namespace config {
     constexpr auto KEY_FOLLOW_NONE = 161; // "^" on QWERTZ
 
     constexpr double ORIGINAL_SCALING = 8e12;
-    constexpr double ORIGINAL_AXIS_SCALING = 8;
 
-    constexpr double ZOOM_FACTOR = 1.0717734625362931; // n-th root of 10 works, because then ZOOM_FACTOR**n = 10 => near perfect zoom cycle
+    constexpr double ZOOM_FACTOR = 1.0797751623;
+    // n-th root of 10 works well, because then ZOOM_FACTOR**n = 10 => nearly perfect zoom cycle (n = 30 here)
 
     // Browser wheel events report pixels; this many pixels count as one zoom step
     inline constexpr double WEB_WHEEL_PIXELS_PER_ZOOM_STEP = 12.5;
@@ -68,7 +71,11 @@ namespace config {
     constexpr int ORBIT_CENTER_REFERENCE_POINTS_PER_YEAR = 64;
     constexpr double ORBIT_CENTER_REFERENCE_YEARS = 260;
 
-    constexpr bool CLEAR_ORBITS_AFTER_PHYSICAL_EDIT = true;
+    constexpr bool CLEAR_ORBITS_AFTER_POSITION_EDIT = true;
+
+    constexpr float CUSTOM_BODY_RADIUS_2D = 5.0f; // "Large body" schematic class (analyze.py schematic_radii)
+    constexpr float CUSTOM_BODY_RADIUS_3D = 0.01f; // = radius_2d * 0.002
+    constexpr Color CUSTOM_BODY_DEFAULT_COLOR = {255, 77, 77, 255};
 
     constexpr double GRAVITATIONAL_CONSTANT = 6.6743e-11; // m^3 / (kg * s^2) // TODO: Make this changeable
 
@@ -82,7 +89,8 @@ namespace config {
     constexpr int WINDOW_MARGIN = 1 * GRID_SPACING;
 
     inline double SCALING = ORIGINAL_SCALING;
-    inline double AXIS_SCALING = ORIGINAL_AXIS_SCALING;
+    constexpr double MIN_SCALING_M = 1.0;
+    constexpr double MAX_SCALING_M = 1e30;
 
     constexpr double WORLD_UNIT_METERS = 1e12;
 
@@ -100,16 +108,18 @@ namespace config {
 
     // Shared
     inline std::mutex snapshot_lock; // held only for the pointer swap (nanoseconds)
-    inline std::shared_ptr<const ui_data::RenderSnapshot> latest_snapshot; // produced by simulation thread, read by render thread
+    inline std::shared_ptr<const ui_data::RenderSnapshot> latest_snapshot;
+    // produced by simulation thread, read by renderer thread
 
     inline PausableTimer timer;
-    inline std::atomic<std::size_t> steps_simulated = 0;
+    inline std::atomic<step_t> steps_simulated = 0;
     inline std::atomic republish_needed = false;
 
     inline ImFont* imgui_ui_font;
     inline ImFont* imgui_ui_font_small;
 
     inline constexpr std::size_t NO_BODY_SELECTED = NUM_CELESTIAL_BODIES;
+    inline constexpr std::uint64_t NO_BODY_ID = std::numeric_limits<std::uint64_t>::max();
 
     inline std::atomic<std::size_t> center_celestial_body_index = 0; // 0 -> sun
     inline std::array<std::atomic<bool>, NUM_CELESTIAL_BODIES> planet_info_display_index{};
@@ -153,11 +163,11 @@ namespace runtime_config {
 
     extern double target_total_simulation_time; // years; <= 0 unlimited
     extern std::atomic<double> target_simulation_speed; // years per second; <= 0 unlimited
-    extern std::optional<std::size_t> target_steps;
+    extern std::optional<step_t> target_steps;
 
     extern std::optional<std::filesystem::path> csv_path;
     extern std::optional<int> sample_csv_data_every_seconds;
-    extern std::optional<std::size_t> sample_csv_data_every_steps;
+    extern std::optional<step_t> sample_csv_data_every_steps;
     extern bool csv_live;
 
     extern bool use_j2;
@@ -168,6 +178,7 @@ namespace runtime_config {
     extern InteractionSet interaction_set;
 
     [[nodiscard]] const char* body_set_name();
+
     [[nodiscard]] const char* interaction_set_name();
 
     void update_body_set(CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies);
@@ -186,7 +197,8 @@ namespace runtime_config {
 
     ParseRes<str> parse_str(const str& argument_name, int i, int argc, char* argv[]);
 
-    int parse_cli_args(int argc, char* argv[], CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies);
+    int parse_cli_args(int argc, char* argv[],
+                       CelestialBodies<NUM_CELESTIAL_BODIES, NUM_CATALOG_BODIES>& celestial_bodies);
 
     void set_time_step_string();
 }
