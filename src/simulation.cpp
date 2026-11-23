@@ -1714,9 +1714,9 @@ void simulation::print_final_state() {
     }
     std::cout << '\n';
 
-    for (std::size_t i = 0; i < NUM_CELESTIAL_BODIES; i++) {
+    for (std::size_t i = 0; i < NUM_CATALOG_BODIES; i++) {
         std::cout << celestial_bodies.position(i).to_exact_string();
-        if (i != NUM_CELESTIAL_BODIES - 1) {
+        if (i != NUM_CATALOG_BODIES - 1) {
             std::cout << '|';
         }
     }
