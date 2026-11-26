@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <atomic>
 #include <cctype>
+#include <cerrno>
 #include <cmath>
 #include <cstddef>
+#include <cstdlib>
 #include <exception>
 #include <filesystem>
 #include <format>
@@ -106,16 +108,13 @@ runtime_config::ParseRes<double> runtime_config::parse_double(const str& argumen
         return {0, 1};
     }
 
-    double val = 0;
+    const char* input = argv[i + 1];
+    char* end = nullptr;
+    errno = 0;
+    const double val = std::strtod(input, &end);
 
-    try {
-        std::size_t parsed_characters = 0;
-        val = std::stod(argv[i + 1], &parsed_characters);
-        if (parsed_characters != str(argv[i + 1]).size() || !std::isfinite(val)) {
-            throw std::invalid_argument("not a finite number");
-        }
-    } catch (const std::exception&) {
-        std::cerr << std::format("Error: \"{}\" is an invalid value for {}.\n", argv[i + 1], argument_name);
+    if (end == input || *end != '\0' || errno == ERANGE || !std::isfinite(val)) {
+        std::cerr << std::format("Error: \"{}\" is an invalid value for {}.\n", input, argument_name);
         return {0, 1};
     }
 
@@ -128,20 +127,18 @@ runtime_config::ParseRes<int> runtime_config::parse_int(const str& argument_name
         return {0, 1};
     }
 
-    int val = 0;
+    const char* input = argv[i + 1];
+    char* end = nullptr;
+    errno = 0;
+    const long val = std::strtol(input, &end, 10);
 
-    try {
-        std::size_t parsed_characters = 0;
-        val = std::stoi(argv[i + 1], &parsed_characters);
-        if (parsed_characters != str(argv[i + 1]).size()) {
-            throw std::invalid_argument("not an integer");
-        }
-    } catch (const std::exception&) {
-        std::cerr << std::format("Error: \"{}\" is an invalid value for {}.\n", argv[i + 1], argument_name);
+    if (end == input || *end != '\0' || errno == ERANGE ||
+        val < std::numeric_limits<int>::min() || val > std::numeric_limits<int>::max()) {
+        std::cerr << std::format("Error: \"{}\" is an invalid value for {}.\n", input, argument_name);
         return {0, 1};
-    }
+        }
 
-    return {val, 0};
+    return {static_cast<int>(val), 0};
 }
 
 runtime_config::ParseRes<str> runtime_config::parse_str(const str& argument_name, const int i, const int argc, char* argv[]) {

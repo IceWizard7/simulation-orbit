@@ -630,7 +630,7 @@ namespace ui_helpers {
     // Generic helpers
 
     // Absolute position of the snapshot's coordinate origin (zero for None), derived from the snapshot itself
-    std::optional<Vec3> snapshot_origin_absolute(const ui_data::RenderSnapshot& snap);
+    Vec3 snapshot_origin_absolute(const ui_data::RenderSnapshot& snap);
 
     // Ghost position in the snapshot's frame (what renderers draw)
     std::optional<Vec3> create_ghost_preview_position(const ui_data::RenderSnapshot& snap);

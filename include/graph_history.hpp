@@ -4,7 +4,6 @@
 #include <concepts>
 #include <cstddef>
 #include <cstdint>
-#include <limits>
 #include <mutex>
 #include <span>
 #include <vector>
@@ -66,23 +65,6 @@ public:
         samples.clear();
         every_steps = 1;
         generation++;
-    }
-
-    void invalidate_body(const std::size_t i) {
-        std::lock_guard lock(mtx);
-
-        constexpr double NaN = std::numeric_limits<double>::quiet_NaN();
-
-        // Erases slot's previous data before a new body moves in
-        // Totals (ex. momentum, energy) stay correct, because they were sampled at a time when the body still existed
-        for (auto& sample : samples) {
-            sample.position[i] = {NaN, NaN, NaN};
-            sample.velocity[i] = {NaN, NaN, NaN};
-            sample.acceleration[i] = {NaN, NaN, NaN};
-            sample.mass[i] = NaN;
-        }
-
-        generation++; // Windows rebuild their cached series
     }
 
     // reader(samples, generation, every_steps) runs while the history is locked

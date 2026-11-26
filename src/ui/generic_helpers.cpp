@@ -45,18 +45,16 @@ namespace {
     }
 }
 
-std::optional<Vec3> ui_helpers::snapshot_origin_absolute(const ui_data::RenderSnapshot& snap) {
+Vec3 ui_helpers::snapshot_origin_absolute(const ui_data::RenderSnapshot& snap) {
     const std::size_t center_index = config::center_celestial_body_index.load();
 
-    return center_index < NUM_CELESTIAL_BODIES && snap.bodies[center_index] ? std::optional{snap.bodies[center_index]->absolute_position} : std::nullopt;
+    return center_index < NUM_CELESTIAL_BODIES && snap.bodies[center_index] ? snap.bodies[center_index]->absolute_position : Vec3{0, 0, 0};
 }
 
 std::optional<Vec3> ui_helpers::create_ghost_preview_position(const ui_data::RenderSnapshot& snap) {
     if (!ui_config::show_create_body) return std::nullopt;
 
     const auto origin = snapshot_origin_absolute(snap);
-
-    if (!origin) return std::nullopt;
 
     const auto& draft = ui_config::create_body_draft;
 
@@ -65,7 +63,7 @@ std::optional<Vec3> ui_helpers::create_ghost_preview_position(const ui_data::Ren
         return ref ? std::optional{ref->relative_position + draft.position} : std::nullopt;
     }
 
-    return draft.position + *origin;
+    return draft.position - origin;
 }
 
 bool ui_helpers::set_draft_xy_from_snapshot_point(const ui_data::RenderSnapshot& snap, const Vec2 point) {
@@ -80,9 +78,8 @@ bool ui_helpers::set_draft_xy_from_snapshot_point(const ui_data::RenderSnapshot&
     }
 
     const auto origin = snapshot_origin_absolute(snap);
-    if (!origin) return false;
-    draft.position.x = point.x + origin->x; // ghost_rel = p - c  =>  p = point + c
-    draft.position.y = point.y + origin->y;
+    draft.position.x = point.x + origin.x; // ghost_rel = p - c  =>  p = point + c
+    draft.position.y = point.y + origin.y;
     return true;
 }
 
@@ -182,7 +179,7 @@ std::optional<ui_data::RenderSnapshot::Body> ui_helpers::make_create_ghost(const
     const auto& draft = ui_config::create_body_draft;
     const auto position = create_ghost_preview_position(snap);
     const auto origin = snapshot_origin_absolute(snap);
-    if (!position || !origin) return std::nullopt;
+    if (!position) return std::nullopt;
 
     // Non-finite drafts (ex. "1e400") would project to inf/NaN pixels
     const auto finite = [](const Vec3& v) {
@@ -193,8 +190,16 @@ std::optional<ui_data::RenderSnapshot::Body> ui_helpers::make_create_ghost(const
     const auto* ref = draft.reference_index && snap.bodies[*draft.reference_index] ? &*snap.bodies[*draft.reference_index] : nullptr;
 
     return ui_data::RenderSnapshot::Body{
-        .name = draft.name, .relative_position = *position, .absolute_position             = *position + *origin, .velocity            = ref ? ref->velocity + draft.velocity : draft.velocity, // absolute, like real snapshot bodies
-        .mass = draft.mass, .physical_radius_m = std::max(0.0, draft.radius_m), .radius_2d = config::CUSTOM_BODY_RADIUS_2D, .radius_3d = config::CUSTOM_BODY_RADIUS_3D, .color = to_color(draft.color), .rendering_visible = true,
+        .name              = draft.name,
+        .relative_position = *position,
+        .absolute_position = *position + origin,
+        .velocity          = ref ? ref->velocity + draft.velocity : draft.velocity, // absolute, like real snapshot bodies
+        .mass              = draft.mass,
+        .physical_radius_m = std::max(0.0, draft.radius_m),
+        .radius_2d         = config::CUSTOM_BODY_RADIUS_2D,
+        .radius_3d         = config::CUSTOM_BODY_RADIUS_3D,
+        .color             = to_color(draft.color),
+        .rendering_visible = true,
     };
 }
 

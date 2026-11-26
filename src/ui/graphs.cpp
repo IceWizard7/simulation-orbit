@@ -39,56 +39,70 @@ namespace {
         barycenter_drift
     };
 
+    enum class QuantitySelectionUse {
+        unspecified, none, body_only, optional_reference, required_reference
+    };
+
     struct QuantityInfo {
         GraphQuantity quantity;
         const char* name;
         const char* format; // ImPlot tick format; this is where the unit lives
-        bool per_body;
+        QuantitySelectionUse selection_use;
+
+        bool uses_body() const {
+            return selection_use != QuantitySelectionUse::none;
+        }
+
+        bool uses_reference() const {
+            return selection_use == QuantitySelectionUse::optional_reference
+                || selection_use == QuantitySelectionUse::required_reference;
+        }
     };
 
     constexpr std::array QUANTITIES{
-        QuantityInfo{GraphQuantity::time, "Time", "%.4g s", false},
-        QuantityInfo{GraphQuantity::steps, "Steps", "%.0f", false},
-        QuantityInfo{GraphQuantity::position_x, "Position x", "%.4g m", true},
-        QuantityInfo{GraphQuantity::position_y, "Position y", "%.4g m", true},
-        QuantityInfo{GraphQuantity::position_z, "Position z", "%.4g m", true},
-        QuantityInfo{GraphQuantity::distance, "Distance", "%.4g m", true},
-        QuantityInfo{GraphQuantity::velocity_x, "Velocity x", "%.4g m/s", true},
-        QuantityInfo{GraphQuantity::velocity_y, "Velocity y", "%.4g m/s", true},
-        QuantityInfo{GraphQuantity::velocity_z, "Velocity z", "%.4g m/s", true},
-        QuantityInfo{GraphQuantity::speed, "Speed", "%.4g m/s", true},
-        QuantityInfo{GraphQuantity::radial_speed, "Radial speed", "%.4g m/s", true},
-        QuantityInfo{GraphQuantity::acceleration_x, "Acceleration x", "%.4g m/s^2", true},
-        QuantityInfo{GraphQuantity::acceleration_y, "Acceleration y", "%.4g m/s^2", true},
-        QuantityInfo{GraphQuantity::acceleration_z, "Acceleration z", "%.4g m/s^2", true},
-        QuantityInfo{GraphQuantity::acceleration, "Acceleration", "%.4g m/s^2", true},
-        QuantityInfo{GraphQuantity::mass, "Mass", "%.4g kg", true},
-        QuantityInfo{GraphQuantity::body_kinetic_energy, "Body kinetic energy", "%.4g J", true},
-        QuantityInfo{GraphQuantity::body_momentum, "Body momentum", "%.4g kg m/s", true},
-        QuantityInfo{GraphQuantity::angular_momentum, "Spec. angular momentum", "%.6g m^2/s", true},
-        QuantityInfo{GraphQuantity::semi_major_axis, "Semi-major axis a", "%.6g m", true},
-        QuantityInfo{GraphQuantity::semi_minor_axis, "Semi-minor axis b", "%.6g m", true},
-        QuantityInfo{GraphQuantity::eccentricity, "Eccentricity e", "%.6g", true},
-        QuantityInfo{GraphQuantity::linear_eccentricity, "Linear eccentricity c", "%.6g m", true},
-        QuantityInfo{GraphQuantity::orbital_period, "Orbital period τ", "%.6g s", true},
-        QuantityInfo{GraphQuantity::inclination, "Inclination i", "%.4g deg", true},
-        QuantityInfo{GraphQuantity::energy, "Total energy", "%.6g J", false},
-        QuantityInfo{GraphQuantity::kinetic_energy, "Total kinetic energy", "%.6g J", false},
-        QuantityInfo{GraphQuantity::potential_energy, "Total potential energy", "%.6g J", false},
-        QuantityInfo{GraphQuantity::energy_drift, "Energy drift", "%.4g J", false},
-        QuantityInfo{GraphQuantity::relative_energy_drift, "Relative energy drift", "%.4g", false},
-        QuantityInfo{GraphQuantity::momentum_x, "Momentum x", "%.4g kg m/s", false},
-        QuantityInfo{GraphQuantity::momentum_y, "Momentum y", "%.4g kg m/s", false},
-        QuantityInfo{GraphQuantity::momentum_z, "Momentum z", "%.4g kg m/s", false},
-        QuantityInfo{GraphQuantity::momentum, "Momentum", "%.4g kg m/s", false},
-        QuantityInfo{GraphQuantity::momentum_drift, "Momentum drift", "%.4g kg m/s", false},
-        QuantityInfo{GraphQuantity::barycenter_drift, "Barycenter drift", "%.4g m", false},
+        QuantityInfo{GraphQuantity::time, "Time", "%.4g s", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::steps, "Steps", "%.0f", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::position_x, "Position x", "%.4g m", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::position_y, "Position y", "%.4g m", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::position_z, "Position z", "%.4g m", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::distance, "Distance", "%.4g m", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::velocity_x, "Velocity x", "%.4g m/s", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::velocity_y, "Velocity y", "%.4g m/s", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::velocity_z, "Velocity z", "%.4g m/s", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::speed, "Speed", "%.4g m/s", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::radial_speed, "Radial speed", "%.4g m/s", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::acceleration_x, "Acceleration x", "%.4g m/s^2", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::acceleration_y, "Acceleration y", "%.4g m/s^2", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::acceleration_z, "Acceleration z", "%.4g m/s^2", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::acceleration, "Acceleration", "%.4g m/s^2", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::mass, "Mass", "%.4g kg", QuantitySelectionUse::body_only},
+        QuantityInfo{GraphQuantity::body_kinetic_energy, "Body kinetic energy", "%.4g J", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::body_momentum, "Body momentum", "%.4g kg m/s", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::angular_momentum, "Spec. angular momentum", "%.6g m^2/s", QuantitySelectionUse::optional_reference},
+        QuantityInfo{GraphQuantity::semi_major_axis, "Semi-major axis a", "%.6g m", QuantitySelectionUse::required_reference},
+        QuantityInfo{GraphQuantity::semi_minor_axis, "Semi-minor axis b", "%.6g m", QuantitySelectionUse::required_reference},
+        QuantityInfo{GraphQuantity::eccentricity, "Eccentricity e", "%.6g", QuantitySelectionUse::required_reference},
+        QuantityInfo{GraphQuantity::linear_eccentricity, "Linear eccentricity c", "%.6g m", QuantitySelectionUse::required_reference},
+        QuantityInfo{GraphQuantity::orbital_period, "Orbital period τ", "%.6g s", QuantitySelectionUse::required_reference},
+        QuantityInfo{GraphQuantity::inclination, "Inclination i", "%.4g deg", QuantitySelectionUse::required_reference},
+        QuantityInfo{GraphQuantity::energy, "Total energy", "%.6g J", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::kinetic_energy, "Total kinetic energy", "%.6g J", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::potential_energy, "Total potential energy", "%.6g J", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::energy_drift, "Energy drift", "%.4g J", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::relative_energy_drift, "Relative energy drift", "%.4g", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::momentum_x, "Momentum x", "%.4g kg m/s", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::momentum_y, "Momentum y", "%.4g kg m/s", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::momentum_z, "Momentum z", "%.4g kg m/s", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::momentum, "Momentum", "%.4g kg m/s", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::momentum_drift, "Momentum drift", "%.4g kg m/s", QuantitySelectionUse::none},
+        QuantityInfo{GraphQuantity::barycenter_drift, "Barycenter drift", "%.4g m", QuantitySelectionUse::none},
     };
 
     // Compile time check (correct order and all used in QUANTITIES)
     static_assert([] {
         for (std::size_t i = 0; i < QUANTITIES.size(); i++) {
             if (static_cast<std::size_t>(QUANTITIES[i].quantity) != i) return false;
+            if (QUANTITIES[i].selection_use == QuantitySelectionUse::unspecified) return false;
         }
         return true;
     }());
@@ -105,10 +119,20 @@ namespace {
         return q >= GraphQuantity::semi_major_axis && q <= GraphQuantity::inclination;
     }
 
+    bool same_body(const ui_data::RenderSnapshot& snap, const GraphSample& s, const std::size_t i) {
+        const auto& current = snap.bodies[i];
+        return current && current->id == s.body_id[i];
+    }
+
     double evaluate(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphSample& s, const GraphQuantity quantity, const std::size_t body, const std::optional<std::size_t>& reference, const bool merge_moons) {
         constexpr double NaN = std::numeric_limits<double>::quiet_NaN();
 
         if (!snap) return NaN;
+
+        const auto& item = info(quantity);
+        if (item.uses_body() && !same_body(*snap, s, body)) return NaN;
+        if (item.selection_use == QuantitySelectionUse::required_reference && !reference) return NaN;
+        if (item.uses_reference() && reference && !same_body(*snap, s, *reference)) return NaN;
 
         const Vec3 position = reference ? s.position[body] - s.position[*reference] : s.position[body];
         const Vec3 velocity = reference ? s.velocity[body] - s.velocity[*reference] : s.velocity[body];
@@ -116,13 +140,17 @@ namespace {
 
         // Orbital elements need a central body: NaN in the inertial frame
         const auto orbital_element = [&](double OrbitalElements::* field) {
-            if (!reference || !snap->bodies[body] || !snap->bodies[*reference]) return NaN;
+            if (!reference) return NaN;
 
             // Disabled bodies hold stale values, so they stay empty
             std::array<std::optional<PointMass>, NUM_CELESTIAL_BODIES> masses;
             for (std::size_t i = 0; i < masses.size(); i++) {
-                if (snap->bodies[i]) masses[i] = PointMass{s.position[i], s.velocity[i], s.mass[i]};
+                if (s.body_id[i] != config::NO_BODY_ID) {
+                    masses[i] = PointMass{s.position[i], s.velocity[i], s.mass[i]};
+                }
             }
+
+            if (!masses[body] || !masses[*reference]) return NaN;
 
             const PointMass& ref = *masses[*reference];
             const PointMass orbiter = merge_moons && can_merge(s.hierarchy, body, reference)
@@ -291,6 +319,8 @@ namespace {
 
                 // Check one body; keep it if its period is the shortest so far
                 const auto consider = [&](const std::size_t i) {
+                    if (!same_body(*snap, latest, i)) return;
+
                     const double tau = own_period(latest, i);
                     if (std::isfinite(tau) && !(tau >= w.fastest_period)) {
                         // also true while fastest_period is NaN
@@ -300,7 +330,7 @@ namespace {
                 };
 
                 const auto is_global = [](const GraphQuantity q) {
-                    return !info(q).per_body && q != GraphQuantity::time && q != GraphQuantity::steps;
+                    return !info(q).uses_body() && q != GraphQuantity::time && q != GraphQuantity::steps;
                 };
 
                 if (is_global(w.x) || is_global(w.y)) {
@@ -394,11 +424,11 @@ namespace {
     str axis_label(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w, const GraphQuantity q) {
         const QuantityInfo& item = info(q);
 
-        if (!item.per_body) {
+        if (!item.uses_body()) {
             return q == GraphQuantity::time || q == GraphQuantity::steps ? item.name : std::format("{} (inertial frame)", item.name);
         }
 
-        if (q == GraphQuantity::mass) return std::format("{}: {}", item.name, body_name(snap, w.body));
+        if (item.selection_use == QuantitySelectionUse::body_only) return std::format("{}: {}", item.name, body_name(snap, w.body));
 
         const bool merged = is_orbital_element(q) && w.merge_moons && !system_members(snap, w).empty();
         const str name = merged ? std::format("{} system", body_name(snap, w.body)) : body_name(snap, w.body);
@@ -478,7 +508,7 @@ namespace {
         w.rebuild |= quantity_combo("##y", w.y);
 
         ImGui::Separator();
-        ImGui::BeginDisabled(!info(w.x).per_body && !info(w.y).per_body);
+        ImGui::BeginDisabled(!info(w.x).uses_body() && !info(w.y).uses_body());
 
         ImGui::TextUnformatted("Body");
         ImGui::SetNextItemWidth(-FLT_MIN);
@@ -571,7 +601,7 @@ namespace {
     }
 
     ImVec4 graph_color(const std::shared_ptr<const ui_data::RenderSnapshot>& snap, const GraphWindow& w) {
-        const bool shows_body = info(w.x).per_body || info(w.y).per_body;
+        const bool shows_body = info(w.x).uses_body() || info(w.y).uses_body();
 
         if (shows_body && snap->bodies[w.body] && snap->bodies[w.body]->color) {
             return ImGui::ColorConvertU32ToFloat4(ui_helpers::to_imgui_color(*snap->bodies[w.body]->color));

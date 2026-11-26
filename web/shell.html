@@ -88,9 +88,9 @@
 </canvas>
 
 
-<input id="ime" type="text" tabindex="-1" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="off"
+<textarea id="ime" rows="1" tabindex="-1" aria-hidden="true" autocomplete="off" autocorrect="off" autocapitalize="off"
        spellcheck="false"
-       style="position:fixed; top:0; left:0; width:1px; height:1px; opacity:0; border:0; padding:0; font-size:16px;">
+       style="position:fixed; top:0; left:0; width:1px; height:1px; opacity:0; border:0; padding:0; font-size:16px;"></textarea>
 
 <input id="state-file" type="file" accept=".json,application/json" style="display:none">
 
@@ -217,23 +217,40 @@
         }
     });
 
+    for (const type of ["keydown", "keypress", "keyup"]) {
+        window.addEventListener(type, (e) => {
+            if (e.target !== ime) return;
+            e.stopImmediatePropagation();
+
+            if (type !== "keydown") return;
+            if (e.key === "Escape") {
+                e.preventDefault();
+                Module.pendingKeys.push(3);
+            } else if (["Tab", "Home", "End", "ArrowLeft", "ArrowRight",
+                "ArrowUp", "ArrowDown"].includes(e.key)) {
+                e.preventDefault(); // Keep focus and the caret after the sentinel.
+            }
+        }, {capture: true});
+    }
+
     ime.addEventListener("beforeinput", (e) => {
-        e.preventDefault(); // Field content never changes; forward instead
-        if (e.inputType === "insertText" && e.data) {
-            for (const ch of e.data) Module.pendingChars.push(ch.codePointAt(0));
-        } else if (e.inputType === "deleteContentBackward") {
-            Module.pendingKeys.push(1);
+        e.preventDefault(); // ImGui owns the text; keep the sentinel in the textarea.
+
+        switch (e.inputType) {
+            case "insertText":
+                for (const ch of e.data ?? "") {
+                    Module.pendingChars.push(ch.codePointAt(0));
+                }
+                break;
+            case "deleteContentBackward":
+                Module.pendingKeys.push(1);
+                break;
+            case "insertLineBreak":
+            case "insertParagraph":
+                Module.pendingKeys.push(2);
+                break;
         }
     });
-
-    // Keys without text; stopPropagation keeps GLFW's window listeners (and +/- zoom) from seeing them twice
-    ime.addEventListener("keydown", (e) => {
-        if (e.key === "Enter") Module.pendingKeys.push(2);
-        else if (e.key === "Escape") Module.pendingKeys.push(3);
-        e.stopPropagation();
-    });
-    ime.addEventListener("keypress", (e) => e.stopPropagation());
-    ime.addEventListener("keyup", (e) => e.stopPropagation());
 
     // State import picker: Browsers (iOS Safari strictly) open a file dialog only inside a user gesture,
     // so C++ arms it while the menu item is hovered and the real touchend/mouseup handler opens it
