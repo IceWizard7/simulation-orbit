@@ -848,8 +848,6 @@ void ui_helpers::draw_planet_info(const std::shared_ptr<const ui_data::RenderSna
 
                 ImGui::SameLine();
 
-                edit.color_active = ImGui::IsItemActive(); // true during drags inside the picker popup too
-
                 // Draft follows the snapshot except while the picker is being dragged
                 // (otherwise it would flicker back to the old color until the publish arrives)
                 if (!edit.color_active) to_float3(body->color.value_or(WHITE), edit.color);
