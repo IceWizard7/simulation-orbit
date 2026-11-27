@@ -439,9 +439,9 @@ void simulation::initialize_orbit_sampling() {
 
     const double center_reference_seconds_per_point =
         static_cast<double>(orbit_center_reference_sample_every_steps) * runtime_config::time_step;
-    orbit_center_reference_max_points = std::max<step_t>(
+    orbit_center_reference_max_points = std::max<std::size_t>(
         2,
-        static_cast<step_t>(std::ceil(
+        static_cast<std::size_t>(std::ceil(
             config::ORBIT_CENTER_REFERENCE_YEARS * config::SECONDS_PER_YEAR / center_reference_seconds_per_point
         )) + 1
     );
