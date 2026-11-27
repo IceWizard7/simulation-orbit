@@ -65,6 +65,10 @@ namespace {
             std::abs(min_y), std::abs(max_y)
         });
 
+        // Above 2^53, double can no longer represent every possible consecutive grid index
+        constexpr double MAX_EXACT_GRID_INDEX = 0x1p53;
+        if (largest_coordinate / step_x > MAX_EXACT_GRID_INDEX) return;
+
         const int axis_exponent = static_cast<int>(std::floor(std::log10(largest_coordinate)));
 
         const double axis_unit_m = std::pow(10.0, axis_exponent);
