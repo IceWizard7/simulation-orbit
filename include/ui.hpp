@@ -192,7 +192,7 @@ namespace ui_data {
 
     struct ImportStateCommand {
         std::vector<ImportedBody> bodies;
-        double simulated_seconds = 0;
+        step_t steps_simulated = 0;
         str label; // Checkpoint label, ex. "Imported: state_step123.json"
     };
 

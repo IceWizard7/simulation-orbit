@@ -1353,6 +1353,8 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
                     ui_data::request_steps(step_count);
                 }
 
+                ImGui::SetItemTooltip("Runs as fast as possible; the speed limit only applies while playing.");
+
                 ImGui::EndDisabled();
 
                 if (ImGui::MenuItem("Create body...", nullptr, false, creation_allowed(*snap))) {

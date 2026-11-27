@@ -165,7 +165,12 @@ std::variant<ui_data::ImportStateCommand, str> ui_helpers::parse_state_json(cons
     const ordered_json* seconds_json = member(root, "simulated_seconds");
     const auto seconds = seconds_json ? number(*seconds_json) : std::nullopt;
     if (!seconds || *seconds < 0) return str("simulated_seconds missing or invalid");
-    cmd.simulated_seconds = *seconds;
+
+    const double rounded_steps = std::round(*seconds / runtime_config::time_step);
+    if (!(rounded_steps >= 0.0 && rounded_steps < 0x1p64)) {
+        return str("simulated_seconds exceeds the supported step range");
+    }
+    cmd.steps_simulated = static_cast<step_t>(rounded_steps);
 
     const ordered_json* bodies = member(root, "bodies");
     if (!bodies || !bodies->is_array()) return str("bodies missing or not an array"); // [] is valid: Empty scenario

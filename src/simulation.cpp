@@ -163,7 +163,7 @@ namespace {
         explicit StepWalker(const std::deque<OrbitSample>& history) : history(history) {
         }
 
-        void for_each_between(const std::size_t lo, const std::size_t hi, auto&& f) {
+        void for_each_between(const step_t lo, const step_t hi, auto&& f) {
             while (k < history.size() && history[k].step <= lo) k++;
             while (k < history.size() && history[k].step < hi) f(history[k++].step);
         }
@@ -341,7 +341,7 @@ bool simulation::live_csv_write_failed = false;
 CSVEntry simulation::capture_csv_entry() {
     CSVEntry entry;
     entry.step = config::steps_simulated.load();
-    entry.simulated_seconds = entry.step * static_cast<std::size_t>(runtime_config::time_step);
+    entry.simulated_seconds = entry.step * static_cast<step_t>(runtime_config::time_step);
 
     for (std::size_t i = 0; i < NUM_CATALOG_BODIES; i++) {
         if (!celestial_bodies.enabled[i]) continue;
@@ -425,23 +425,23 @@ bool simulation::record_csv_sample(const bool force) {
 }
 
 void simulation::initialize_orbit_sampling() {
-    orbit_max_gap_steps = std::max<std::size_t>(
+    orbit_max_gap_steps = std::max<step_t>(
         1,
-        static_cast<std::size_t>(config::ORBIT_MAX_SAMPLE_GAP_SECONDS / runtime_config::time_step)
+        static_cast<step_t>(config::ORBIT_MAX_SAMPLE_GAP_SECONDS / runtime_config::time_step)
     );
 
     constexpr double center_reference_seconds_per_point_target =
         config::SECONDS_PER_YEAR / config::ORBIT_CENTER_REFERENCE_POINTS_PER_YEAR;
-    orbit_center_reference_sample_every_steps = std::max<std::size_t>(
+    orbit_center_reference_sample_every_steps = std::max<step_t>(
         1,
-        static_cast<std::size_t>(center_reference_seconds_per_point_target / runtime_config::time_step)
+        static_cast<step_t>(center_reference_seconds_per_point_target / runtime_config::time_step)
     );
 
     const double center_reference_seconds_per_point =
         static_cast<double>(orbit_center_reference_sample_every_steps) * runtime_config::time_step;
-    orbit_center_reference_max_points = std::max<std::size_t>(
+    orbit_center_reference_max_points = std::max<step_t>(
         2,
-        static_cast<std::size_t>(std::ceil(
+        static_cast<step_t>(std::ceil(
             config::ORBIT_CENTER_REFERENCE_YEARS * config::SECONDS_PER_YEAR / center_reference_seconds_per_point
         )) + 1
     );
@@ -1224,8 +1224,7 @@ std::optional<std::uint64_t> simulation::import_state(const ui_data::ImportState
         visibility.emplace_back(i, body.visible);
     }
 
-    const double dt = runtime_config::time_step;
-    state.steps_simulated = static_cast<std::size_t>(std::llround(cmd.simulated_seconds / dt));
+    state.steps_simulated = cmd.steps_simulated;
     state.run_time_seconds = 0.0;
 
     checkpoints.push_back(std::move(state));
@@ -1379,7 +1378,7 @@ Vec3 simulation::calculate_barycenter(const double total_mass) {
     return weighted_positions / (total_mass * config::GRAVITATIONAL_CONSTANT);
 }
 
-Vec3 simulation::calculate_expected_barycenter(const Vec3& baseline_barycenter, const Vec3& initial_linear_momentum, const double total_mass, const std::uint64_t baseline_steps_simulated) {
+Vec3 simulation::calculate_expected_barycenter(const Vec3& baseline_barycenter, const Vec3& initial_linear_momentum, const double total_mass, const step_t baseline_steps_simulated) {
     const double elapsed_seconds = (static_cast<double>(config::steps_simulated.load()) - static_cast<double>(baseline_steps_simulated)) * runtime_config::time_step;
     return baseline_barycenter + initial_linear_momentum / total_mass * elapsed_seconds;
 }
@@ -1457,7 +1456,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
     auto last_publish = std::chrono::steady_clock::now();
     double last_budget_seconds = config::timer.seconds(); // Only advances while running
     double step_budget = 0.0;
-    std::size_t since_check = 0;
+    step_t since_check = 0;
 
     auto publish_if_due = [&] {
         const auto now = std::chrono::steady_clock::now();
@@ -1549,7 +1548,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
                     .total     = steps_to_simulate
                 });
 
-                std::size_t completed = 0;
+                step_t completed = 0;
 
                 config::timer.resume();
 
@@ -1632,7 +1631,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             max_budget
         );
 
-        const auto steps_to_run = static_cast<std::size_t>(std::min(step_budget, static_cast<double>(MAX_STEPS_PER_BATCH)));
+        const step_t steps_to_run = static_cast<step_t>(std::min(step_budget, static_cast<double>(MAX_STEPS_PER_BATCH)));
 
         if (steps_to_run == 0) {
             const double seconds_to_next_step = (1.0 - step_budget) / steps_per_second;
@@ -1643,7 +1642,7 @@ void simulation::simulate_cpu(const std::stop_token& stop_token) {
             continue;
         }
 
-        for (std::size_t i = 0; i < steps_to_run; ++i) {
+        for (step_t i = 0; i < steps_to_run; ++i) {
             simulate_step();
         }
 

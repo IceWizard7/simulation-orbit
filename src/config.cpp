@@ -437,7 +437,8 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
         const double rounded_steps = std::round(requested_steps);
         const double integer_tolerance = 8.0 * std::numeric_limits<double>::epsilon() * std::max(1.0, std::abs(requested_steps));
 
-        if (!std::isfinite(requested_steps) || rounded_steps < 1.0 || rounded_steps > static_cast<double>(std::numeric_limits<std::size_t>::max()) || std::abs(requested_steps - rounded_steps) > integer_tolerance) {
+        // 0x1p64 = 2^64 (as double)
+        if (!std::isfinite(requested_steps) || rounded_steps < 1.0 || rounded_steps >= 0x1p64 || std::abs(requested_steps - rounded_steps) > integer_tolerance) {
             std::cerr << std::format(
                 "Error: --years ({}) is not an integer number of --dt ({}) steps.\n",
                 target_total_simulation_time,
@@ -446,12 +447,17 @@ int runtime_config::parse_cli_args(const int argc, char* argv[], CelestialBodies
             return 1;
         }
 
-        target_steps = static_cast<std::size_t>(rounded_steps);
+        target_steps = static_cast<step_t>(rounded_steps);
+
+        if (csv_path && *target_steps > std::numeric_limits<step_t>::max() / static_cast<step_t>(time_step)) {
+            std::cerr << "Error: Simulated seconds exceed the 64-bit CSV timestamp range.\n";
+            return 1;
+        }
     }
 
     sample_csv_data_every_steps = std::nullopt;
     if (sample_csv_data_every_seconds.has_value()) {
-        sample_csv_data_every_steps = static_cast<std::size_t>(*sample_csv_data_every_seconds / time_step);
+        sample_csv_data_every_steps = static_cast<step_t>(*sample_csv_data_every_seconds / time_step);
     }
 
     set_time_step_string();
