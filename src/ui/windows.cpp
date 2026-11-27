@@ -921,6 +921,14 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
     const double target = runtime_config::target_simulation_speed.load();
     const str target_speed = target > 0.0 ? std::format("{:.3f} yr/s", target) : "Unlimited";
 
+    // Whole steps are enough; slow rates (below 10 steps/s) keep one decimal
+    auto step_rate = [](const double years_per_second) -> str {
+        const double steps_per_second = years_per_second * config::SECONDS_PER_YEAR / runtime_config::time_step;
+        return steps_per_second < 10.0
+               ? std::format("{:.1f} steps/s", steps_per_second)
+               : std::format("{} steps/s", group_thousands(static_cast<std::uint64_t>(std::llround(steps_per_second))));
+    };
+
     const bool running = config::timer.is_running();
     const bool can_resume = runtime_config::target_total_simulation_time < 0.0 || runtime_config::target_total_simulation_time > simulated_years();
 
@@ -978,7 +986,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
         const float table_width = std::max(1.0f, ImGui::GetContentRegionAvail().x - buttons_width - table_gap);
 
-        if (ImGui::BeginTable("##StatsTable", 3, ImGuiTableFlags_SizingStretchSame, ImVec2(table_width, 0.0f))) {
+        if (ImGui::BeginTable("##StatsTable", 4, ImGuiTableFlags_SizingStretchSame, ImVec2(table_width, 0.0f))) {
             ImGui::TableNextRow();
 
             ImGui::TableSetColumnIndex(0);
@@ -1002,6 +1010,9 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
             stat("AVERAGE SPEED", std::format("{:.3f} yr/s", simulation_speed));
 
             ImGui::TableSetColumnIndex(2);
+            stat("AVERAGE RATE", step_rate(simulation_speed));
+
+            ImGui::TableSetColumnIndex(3);
             stat("STEP", runtime_config::time_step_string);
 
             ImGui::TableNextRow();
@@ -1009,23 +1020,22 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
             ImGui::TableSetColumnIndex(0);
             stat("RUN TIME", std::format("{:.3f} s", seconds));
 
-            ImGui::TableSetColumnIndex(1);
-
+            // While stepping, the progress takes the place of the target (table cells clip, so split it over two columns)
             if (progress.busy) {
-                stat(
-                    "SIMULATING",
-                    std::format(
-                        "{} / {} steps ({:.3f}%)",
-                        group_thousands(progress.completed),
-                        group_thousands(progress.total),
-                        100.0 * static_cast<double>(progress.completed) / static_cast<double>(progress.total)
-                    )
-                );
+                ImGui::TableSetColumnIndex(1);
+                stat("SIMULATING", std::format("{} / {} steps", group_thousands(progress.completed), group_thousands(progress.total)));
+
+                ImGui::TableSetColumnIndex(2);
+                stat("PROGRESS", std::format("{:.3f}%", 100.0 * static_cast<double>(progress.completed) / static_cast<double>(progress.total)));
             } else {
-                stat("TARGET", target_speed);
+                ImGui::TableSetColumnIndex(1);
+                stat("TARGET SPEED", target_speed);
+
+                ImGui::TableSetColumnIndex(2);
+                stat("TARGET RATE", target > 0.0 ? step_rate(target) : "-");
             }
 
-            ImGui::TableSetColumnIndex(2);
+            ImGui::TableSetColumnIndex(3);
             // Center
 
             // Keep the label above the control, matching the other statistics
