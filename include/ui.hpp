@@ -668,11 +668,13 @@ namespace ui_helpers {
 
     // Loading
 
-    // Decodes all textures of enabled bodies plus the star background and uploads them
-    // Desktop: Decodes on decode threads while drawing a progress screen
-    // Web: Synchronous (the browser shell shows its own download progress)
-    // Returns false if the window was closed during loading
+#ifdef __EMSCRIPTEN__
+    // Draw one startup frame. Returns true after presenting the last loading frame
+    bool draw_web_loading_frame();
+#else
+    // Draw loading frames until all texture jobs finish or the window is closed
     bool load_resources_with_progress();
+#endif
 
     void register_catalog_textures();
 

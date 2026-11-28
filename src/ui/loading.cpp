@@ -10,6 +10,7 @@
 #include <raylib.h>
 #include <string>
 #include <system_error>
+#include <utility>
 #include <vector>
 
 #include "planet_visual.hpp"
@@ -76,7 +77,6 @@ namespace {
         return jobs;
     }
 
-#ifndef __EMSCRIPTEN__
     void draw_centered_text(const Font& font, const str& text, const float y, const float size, const Color color) {
         const Vector2 extent = MeasureTextEx(font, text.c_str(), size, 1.0f);
         DrawTextEx(font, text.c_str(), {(static_cast<float>(GetScreenWidth()) - extent.x) * 0.5f, y}, size, 1.0f, color);
@@ -116,94 +116,98 @@ namespace {
         draw_centered_text(font, "Loading textures... " + std::to_string(percent) + " %", center_y + 30.0f, 18.0f, {200, 200, 200, 255});
         draw_centered_text(font, last_loaded, center_y + 54.0f, 14.0f, {120, 120, 120, 255});
     }
-#endif
-}
 
-bool ui_helpers::load_resources_with_progress() {
-    std::vector<LoadJob> jobs = make_load_jobs();
+    struct StartupLoader {
+        std::vector<LoadJob> jobs = make_load_jobs();
+        Font font{};
+        bool own_font = false;
+        std::size_t next_to_start = 0;
+        std::size_t in_flight = 0;
+        std::size_t finished = 0;
+        std::uintmax_t total_bytes = 0;
+        std::uintmax_t finished_bytes = 0;
+        str last_loaded = "Preparing";
+
+        StartupLoader() {
+            for (const LoadJob& job : jobs) total_bytes += job.bytes;
+
+            // Load at the DPI-scaled pixel size and draw at the logical size, otherwise text is blurry on Retina displays
+            const float dpi_scale = std::max(1.0f, GetWindowScaleDPI().y);
+            font = LoadFontEx("resources/JetBrainsMono-Regular.ttf", static_cast<int>(std::lround(28.0f * dpi_scale)), nullptr, 0);
+            own_font = font.texture.id != 0;
+            if (own_font) {
+                SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
+            } else {
+                font = GetFontDefault();
+            }
+        }
+
+        bool draw_next_frame() {
+#ifdef __EMSCRIPTEN__
+            constexpr std::size_t MAX_IN_FLIGHT = 1;
+#else
+            constexpr std::size_t MAX_IN_FLIGHT = 3;
+#endif
+
+            while (in_flight < MAX_IN_FLIGHT && next_to_start < jobs.size()) {
+                LoadJob& job = jobs[next_to_start++];
+                // launch::async: A deferred task would only run at get(), on the renderer thread
+                job.decoded = std::async(std::launch::async, [path = job.path] { return LoadImage(path.c_str()); });
+                in_flight++;
+            }
+
+            // Upload at most one finished image per frame: An 8k upload + mipmaps takes a noticeable moment
+            for (LoadJob& job : jobs) {
+                if (job.done || !job.decoded.valid()) continue;
+                if (job.decoded.wait_for(std::chrono::seconds(0)) != std::future_status::ready) continue;
+
+                const Image image = job.decoded.get();
+                job.upload(image); // Failed decode (empty image) logs inside and leaves the body untextured
+                UnloadImage(image); // The GPU has its own copy now
+
+                job.done = true;
+                in_flight--;
+                finished++;
+                finished_bytes += job.bytes;
+                last_loaded = std::filesystem::path(job.path).filename().string();
+                break;
+            }
+
+            const float progress = static_cast<float>(
+                static_cast<double>(finished_bytes) / static_cast<double>(std::max<std::uintmax_t>(total_bytes, 1))
+            );
+
+            BeginDrawing(); // EndDrawing() polls events: The window stays responsive and closable
+            draw_loading_frame(font, progress, last_loaded);
+            EndDrawing();
+
+            return finished == jobs.size();
+        }
+
+        ~StartupLoader() {
+            for (LoadJob& job : jobs) {
+                if (job.decoded.valid()) UnloadImage(job.decoded.get());
+            }
+            if (own_font) UnloadFont(font);
+        }
+    };
+}
 
 #ifdef __EMSCRIPTEN__
-    // The browser shell already shows download progress, and a blocking loop can't present frames here
-    for (LoadJob& job : jobs) {
-        Image image = LoadImage(job.path.c_str());
-        job.upload(image);
-        UnloadImage(image);
-    }
-    return true;
-#else
-    std::uintmax_t total_bytes = 0;
-    for (const LoadJob& job : jobs) total_bytes += job.bytes;
-
-    // Load at the DPI-scaled pixel size and draw at the logical size, otherwise text is blurry on Retina displays
-    const float dpi_scale = std::max(1.0f, GetWindowScaleDPI().y);
-    Font font = LoadFontEx("resources/JetBrainsMono-Regular.ttf", static_cast<int>(std::lround(28.0f * dpi_scale)), nullptr, 0);
-    const bool own_font = font.texture.id != 0;
-    if (own_font) {
-        SetTextureFilter(font.texture, TEXTURE_FILTER_BILINEAR);
-    } else {
-        font = GetFontDefault();
-    }
-
-    // Each 8k texture decodes to ~100 MB of RGB; cap parallel decodes to bound peak memory
-    std::size_t next_to_start = 0;
-    std::size_t in_flight = 0;
-    std::size_t finished = 0;
-    std::uintmax_t finished_bytes = 0;
-    str last_loaded = "Preparing";
-
-    bool completed = true;
-
-    while (finished < jobs.size()) {
-        constexpr std::size_t MAX_IN_FLIGHT = 3;
-
-        if (WindowShouldClose()) {
-            completed = false;
-            break;
-        }
-
-        while (in_flight < MAX_IN_FLIGHT && next_to_start < jobs.size()) {
-            LoadJob& job = jobs[next_to_start++];
-            // launch::async: a deferred task would only run at get(), on the renderer thread
-            job.decoded = std::async(std::launch::async, [path = job.path] { return LoadImage(path.c_str()); });
-            in_flight++;
-        }
-
-        // Upload at most one finished image per frame: An 8k upload + mipmaps takes a noticeable moment
-        for (LoadJob& job : jobs) {
-            if (job.done || !job.decoded.valid()) continue;
-            if (job.decoded.wait_for(std::chrono::seconds(0)) != std::future_status::ready) continue;
-
-            Image image = job.decoded.get();
-            job.upload(image); // failed decode (empty image) logs inside and leaves the body untextured
-            UnloadImage(image); // the GPU has its own copy now
-
-            job.done = true;
-            in_flight--;
-            finished++;
-            finished_bytes += job.bytes;
-            last_loaded = std::filesystem::path(job.path).filename().string();
-            break;
-        }
-
-        const float progress = static_cast<float>(
-            static_cast<double>(finished_bytes) / static_cast<double>(std::max<std::uintmax_t>(total_bytes, 1))
-        );
-
-        BeginDrawing(); // EndDrawing() polls events: the window stays responsive and closable
-        draw_loading_frame(font, progress, last_loaded);
-        EndDrawing();
-    }
-
-    // Closed early: wait for running decodes (get() blocks) and free their images; already uploaded
-    // resources are released by the regular unload functions
-    for (LoadJob& job : jobs) {
-        if (job.decoded.valid()) UnloadImage(job.decoded.get());
-    }
-
-    if (own_font) UnloadFont(font);
-    return completed;
-#endif
+bool ui_helpers::draw_web_loading_frame() {
+    static std::optional<StartupLoader> loader{std::in_place};
+    if (loader && loader->draw_next_frame()) loader.reset();
+    return !loader.has_value();
 }
+#else
+bool ui_helpers::load_resources_with_progress() {
+    StartupLoader loader;
+    while (!WindowShouldClose()) {
+        if (loader.draw_next_frame()) return true;
+    }
+    return false;
+}
+#endif
 
 void ui_helpers::register_catalog_textures() {
     for (std::size_t i = 0; i < NUM_CATALOG_BODIES; i++) {
@@ -229,11 +233,10 @@ std::optional<std::size_t> ui_helpers::register_custom_texture_file(const str& p
     ui_config::body_textures.push_back(PlanetVisual{.texture_path = path}); // Placeholder: Drawn untextured until uploaded
 
 #ifdef __EMSCRIPTEN__
-    // Web: Synchronous, like the startup loader (thread pool is sized for the simulation thread)
+    // Web: Synchronous (thread pool is sized for the simulation thread)
     Image image = decode_texture(path);
     ui_config::body_textures[id].upload_planet_visual(image);
     UnloadImage(image);
-    ui_config::body_textures[id].failed = !ui_config::body_textures[id].loaded;
 #else
     // launch::async: Deferred would decode on the renderer thread at get()
     pending_textures.push_back({id, std::async(std::launch::async, decode_texture, path)});
@@ -250,7 +253,6 @@ void ui_helpers::poll_texture_uploads() {
         const Image image = it->decoded.get();
         PlanetVisual& visual = ui_config::body_textures[it->id];
         visual.upload_planet_visual(image); // Empty image: logs and stays unloaded
-        visual.failed = !visual.loaded;
         UnloadImage(image);
 
         pending_textures.erase(it);

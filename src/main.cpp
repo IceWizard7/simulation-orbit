@@ -16,6 +16,25 @@
 #include "simulation.hpp"
 #include "ui.hpp"
 
+namespace {
+    std::jthread start_simulation_thread() {
+        config::timer.resume();
+        simulation::publish_snapshot();
+        return std::jthread(simulation::simulate_cpu);
+    }
+
+#ifdef __EMSCRIPTEN__
+    void web_frame() {
+        static std::jthread cpu_thread;
+        if (cpu_thread.joinable()) {
+            ui_helpers::UpdateDrawFrame();
+        } else if (ui_helpers::draw_web_loading_frame()) {
+            cpu_thread = start_simulation_thread();
+        }
+    }
+#endif
+}
+
 int main(const int argc, char* argv[]) {
     const int err = runtime_config::parse_cli_args(argc, argv, simulation::celestial_bodies);
     if (err != 0) return err;
@@ -87,55 +106,38 @@ int main(const int argc, char* argv[]) {
     // Keep global directional keyboard (ImGuiConfigFlags_NavEnableKeyboard) navigation disabled (causes weird behavior)
     // (ex. ImGui still wants keyboard & mice inputs for no reason)
     // Relevant tab selection (ex. between input fields) still works without this config flag.
-    // We do sacrifice some functionality (ex. arrow keys in ImGui::Combo), but that's the better trade for now.
+    // We do sacrifice some functionality (ex. arrow keys in ImGui::Combo), but that's the better trade for now
 
-    // Loading begin
-    // Desktop: progress screen while textures decode in parallel; false if the window was closed meanwhile
-    const bool resources_loaded = ui_helpers::load_resources_with_progress();
-
+    // Loading
     const ImGuiIO& io = ImGui::GetIO();
-
     config::imgui_ui_font = io.Fonts->AddFontFromFileTTF(
         "resources/JetBrainsMono-Regular.ttf",
         16.0f
     );
-
     config::imgui_ui_font_small = io.Fonts->AddFontFromFileTTF(
         "resources/JetBrainsMono-Regular.ttf",
         11.0f
     );
 
-    // Loading done
-
-    // Window closed during loading: Skip the run, but still unload what was loaded and report the (step 0) final state
-    if (resources_loaded) {
-        config::timer.resume();
-
-        simulation::publish_snapshot();
-        std::jthread cpu_thread(simulation::simulate_cpu);
-
 #ifdef __EMSCRIPTEN__
-        emscripten_set_main_loop(ui_helpers::UpdateDrawFrame, 0, 1);
+    emscripten_set_main_loop(web_frame, 0, 1);
 #else
-
+    if (ui_helpers::load_resources_with_progress()) {
+        auto cpu_thread = start_simulation_thread();
         while (!WindowShouldClose()) {
             ui_helpers::UpdateDrawFrame();
         }
-#endif
 
         cpu_thread.request_stop();
         config::timer.pause();
         cpu_thread.join();
     }
+#endif
 
-    // Unloading begin
-
+    // Unloading
     ui_helpers::discard_pending_textures(); // Waits for running decodes and frees their never-uploaded images
     for (PlanetVisual& visual : ui_config::body_textures) visual.unload_planet_visual();
-
     ui_helpers::unload_star_background();
-
-    // Unloading done
 
     ImPlot::DestroyContext();
     rlImGuiShutdown();

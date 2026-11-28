@@ -80,7 +80,9 @@ void PlanetVisual::upload_planet_visual(const Image& image) {
     texture = image.data != nullptr ? LoadTextureFromImage(image) : Texture2D{};
 
     if (texture.id == 0 || model.materials == nullptr) {
+        failed = true;
         TraceLog(LOG_ERROR, "Could not load planet texture: %s", texture_path->c_str());
+        if (texture.id != 0) UnloadTexture(texture);
         UnloadModel(model);
         model = {};
         texture = {};
@@ -92,6 +94,7 @@ void PlanetVisual::upload_planet_visual(const Image& image) {
     SetTextureWrap(texture, TEXTURE_WRAP_CLAMP); // clamp pixels [0, 1] instead of repeating the opposite side
     SetMaterialTexture(&model.materials[0], MATERIAL_MAP_ALBEDO, texture);
 
+    failed = false;
     loaded = true;
 }
 

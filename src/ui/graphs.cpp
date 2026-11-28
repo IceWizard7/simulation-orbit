@@ -476,8 +476,14 @@ namespace {
 
         std::vector<double> ticks;
 
-        for (double k = std::ceil(visible.Min / step); k * step <= visible.Max; k += 1.0) {
-            ticks.push_back(k * step + 0.0); // + 0.0 turns -0.0 into 0.0
+        // Above 2^53, double can no longer represent every possible consecutive number
+        constexpr double MAX_EXACT_UNIT = 0x1p53;
+        const double max_abs = std::max(std::abs(visible.Min), std::abs(visible.Max));
+
+        if (step > 0.0 && std::isfinite(step) && max_abs / step < MAX_EXACT_UNIT) {
+            for (double k = std::ceil(visible.Min / step); k * step <= visible.Max; k += 1.0) {
+                ticks.push_back(k * step + 0.0); // Normalize -0.0 for the label
+            }
         }
 
         // The format must be set first: SetupAxisTicks formats its labels immediately
