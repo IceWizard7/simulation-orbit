@@ -90,8 +90,10 @@ int main(const int argc, char* argv[]) {
     MaximizeWindow();
 #endif
 
-    SetExitKey(KEY_NULL); // So ESC doesn't close the window, but rather dismisses other UI actions (ImGui)
-    SetTargetFPS(config::TARGET_FPS);
+    SetExitKey(KEY_NULL); // So Escape doesn't close the window, but rather dismisses other ImGui UI actions
+#ifndef __EMSCRIPTEN__
+    SetTargetFPS(config::TARGET_FPS); // Web: requestAnimationFrame paces frames; Raylib's wait would busy-spin the browser thread
+#endif
 
     rlImGuiSetup(true);
     ImPlot::CreateContext();
