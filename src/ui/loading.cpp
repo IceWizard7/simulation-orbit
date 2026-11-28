@@ -113,7 +113,7 @@ namespace {
         }
 
         const int percent = static_cast<int>(std::lround(std::clamp(progress, 0.0f, 1.0f) * 100.0f));
-        draw_centered_text(font, "Loading textures... " + std::to_string(percent) + " %", center_y + 30.0f, 18.0f, {200, 200, 200, 255});
+        draw_centered_text(font, "Decoding textures... " + std::to_string(percent) + " %", center_y + 30.0f, 18.0f, {200, 200, 200, 255});
         draw_centered_text(font, last_loaded, center_y + 54.0f, 14.0f, {120, 120, 120, 255});
     }
 
