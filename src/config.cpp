@@ -136,7 +136,7 @@ runtime_config::ParseRes<int> runtime_config::parse_int(const str& argument_name
         val < std::numeric_limits<int>::min() || val > std::numeric_limits<int>::max()) {
         std::cerr << std::format("Error: \"{}\" is an invalid value for {}.\n", input, argument_name);
         return {0, 1};
-        }
+    }
 
     return {static_cast<int>(val), 0};
 }

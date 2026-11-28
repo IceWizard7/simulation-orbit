@@ -55,7 +55,7 @@ namespace {
 
         bool uses_reference() const {
             return selection_use == QuantitySelectionUse::optional_reference
-                || selection_use == QuantitySelectionUse::required_reference;
+                   || selection_use == QuantitySelectionUse::required_reference;
         }
     };
 

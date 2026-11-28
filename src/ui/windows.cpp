@@ -923,8 +923,8 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
     auto step_rate = [](const double years_per_second) -> str {
         const double steps_per_second = years_per_second * config::SECONDS_PER_YEAR / runtime_config::time_step;
         return steps_per_second < 10.0
-               ? std::format("{:.1f} steps/s", steps_per_second)
-               : std::format("{} steps/s", group_thousands(static_cast<std::uint64_t>(std::llround(steps_per_second))));
+                   ? std::format("{:.1f} steps/s", steps_per_second)
+                   : std::format("{} steps/s", group_thousands(static_cast<std::uint64_t>(std::llround(steps_per_second))));
     };
 
     const bool running = config::timer.is_running();
@@ -1232,9 +1232,11 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
                 // Whole steps are enough; slow speeds (below 10 steps/s) keep one decimal
                 const double steps_per_second = target_simulation_speed * config::SECONDS_PER_YEAR / runtime_config::time_step;
-                const str steps_text = target_simulation_speed == -1.0 ? "Unlimited"
-                                       : steps_per_second < 10.0 ? std::format("{:.1f}", steps_per_second)
-                                       : group_thousands(static_cast<std::uint64_t>(std::llround(steps_per_second)));
+                const str steps_text = target_simulation_speed == -1.0
+                                           ? "Unlimited"
+                                           : steps_per_second < 10.0
+                                           ? std::format("{:.1f}", steps_per_second)
+                                           : group_thousands(static_cast<std::uint64_t>(std::llround(steps_per_second)));
 
                 ImGui::TextDisabled("Steps/s: %s", steps_text.c_str());
 
@@ -1288,8 +1290,7 @@ void ui_helpers::draw_toolbar(const std::shared_ptr<const ui_data::RenderSnapsho
 
 #ifdef __EMSCRIPTEN__
                 // Opened by the browser in the touch/mouse-up handler (needs a user gesture), not by this click
-                ImGui::MenuItem("Import state (JSON)...");
-                {
+                ImGui::MenuItem("Import state (JSON)..."); {
                     const bool armed = ImGui::IsItemHovered() || ImGui::IsItemActive();
                     arm_state_file_picker(armed);
                 }

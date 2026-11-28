@@ -171,7 +171,7 @@ namespace simulation {
 
     Vec3 calculate_expected_barycenter(const Vec3& baseline_barycenter, const Vec3& initial_linear_momentum,
                                        double total_mass, step_t baseline_steps_simulated);
-
+    
     void reset_diagnostics_baseline();
 
     // Graphs

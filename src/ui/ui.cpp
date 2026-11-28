@@ -12,6 +12,7 @@
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten.h>
+#include <imgui_internal.h>
 #endif
 
 
@@ -19,17 +20,84 @@
 
 namespace {
 #ifdef __EMSCRIPTEN__
+    struct TouchScroll {
+        ImGuiID window_id = 0;
+        ImVec2 press{};
+        float start_scroll_y = 0.0f;
+        bool dragging = false;
+    };
+
+    TouchScroll touch_scroll;
+
+    // After submitting the widgets, we know which control accepted the press
+    void begin_touch_scroll() {
+        ImGuiContext& g = *ImGui::GetCurrentContext();
+        ImGuiWindow* window = g.HoveredWindow;
+        if (!g.IO.MouseClicked[ImGuiMouseButton_Left] || !window || !window->Active || window->ScrollMax.y <= 0.0f) return;
+        const ImVec2 press = g.IO.MouseClickedPos[ImGuiMouseButton_Left];
+        if (!window->InnerClipRect.Contains(press) || !ImGui::IsWindowContentHoverable(window) ||
+            (window->Flags & ImGuiWindowFlags_NoScrollWithMouse))
+            return;
+
+        if (g.ActiveId == 0) {
+            if (g.HoveredId != 0) return;
+            // A press in empty list space would otherwise start dragging the whole window at EndFrame
+            ImGui::FocusWindow(window);
+            ImGui::SetActiveID(window->ID, window);
+        } else if (g.ActiveIdWindow != window || g.ActiveId != g.NavId || g.ActiveIdMouseButton != ImGuiMouseButton_Left) {
+            // Rows take both button and navigation focus. Scrollbars and resize handles leave navigation focus alone
+            // and text inputs and sliders handle the press without ButtonBehavior
+            return;
+        }
+        touch_scroll = {window->ID, press, window->Scroll.y};
+    }
+
+    // Before submitting the widgets, cancel a swipe's release before a Selectable can close its popup
+    void update_touch_scroll(const bool canceled) {
+        if (touch_scroll.window_id == 0) return;
+        ImGuiContext& g = *ImGui::GetCurrentContext();
+        ImGuiWindow* window = ImGui::FindWindowByID(touch_scroll.window_id);
+        if (!window || !window->WasActive || g.IO.MouseClicked[ImGuiMouseButton_Left]) {
+            touch_scroll = {};
+            return;
+        }
+
+        constexpr float SWIPE_THRESHOLD = 8.0f; // Logical pixels
+        const float dy = g.IO.MousePos.y - touch_scroll.press.y;
+        if (std::abs(dy) >= SWIPE_THRESHOLD && std::abs(dy) > std::abs(g.IO.MousePos.x - touch_scroll.press.x)) {
+            touch_scroll.dragging = true;
+        }
+        if (touch_scroll.dragging || canceled) {
+            if (g.ActiveIdWindow == window) ImGui::ClearActiveID();
+            if (g.IO.MouseDown[ImGuiMouseButton_Left]) {
+                ImGui::SetKeyOwner(ImGuiKey_MouseLeft, window->ID, ImGuiInputFlags_LockUntilRelease);
+            } else {
+                // Consume this release while leaving the very next press available to another control
+                ImGui::SetKeyOwner(ImGuiKey_MouseLeft, ImGuiKeyOwner_NoOwner, ImGuiInputFlags_LockThisFrame);
+            }
+            if (!canceled) ImGui::SetScrollY(window, std::clamp(touch_scroll.start_scroll_y - dy, 0.0f, window->ScrollMax.y));
+        }
+        if (canceled || !g.IO.MouseDown[ImGuiMouseButton_Left]) {
+            if (g.ActiveId == window->ID) ImGui::ClearActiveID();
+            touch_scroll = {};
+        }
+    }
+
     // On-screen keyboard bridge (web/shell.html): Pull typed text/keys from the hidden <input> into ImGui
     void forward_on_screen_keyboard() {
         ImGuiIO& io = ImGui::GetIO();
 
         int c;
+        // @formatter:off
         while ((c = EM_ASM_INT({return Module.pendingChars.length ? Module.pendingChars.shift() : 0; })) != 0) {
+            // @formatter:on
             io.AddInputCharacter(static_cast<unsigned int>(c));
         }
 
         int k;
+        // @formatter:off
         while ((k = EM_ASM_INT({return Module.pendingKeys.length ? Module.pendingKeys.shift() : 0; })) != 0) {
+            // @formatter:on
             const ImGuiKey key = k == 1 ? ImGuiKey_Backspace : k == 2 ? ImGuiKey_Enter : ImGuiKey_Escape;
             io.AddKeyEvent(key, true); // ImGui's event queue trickles press/release over frames
             io.AddKeyEvent(key, false);
@@ -38,8 +106,10 @@ namespace {
         // Publish for the touchend handler; hide the keyboard when the field closes
         static bool was_wanted = false;
         const bool wanted = io.WantTextInput;
+        // @formatter:off
         EM_ASM({Module.wantTextInput = !!$0; }, wanted);
         if (was_wanted && !wanted) EM_ASM({document.getElementById("ime").blur(); });
+        // @formatter:on
         was_wanted = wanted;
     }
 #endif
@@ -134,6 +204,16 @@ void ui_helpers::UpdateDrawFrame() {
     // Finished background decodes -> GPU (At most 1 per frame; needs the GL context, before BeginDrawing)
     poll_texture_uploads();
 
+    BeginDrawing();
+    rlImGuiBegin(); // Resolve capture at the current pointer position before handling scene gestures.
+    const bool touch = touch_pointer();
+#ifdef __EMSCRIPTEN__
+    // @formatter:off
+    const bool allow_touch_scroll = touch && IsWindowFocused() && !EM_ASM_INT({ return Module.touchScrollCanceled ? 1 : 0; });
+    // @formatter:on
+    update_touch_scroll(!allow_touch_scroll || !ImGui::IsMousePosValid());
+#endif
+
     // Sync indices of bodies
     sync_body_identities(snap);
 
@@ -169,7 +249,6 @@ void ui_helpers::UpdateDrawFrame() {
         config::WINDOW_MARGIN <= my && my <= static_cast<float>(GetScreenHeight()) - config::WINDOW_MARGIN;
 
     // Scene create menu (2D): right-click with a mouse, double tap with a finger
-    const bool touch = touch_pointer();
     const bool double_tapped = touch && !ui_config::view_3d && detect_double_tap();
     const bool open_scene_menu = touch ? double_tapped : IsMouseButtonPressed(MOUSE_BUTTON_RIGHT);
 
@@ -380,9 +459,6 @@ void ui_helpers::UpdateDrawFrame() {
         }
     }
 
-    BeginDrawing();
-    rlImGuiBegin();
-
     ClearBackground(ui_config::view_3d ? BLACK : WHITE);
 
     if (ui_config::view_3d) {
@@ -401,6 +477,9 @@ void ui_helpers::UpdateDrawFrame() {
     draw_create_body_window(snap, ui_config::view_3d);
     draw_scene_context_menu(snap, ui_config::view_3d);
 
+#ifdef __EMSCRIPTEN__
+    if (allow_touch_scroll&& GetTouchPointCount()== 1) begin_touch_scroll();
+#endif
     rlImGuiEnd();
 
     // Reads this frame's back buffer, so: After the UI is drawn, before the buffer swap
